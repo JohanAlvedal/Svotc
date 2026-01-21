@@ -60,7 +60,7 @@ class SVOTCSensorEntity(SensorEntity):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self.entity_description = description
-        self._attr_unique_id = f"{DOMAIN}_{description.key}"
+        self._attr_unique_id = f"{DOMAIN}_sensor"
         self._attr_suggested_object_id = "svotc"
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
         self._attr_state_class = SensorStateClass.MEASUREMENT
