@@ -32,7 +32,8 @@ class SVOTCModeSelect(SelectEntity, RestoreEntity):
     def __init__(self, coordinator: SVOTCCoordinator, entry: ConfigEntry) -> None:
         """Initialize the mode select."""
         self.coordinator = coordinator
-        self._attr_unique_id = f"{entry.entry_id}_mode"
+        self._attr_unique_id = f"{DOMAIN}_mode"
+        self._attr_suggested_object_id = "svotc_mode"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="SVOTC",

@@ -181,6 +181,7 @@ Exact attributes may expand slightly over time, but the core set is kept minimal
 - SVOTC is designed to be **predictable, stable, and easy to understand**.
 - It does not require any helpers.
 - It can run without price and/or weather data and will safely fall back to bypass behavior while reporting degraded states.
+- If you already have suffixed entity IDs (for example, `sensor.svotc_1234`), remove and re-add the integration to get the deterministic entity IDs.
 
 ---
 
