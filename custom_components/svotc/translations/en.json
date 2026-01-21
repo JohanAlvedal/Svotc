@@ -1,0 +1,74 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SVOTC setup",
+        "description": "Select optional entities or leave blank for auto-detect.",
+        "data": {
+          "indoor_temperature": "Indoor temperature sensor",
+          "outdoor_temperature": "Outdoor temperature sensor",
+          "price_entity": "Price sensor",
+          "weather_entity": "Weather entity"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SVOTC options",
+        "description": "Update optional entity selections or leave blank for auto-detect.",
+        "data": {
+          "indoor_temperature": "Indoor temperature sensor",
+          "outdoor_temperature": "Outdoor temperature sensor",
+          "price_entity": "Price sensor",
+          "weather_entity": "Weather entity"
+        }
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "svotc": {
+        "brake_aggressiveness": {
+          "name": "Brake aggressiveness"
+        },
+        "heat_aggressiveness": {
+          "name": "Heat aggressiveness"
+        },
+        "comfort_temperature": {
+          "name": "Comfort temperature"
+        },
+        "vacation_temperature": {
+          "name": "Vacation temperature"
+        }
+      }
+    },
+    "select": {
+      "svotc": {
+        "mode": {
+          "name": "Mode"
+        }
+      }
+    },
+    "sensor": {
+      "svotc": {
+        "virtual_outdoor_temperature": {
+          "name": "Virtual outdoor temperature"
+        },
+        "offset": {
+          "name": "Offset"
+        },
+        "dynamic_target_temperature": {
+          "name": "Dynamic target temperature"
+        },
+        "status": {
+          "name": "Status"
+        },
+        "reason_code": {
+          "name": "Reason code"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+"""Constants for the SVOTC integration."""
+
+DOMAIN = "svotc"
+
+CONF_INDOOR_TEMPERATURE = "indoor_temperature"
+CONF_OUTDOOR_TEMPERATURE = "outdoor_temperature"
+CONF_PRICE_ENTITY = "price_entity"
+CONF_WEATHER_ENTITY = "weather_entity"
+
+DEFAULT_BRAKE_AGGRESSIVENESS = 0
+DEFAULT_HEAT_AGGRESSIVENESS = 0
+DEFAULT_COMFORT_TEMPERATURE = 21.0
+DEFAULT_VACATION_TEMPERATURE = 17.0
+DEFAULT_MODE = "Off"
+
+MODE_OPTIONS = ["Off", "Smart", "Vacation"]
