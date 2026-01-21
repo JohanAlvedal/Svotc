@@ -31,30 +31,30 @@
     "number": {
       "svotc": {
         "brake_aggressiveness": {
-          "name": "Brake aggressiveness"
+          "name": "SVOTC Brake"
         },
         "heat_aggressiveness": {
-          "name": "Heat aggressiveness"
+          "name": "SVOTC Heat"
         },
         "comfort_temperature": {
-          "name": "Comfort temperature"
+          "name": "SVOTC Comfort"
         },
         "vacation_temperature": {
-          "name": "Vacation temperature"
+          "name": "SVOTC Vacation"
         }
       }
     },
     "select": {
       "svotc": {
         "mode": {
-          "name": "Mode"
+          "name": "SVOTC Mode"
         }
       }
     },
     "sensor": {
       "svotc": {
         "virtual_outdoor_temperature": {
-          "name": "Virtual outdoor temperature"
+          "name": "SVOTC Temp"
         },
         "offset": {
           "name": "Offset"
