@@ -82,6 +82,12 @@ class SVOTCNumberEntity(NumberEntity, RestoreEntity):
     """Representation of a SVOTC number entity."""
 
     _attr_mode = NumberMode.BOX
+    _attr_suggested_object_ids = {
+        "brake_aggressiveness": "svotc_brake",
+        "heat_aggressiveness": "svotc_heat",
+        "comfort_temperature": "svotc_comfort",
+        "vacation_temperature": "svotc_vacation",
+    }
 
     def __init__(
         self,
@@ -92,7 +98,10 @@ class SVOTCNumberEntity(NumberEntity, RestoreEntity):
         """Initialize the SVOTC number entity."""
         self.entity_description = description
         self.coordinator = coordinator
-        self._attr_unique_id = f"{entry.entry_id}_{description.key}"
+        self._attr_unique_id = f"{DOMAIN}_{description.key}"
+        self._attr_suggested_object_id = self._attr_suggested_object_ids[
+            description.key
+        ]
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="SVOTC",

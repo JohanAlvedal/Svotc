@@ -53,20 +53,8 @@
     },
     "sensor": {
       "svotc": {
-        "virtual_outdoor_temperature": {
-          "name": "Virtual outdoor temperature"
-        },
-        "offset": {
-          "name": "Offset"
-        },
-        "dynamic_target_temperature": {
-          "name": "Dynamic target temperature"
-        },
-        "status": {
-          "name": "Status"
-        },
-        "reason_code": {
-          "name": "Reason code"
+        "svotc": {
+          "name": "SVOTC"
         }
       }
     }
