@@ -34,6 +34,14 @@ SENSOR_DESCRIPTIONS: tuple[SVOTCSensorDescription, ...] = (
     ),
 )
 
+SENSOR_OBJECT_IDS: dict[str, str] = {
+    "virtual_outdoor_temperature": "temperature",
+}
+
+SENSOR_UNIQUE_ID_KEYS: dict[str, str] = {
+    "virtual_outdoor_temperature": f"{DOMAIN}_sensor",
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -60,8 +68,8 @@ class SVOTCSensorEntity(SensorEntity):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self.entity_description = description
-        self._attr_unique_id = f"{DOMAIN}_sensor"
-        self._attr_suggested_object_id = "svotc"
+        self._attr_unique_id = f"{entry.entry_id}_{description.key}"
+        self._attr_suggested_object_id = SENSOR_OBJECT_IDS[description.key]
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS

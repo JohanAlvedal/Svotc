@@ -12,6 +12,14 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .const import DEFAULT_MODE, DOMAIN, MODE_OPTIONS
 from .coordinator import SVOTCCoordinator
 
+SELECT_OBJECT_IDS: dict[str, str] = {
+    "mode": "mode",
+}
+
+SELECT_UNIQUE_ID_KEYS: dict[str, str] = {
+    "mode": f"{DOMAIN}_mode",
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -32,8 +40,8 @@ class SVOTCModeSelect(SelectEntity, RestoreEntity):
     def __init__(self, coordinator: SVOTCCoordinator, entry: ConfigEntry) -> None:
         """Initialize the mode select."""
         self.coordinator = coordinator
-        self._attr_unique_id = f"{DOMAIN}_mode"
-        self._attr_suggested_object_id = "mode"
+        self._attr_unique_id = f"{entry.entry_id}_mode"
+        self._attr_suggested_object_id = SELECT_OBJECT_IDS["mode"]
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="SVOTC",
