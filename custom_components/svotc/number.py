@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from homeassistant.components.number import NumberEntity, NumberEntityDescription, NumberMode
+from homeassistant.components.number import (
+    NumberEntity,
+    NumberEntityDescription,
+    NumberMode,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
@@ -43,7 +47,7 @@ NUMBER_DESCRIPTIONS: tuple[SVOTCNumberDescription, ...] = (
         translation_key="heat_aggressiveness",
         default=DEFAULT_HEAT_AGGRESSIVENESS,
         native_min_value=0,
-        native_max_value=5,
+        native_max_value=10,
         native_step=1,
     ),
     SVOTCNumberDescription(
@@ -64,13 +68,16 @@ NUMBER_DESCRIPTIONS: tuple[SVOTCNumberDescription, ...] = (
     ),
 )
 
+# Keep entity_id readable and stable: number.svotc_<key>
 NUMBER_OBJECT_IDS: dict[str, str] = {
-    "brake_aggressiveness": "brake",
-    "heat_aggressiveness": "heat",
-    "comfort_temperature": "comfort",
-    "vacation_temperature": "vacation",
+    "brake_aggressiveness": f"{DOMAIN}_brake_aggressiveness",
+    "heat_aggressiveness": f"{DOMAIN}_heat_aggressiveness",
+    "comfort_temperature": f"{DOMAIN}_comfort_temperature",
+    "vacation_temperature": f"{DOMAIN}_vacation_temperature",
 }
 
+# Legacy unique_ids used before switching to per-entry unique IDs.
+# Used by entity_id migration to find and migrate older entities.
 NUMBER_UNIQUE_ID_KEYS: dict[str, str] = {
     "brake_aggressiveness": f"{DOMAIN}_brake",
     "heat_aggressiveness": f"{DOMAIN}_heat",
@@ -106,8 +113,15 @@ class SVOTCNumberEntity(NumberEntity, RestoreEntity):
         """Initialize the SVOTC number entity."""
         self.entity_description = description
         self.coordinator = coordinator
+
+        # Unique per config entry + key (supports multiple entries safely)
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
-        self._attr_suggested_object_id = NUMBER_OBJECT_IDS[description.key]
+
+        # Desired entity_id: number.svotc_<key> (no entry_id in object_id)
+        self._attr_suggested_object_id = NUMBER_OBJECT_IDS.get(
+            description.key, f"{DOMAIN}_{description.key}"
+        )
+
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="SVOTC",
