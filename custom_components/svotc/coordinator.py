@@ -23,7 +23,7 @@ from .const import (
     CONF_WEATHER_ENTITY,
 )
 from .decision import DecisionInput, decide
-from .forecast import min_outdoor_next_6h
+from .forecast import min_outdoor_next_12h
 from .mapping import max_abs_offset
 from .prices import classify_price, extract_price_series
 from .ramp import max_delta_per_update, ramp_offset
@@ -108,10 +108,17 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         """Fetch data for SVOTC sensors."""
         now = dt_util.utcnow()
         entry_data = {**self.entry.data, **self.entry.options}
-        indoor_temp = self._read_temperature(entry_data.get(CONF_INDOOR_TEMPERATURE))
-        outdoor_temp = self._read_temperature(entry_data.get(CONF_OUTDOOR_TEMPERATURE))
-        price_state = self._read_state(entry_data.get(CONF_PRICE_ENTITY))
-        weather_state = self._read_state(entry_data.get(CONF_WEATHER_ENTITY))
+
+        indoor_entity_id = entry_data.get(CONF_INDOOR_TEMPERATURE)
+        outdoor_entity_id = entry_data.get(CONF_OUTDOOR_TEMPERATURE)
+        price_entity_id = entry_data.get(CONF_PRICE_ENTITY)
+        weather_entity_id = entry_data.get(CONF_WEATHER_ENTITY)
+
+        indoor_temp = self._read_temperature(indoor_entity_id)
+        outdoor_temp = self._read_temperature(outdoor_entity_id)
+        price_state = self._read_state(price_entity_id)
+        # weather_state is no longer used for forecasts; forecasts are retrieved via service API.
+        # weather_state = self._read_state(weather_entity_id)
 
         mode = self.values.get("mode", DEFAULT_MODE)
 
@@ -127,17 +134,20 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         current_price, price_series = extract_price_series(price_state, now)
         price_available = current_price is not None and len(price_series) > 0
         price_class = classify_price(current_price, price_series)
-        forecast_min = min_outdoor_next_6h(weather_state, now)
+
+        forecast_min = None
+        if weather_entity_id:
+            forecast_min = await min_outdoor_next_12h(self.hass, weather_entity_id, now)
         forecast_available = forecast_min is not None
 
         critical_missing = False
-        if entry_data.get(CONF_INDOOR_TEMPERATURE) and indoor_temp is None:
+        if indoor_entity_id and indoor_temp is None:
             critical_missing = True
-        if entry_data.get(CONF_OUTDOOR_TEMPERATURE) and outdoor_temp is None:
+        if outdoor_entity_id and outdoor_temp is None:
             critical_missing = True
-        if entry_data.get(CONF_PRICE_ENTITY) and not price_available:
+        if price_entity_id and not price_available:
             critical_missing = True
-        if entry_data.get(CONF_WEATHER_ENTITY) and not forecast_available:
+        if weather_entity_id and not forecast_available:
             critical_missing = True
 
         if not critical_missing:
@@ -167,9 +177,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 virtual_outdoor = outdoor_temp
             elif self._last_output is not None:
                 offset = float(self._last_output.get("offset", 0.0))
-                virtual_outdoor = self._last_output.get(
-                    "virtual_outdoor_temperature"
-                )
+                virtual_outdoor = self._last_output.get("virtual_outdoor_temperature")
             else:
                 offset = 0.0
                 virtual_outdoor = None
@@ -188,9 +196,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
 
         if in_grace and critical_missing:
             offset = 0.0
-            virtual_outdoor = (
-                outdoor_temp + offset if outdoor_temp is not None else None
-            )
+            virtual_outdoor = outdoor_temp + offset if outdoor_temp is not None else None
             result = {
                 "indoor_temperature": indoor_temp,
                 "outdoor_temperature": outdoor_temp,
@@ -228,9 +234,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
 
         max_delta = max_delta_per_update(max_abs_offset())
         offset = ramp_offset(self._last_offset, decision.target_offset, max_delta)
-        virtual_outdoor = (
-            outdoor_temp + offset if outdoor_temp is not None else None
-        )
+        virtual_outdoor = outdoor_temp + offset if outdoor_temp is not None else None
         if virtual_outdoor is not None:
             clamped_virtual = max(-25.0, min(25.0, virtual_outdoor))
             if clamped_virtual != virtual_outdoor:
