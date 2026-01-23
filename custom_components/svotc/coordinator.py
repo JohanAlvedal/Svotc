@@ -68,6 +68,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         self._last_price_state: str | None = None
         self._last_price_state_changed: datetime | None = None
         self._last_today_missing: bool | None = None
+        self._last_required_missing: bool | None = None
         self._tomorrow_issue_since: datetime | None = None
         self._tomorrow_issue_warned: bool = False
 
@@ -119,6 +120,19 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         if missing and self._last_today_missing is not True:
             _LOGGER.warning("Price data for today is missing or empty.")
         self._last_today_missing = missing
+
+    def _log_required_missing(
+        self, now: datetime, missing: bool, details: list[str]
+    ) -> None:
+        """Log transitions for missing required inputs."""
+        in_grace = now - self._start_time <= _GRACE_PERIOD
+        if in_grace:
+            self._last_required_missing = None
+            return
+        if missing and self._last_required_missing is not True:
+            detail_text = ", ".join(details) if details else "unknown"
+            _LOGGER.warning("Required inputs missing: %s.", detail_text)
+        self._last_required_missing = missing
 
     def _log_tomorrow_issue(self, now: datetime, issue: bool) -> None:
         """Log issues with tomorrow prices with throttling."""
@@ -212,12 +226,8 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             missing_inputs.append("outdoor_temperature")
         if today_missing:
             missing_inputs.append("price_today")
-        if current_price is None:
+        if current_price is None and not today_missing:
             missing_inputs.append("current_price")
-        if price_entity_tomorrow and not tomorrow_valid:
-            missing_inputs.append("price_tomorrow")
-        if weather_entity_id and not forecast_available:
-            missing_inputs.append("forecast")
 
         critical_missing = False
         if indoor_entity_id and indoor_temp is None:
@@ -229,6 +239,17 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         if weather_entity_id and not forecast_available:
             critical_missing = True
 
+        required_missing = False
+        if indoor_entity_id and indoor_temp is None:
+            required_missing = True
+        if outdoor_entity_id and outdoor_temp is None:
+            required_missing = True
+        if price_entity_today and (today_missing or current_price is None):
+            required_missing = True
+
+        required_missing_details = list(missing_inputs)
+        self._log_required_missing(now, required_missing, required_missing_details)
+
         if not critical_missing:
             self._last_complete_time = now
 
@@ -239,7 +260,9 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             else None
         )
 
-        if critical_missing and not in_grace and self._last_output is not None:
+        price_bypass = today_missing or current_price is None
+
+        if critical_missing and not in_grace and self._last_output is not None and not price_bypass:
             if missing_duration is not None and missing_duration <= _GLITCH_HOLD:
                 held = dict(self._last_output)
                 held["status"] = "Holding (sensor glitch)"
@@ -254,20 +277,19 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                     indoor_temp, outdoor_temp, price_available, forecast_available
                 )
             status = reason_code.replace("_", " ").title()
-            if outdoor_temp is not None:
-                offset = 0.0
-                virtual_outdoor = outdoor_temp
-            elif self._last_output is not None:
-                offset = float(self._last_output.get("offset", 0.0))
-                virtual_outdoor = self._last_output.get("virtual_outdoor_temperature")
-            else:
-                offset = 0.0
-                virtual_outdoor = None
+            last_offset = self._last_offset
+            offset = 0.0
+            virtual_outdoor = outdoor_temp if outdoor_temp is not None else None
             result = {
                 "indoor_temperature": indoor_temp,
                 "outdoor_temperature": outdoor_temp,
                 "virtual_outdoor_temperature": virtual_outdoor,
                 "offset": offset,
+                "requested_offset": 0.0,
+                "applied_offset": offset,
+                "ramp_limited": False,
+                "max_delta_per_step": max_delta_per_update(max_abs_offset()),
+                "last_applied_offset": last_offset,
                 "dynamic_target_temperature": dynamic_target,
                 "status": status,
                 "reason_code": reason_code,
@@ -277,6 +299,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 },
                 "prices_count_today": len(today_entries),
                 "prices_count_tomorrow": len(tomorrow_entries) if tomorrow_valid else 0,
+                "tomorrow_available": tomorrow_valid,
                 "prices_count_total": len(price_series),
                 "current_price": current_price,
                 "price_state": None,
@@ -291,6 +314,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         if in_grace and critical_missing:
             offset = 0.0
             virtual_outdoor = outdoor_temp + offset if outdoor_temp is not None else None
+            last_offset = self._last_offset
             if today_missing or current_price is None:
                 reason_code = "MISSING_PRICE"
             else:
@@ -302,6 +326,11 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "outdoor_temperature": outdoor_temp,
                 "virtual_outdoor_temperature": virtual_outdoor,
                 "offset": offset,
+                "requested_offset": 0.0,
+                "applied_offset": offset,
+                "ramp_limited": False,
+                "max_delta_per_step": max_delta_per_update(max_abs_offset()),
+                "last_applied_offset": last_offset,
                 "dynamic_target_temperature": dynamic_target,
                 "status": "Startup grace",
                 "reason_code": reason_code,
@@ -311,6 +340,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 },
                 "prices_count_today": len(today_entries),
                 "prices_count_tomorrow": len(tomorrow_entries) if tomorrow_valid else 0,
+                "tomorrow_available": tomorrow_valid,
                 "prices_count_total": len(price_series),
                 "current_price": current_price,
                 "price_state": None,
@@ -345,13 +375,18 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         )
 
         max_delta = max_delta_per_update(max_abs_offset())
-        offset = ramp_offset(self._last_offset, decision.target_offset, max_delta)
+        requested_offset = decision.target_offset
+        last_offset = self._last_offset
+        ramped_offset = ramp_offset(last_offset, requested_offset, max_delta)
+        ramp_limited = ramped_offset != requested_offset
+        offset = ramped_offset
         virtual_outdoor = outdoor_temp + offset if outdoor_temp is not None else None
         if virtual_outdoor is not None:
             clamped_virtual = max(-25.0, min(25.0, virtual_outdoor))
             if clamped_virtual != virtual_outdoor:
                 offset = clamped_virtual - outdoor_temp
                 virtual_outdoor = clamped_virtual
+                ramp_limited = True
 
         if decision.price_state is not None:
             if decision.price_state != self._last_price_state:
@@ -363,6 +398,11 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             "outdoor_temperature": outdoor_temp,
             "virtual_outdoor_temperature": virtual_outdoor,
             "offset": offset,
+            "requested_offset": requested_offset,
+            "applied_offset": offset,
+            "ramp_limited": ramp_limited,
+            "max_delta_per_step": max_delta,
+            "last_applied_offset": last_offset,
             "dynamic_target_temperature": dynamic_target,
             "status": decision.status,
             "reason_code": decision.reason_code,
@@ -372,6 +412,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             },
             "prices_count_today": len(today_entries),
             "prices_count_tomorrow": len(tomorrow_entries) if tomorrow_valid else 0,
+            "tomorrow_available": tomorrow_valid,
             "prices_count_total": len(price_series),
             "current_price": current_price,
             "price_state": decision.price_state,
