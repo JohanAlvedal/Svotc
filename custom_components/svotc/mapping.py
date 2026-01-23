@@ -8,7 +8,7 @@ HEAT_OFFSETS: list[float] = [0, -1, -2, -3, -4, -5]
 
 def _clamp_level(level: int) -> int:
     """Clamp aggressiveness to the supported range."""
-    return max(0, min(5, level))
+    return max(0, min(10, level))
 
 
 def brake_offset(level: int) -> float:
