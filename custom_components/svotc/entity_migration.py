@@ -3,81 +3,80 @@
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
-from .number import NUMBER_OBJECT_IDS, NUMBER_UNIQUE_ID_KEYS
-from .select import SELECT_OBJECT_IDS, SELECT_UNIQUE_ID_KEYS
-from .sensor import SENSOR_OBJECT_IDS, SENSOR_UNIQUE_ID_KEYS
+from .number import NUMBER_OBJECT_IDS
+from .select import SELECT_OBJECT_IDS
+from .sensor import SENSOR_OBJECT_IDS
 
-
-PLATFORM_OBJECT_IDS: dict[Platform, dict[str, str]] = {
-    Platform.NUMBER: NUMBER_OBJECT_IDS,
-    Platform.SELECT: SELECT_OBJECT_IDS,
-    Platform.SENSOR: SENSOR_OBJECT_IDS,
-}
-
-PLATFORM_UNIQUE_ID_KEYS: dict[Platform, dict[str, str]] = {
-    Platform.NUMBER: NUMBER_UNIQUE_ID_KEYS,
-    Platform.SELECT: SELECT_UNIQUE_ID_KEYS,
-    Platform.SENSOR: SENSOR_UNIQUE_ID_KEYS,
+# Entity domain ("sensor"/"number"/"select") -> key -> desired object_id
+DOMAIN_OBJECT_IDS: dict[str, dict[str, str]] = {
+    "number": NUMBER_OBJECT_IDS,
+    "select": SELECT_OBJECT_IDS,
+    "sensor": SENSOR_OBJECT_IDS,
 }
 
 
-def _legacy_object_ids(desired_object_id: str) -> set[str]:
-    return {
-        f"{DOMAIN}_{desired_object_id}",
-        f"{DOMAIN}_{DOMAIN}_{desired_object_id}",
-    }
+def _split_entity_id(entity_id: str) -> tuple[str, str] | None:
+    """Split 'sensor.foo' into ('sensor', 'foo')."""
+    if "." not in entity_id:
+        return None
+    ent_domain, object_id = entity_id.split(".", 1)
+    return ent_domain, object_id
 
 
-def _legacy_sensor_object_ids(desired_object_id: str) -> set[str]:
-    return {
-        DOMAIN,
-        f"{DOMAIN}_{DOMAIN}",
-        f"{DOMAIN}_{desired_object_id}",
-        f"{DOMAIN}_{DOMAIN}_{desired_object_id}",
-    }
+def _extract_key_from_bad_object_id(object_id: str, entry: ConfigEntry) -> str | None:
+    """Extract the entity key from known bad auto-generated object_id patterns."""
+    # Example: svotc_<entryid>_virtual_outdoor_temperature
+    prefix_entry = f"{DOMAIN}_{entry.entry_id}_"
+    if object_id.startswith(prefix_entry):
+        return object_id[len(prefix_entry) :]
 
+    # Example: svotc_svotc_virtual_outdoor_temperature
+    prefix_double = f"{DOMAIN}_{DOMAIN}_"
+    if object_id.startswith(prefix_double):
+        return object_id[len(prefix_double) :]
 
-def _matches_legacy_entity_id(
-    entity_id: str,
-    platform: Platform,
-    desired_object_id: str,
-) -> bool:
-    object_id = entity_id.split(".", 1)[1]
-    if platform == Platform.SENSOR:
-        return object_id in _legacy_sensor_object_ids(desired_object_id)
-    return object_id in _legacy_object_ids(desired_object_id)
+    return None
 
 
 async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Migrate duplicated entity IDs to shorter defaults."""
+    """Migrate bad auto-generated SVOTC entity_ids to clean defaults."""
     registry = er.async_get(hass)
-    for platform, object_ids in PLATFORM_OBJECT_IDS.items():
-        unique_id_keys = PLATFORM_UNIQUE_ID_KEYS[platform]
-        for key, desired_object_id in object_ids.items():
-            new_unique_id = f"{entry.entry_id}_{key}"
-            entity_id = registry.async_get_entity_id(platform, DOMAIN, new_unique_id)
-            if entity_id is None:
-                legacy_unique_id = unique_id_keys[key]
-                legacy_entity_id = registry.async_get_entity_id(
-                    platform, DOMAIN, legacy_unique_id
-                )
-                if legacy_entity_id is not None:
-                    registry.async_update_entity(
-                        legacy_entity_id,
-                        new_unique_id=new_unique_id,
-                    )
-                    entity_id = legacy_entity_id
-            if entity_id is None:
-                continue
-            if not _matches_legacy_entity_id(entity_id, platform, desired_object_id):
-                continue
-            platform_name = platform.value
-            new_entity_id = f"{platform_name}.{desired_object_id}"
-            if registry.async_get(new_entity_id) is not None:
-                continue
-            registry.async_update_entity(entity_id, new_entity_id=new_entity_id)
+
+    # All entities tied to this config entry
+    entries = er.async_entries_for_config_entry(registry, entry.entry_id)
+
+    for reg_entry in entries:
+        # Only touch entities created by this integration
+        if reg_entry.platform != DOMAIN:
+            continue
+
+        parsed = _split_entity_id(reg_entry.entity_id)
+        if parsed is None:
+            continue
+
+        ent_domain, object_id = parsed
+
+        # Only rename the known bad patterns
+        key = _extract_key_from_bad_object_id(object_id, entry)
+        if key is None:
+            continue
+
+        key_map = DOMAIN_OBJECT_IDS.get(ent_domain)
+        if not key_map:
+            continue
+
+        desired_object_id = key_map.get(key)
+        if not desired_object_id:
+            continue
+
+        new_entity_id = f"{ent_domain}.{desired_object_id}"
+
+        # Only rename if target is free
+        if registry.async_get(new_entity_id) is not None:
+            continue
+
+        registry.async_update_entity(reg_entry.entity_id, new_entity_id=new_entity_id)
