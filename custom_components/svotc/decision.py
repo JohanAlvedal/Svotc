@@ -37,7 +37,7 @@ class DecisionInput:
     brake_aggressiveness: int
     heat_aggressiveness: int
     price_class: str | None
-    forecast_min_next_6h: float | None
+    forecast_min_next_6h: float | None  # NOTE: may contain 12h min if coordinator uses 12h window
     price_available: bool
     forecast_available: bool
     now: datetime
@@ -97,20 +97,21 @@ def decide(inputs: DecisionInput) -> DecisionOutput:
             0.0, "MISSING_INDOOR", _status_for_reason("MISSING_INDOOR"), None
         )
 
-    availability = _availability_code(
-        inputs.price_available, inputs.forecast_available
-    )
+    availability = _availability_code(inputs.price_available, inputs.forecast_available)
 
-    safety_needed = inputs.indoor_temp < inputs.dynamic_target
-    if safety_needed:
-        return DecisionOutput(
-            heat_offset(inputs.heat_aggressiveness),
-            "SAFETY_ANCHOR",
-            _status_for_reason("SAFETY_ANCHOR"),
-            None,
-        )
+    # Only anchor for safety when we are missing critical decision inputs.
+    # Add a small deadband to avoid anchoring on tiny differences.
+    safety_margin = 0.3  # °C
+    safety_needed = inputs.indoor_temp < (inputs.dynamic_target - safety_margin)
 
     if availability in ("MISSING_PRICE", "MISSING_BOTH"):
+        if safety_needed:
+            return DecisionOutput(
+                heat_offset(inputs.heat_aggressiveness),
+                "SAFETY_ANCHOR",
+                _status_for_reason("SAFETY_ANCHOR"),
+                None,
+            )
         return DecisionOutput(
             0.0,
             availability,
