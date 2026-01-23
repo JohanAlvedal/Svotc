@@ -11,10 +11,10 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.const import UnitOfTemperature
 
 from .const import DOMAIN
 from .coordinator import SVOTCCoordinator
@@ -30,14 +30,17 @@ class SVOTCSensorDescription(SensorEntityDescription):
 SENSOR_DESCRIPTIONS: tuple[SVOTCSensorDescription, ...] = (
     SVOTCSensorDescription(
         key="virtual_outdoor_temperature",
-        translation_key="svotc",
+        translation_key="virtual_outdoor_temperature",
     ),
 )
 
+# Keep entity_id readable and stable: sensor.svotc_<key>
 SENSOR_OBJECT_IDS: dict[str, str] = {
-    "virtual_outdoor_temperature": "temperature",
+    "virtual_outdoor_temperature": f"{DOMAIN}_virtual_outdoor_temperature",
 }
 
+# Legacy unique_ids used before switching to per-entry unique IDs.
+# Used by entity_id migration to find and migrate older entities.
 SENSOR_UNIQUE_ID_KEYS: dict[str, str] = {
     "virtual_outdoor_temperature": f"{DOMAIN}_sensor",
 }
@@ -59,6 +62,10 @@ async def async_setup_entry(
 class SVOTCSensorEntity(SensorEntity):
     """Representation of a SVOTC sensor."""
 
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
     def __init__(
         self,
         coordinator: SVOTCCoordinator,
@@ -68,18 +75,22 @@ class SVOTCSensorEntity(SensorEntity):
         """Initialize the sensor."""
         self.coordinator = coordinator
         self.entity_description = description
+
+        # Unique per config entry + key (supports multiple entries safely)
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
-        self._attr_suggested_object_id = SENSOR_OBJECT_IDS[description.key]
-        self._attr_device_class = SensorDeviceClass.TEMPERATURE
-        self._attr_state_class = SensorStateClass.MEASUREMENT
-        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+        # Desired entity_id: sensor.svotc_<key> (no entry_id in the object_id)
+        self._attr_suggested_object_id = SENSOR_OBJECT_IDS.get(
+            description.key, f"{DOMAIN}_{description.key}"
+        )
+
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="SVOTC",
         )
 
     @property
-    def native_value(self) -> object:
+    def native_value(self) -> float | None:
         """Return the sensor value."""
         value = self.coordinator.data.get(self.entity_description.key)
         if value is None:
