@@ -5,6 +5,8 @@ DOMAIN = "svotc"
 CONF_INDOOR_TEMPERATURE = "indoor_temperature"
 CONF_OUTDOOR_TEMPERATURE = "outdoor_temperature"
 CONF_PRICE_ENTITY = "price_entity"
+CONF_PRICE_ENTITY_TODAY = "price_entity_today"
+CONF_PRICE_ENTITY_TOMORROW = "price_entity_tomorrow"
 CONF_WEATHER_ENTITY = "weather_entity"
 
 DEFAULT_BRAKE_AGGRESSIVENESS = 3

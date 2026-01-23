@@ -109,6 +109,15 @@ class SVOTCSensorEntity(SensorEntity):
             "mode": self.coordinator.values.get("mode"),
             "indoor_temp_c": data.get("indoor_temperature"),
             "outdoor_temp_c": data.get("outdoor_temperature"),
+            "price_entities_used": data.get("price_entities_used"),
+            "prices_count_today": data.get("prices_count_today"),
+            "prices_count_tomorrow": data.get("prices_count_tomorrow"),
+            "prices_count_total": data.get("prices_count_total"),
+            "current_price": data.get("current_price"),
+            "price_state": data.get("price_state"),
+            "p30": data.get("p30"),
+            "p70": data.get("p70"),
+            "missing_inputs": data.get("missing_inputs"),
         }
 
     @property

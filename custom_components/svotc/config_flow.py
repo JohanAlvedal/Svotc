@@ -13,6 +13,8 @@ from .const import (
     CONF_INDOOR_TEMPERATURE,
     CONF_OUTDOOR_TEMPERATURE,
     CONF_PRICE_ENTITY,
+    CONF_PRICE_ENTITY_TODAY,
+    CONF_PRICE_ENTITY_TOMORROW,
     CONF_WEATHER_ENTITY,
     DOMAIN,
 )
@@ -20,6 +22,10 @@ from .const import (
 
 def _schema(defaults: dict[str, Any]) -> vol.Schema:
     """Build the config schema with optional entity selectors."""
+    price_today_default = defaults.get(CONF_PRICE_ENTITY_TODAY) or defaults.get(
+        CONF_PRICE_ENTITY
+    )
+    price_tomorrow_default = defaults.get(CONF_PRICE_ENTITY_TOMORROW)
     return vol.Schema(
         {
             vol.Optional(
@@ -34,9 +40,15 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["sensor"])
             ),
+            vol.Required(
+                CONF_PRICE_ENTITY_TODAY,
+                default=price_today_default,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["sensor"])
+            ),
             vol.Optional(
-                CONF_PRICE_ENTITY,
-                default=defaults.get(CONF_PRICE_ENTITY),
+                CONF_PRICE_ENTITY_TOMORROW,
+                default=price_tomorrow_default,
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["sensor"])
             ),
