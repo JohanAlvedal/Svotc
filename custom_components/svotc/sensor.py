@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -15,10 +16,12 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN
 from .coordinator import SVOTCCoordinator
 
+_LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True, kw_only=True)
 class SVOTCSensorDescription(SensorEntityDescription):
@@ -59,7 +62,7 @@ async def async_setup_entry(
     )
 
 
-class SVOTCSensorEntity(SensorEntity):
+class SVOTCSensorEntity(SensorEntity, RestoreEntity):
     """Representation of a SVOTC sensor."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
@@ -87,6 +90,31 @@ class SVOTCSensorEntity(SensorEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="SVOTC",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Restore ramp baseline on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is None:
+            return
+
+        restored_value: float = 0.0
+        attrs = last_state.attributes or {}
+        raw_value = attrs.get("applied_offset_c")
+        if raw_value is None:
+            raw_value = attrs.get("offset_c")
+        if raw_value is None:
+            raw_value = attrs.get("last_applied_offset_c")
+        try:
+            restored_value = float(raw_value)
+        except (TypeError, ValueError):
+            restored_value = 0.0
+
+        self.coordinator._last_offset = restored_value
+        _LOGGER.info(
+            "Restored last_applied_offset_c=%.3f from previous state",
+            restored_value,
         )
 
     @property

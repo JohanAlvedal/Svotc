@@ -47,7 +47,7 @@ NUMBER_DESCRIPTIONS: tuple[SVOTCNumberDescription, ...] = (
         translation_key="heat_aggressiveness",
         default=DEFAULT_HEAT_AGGRESSIVENESS,
         native_min_value=0,
-        native_max_value=10,
+        native_max_value=5,
         native_step=1,
     ),
     SVOTCNumberDescription(
@@ -126,6 +126,10 @@ class SVOTCNumberEntity(NumberEntity, RestoreEntity):
             identifiers={(DOMAIN, entry.entry_id)},
             name="SVOTC",
         )
+        if description.key in {"brake_aggressiveness", "heat_aggressiveness"}:
+            self._attr_mode = NumberMode.SLIDER
+        else:
+            self._attr_mode = NumberMode.BOX
 
     @property
     def native_value(self) -> float:
