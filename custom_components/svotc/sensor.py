@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import SVOTCCoordinator
@@ -62,12 +63,13 @@ async def async_setup_entry(
     )
 
 
-class SVOTCSensorEntity(SensorEntity, RestoreEntity):
+class SVOTCSensorEntity(CoordinatorEntity, SensorEntity, RestoreEntity):
     """Representation of a SVOTC sensor."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_should_poll = False
 
     def __init__(
         self,
@@ -76,7 +78,7 @@ class SVOTCSensorEntity(SensorEntity, RestoreEntity):
         description: SVOTCSensorDescription,
     ) -> None:
         """Initialize the sensor."""
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self.entity_description = description
 
         # Unique per config entry + key (supports multiple entries safely)
@@ -112,10 +114,12 @@ class SVOTCSensorEntity(SensorEntity, RestoreEntity):
             restored_value = 0.0
 
         self.coordinator._last_offset = restored_value
-        _LOGGER.info(
-            "Restored last_applied_offset_c=%.3f from previous state",
+        self.coordinator._last_offset_source = "restored_state"
+        _LOGGER.debug(
+            "Restored last_applied_offset_c=%.3f from previous state (source=hass_state).",
             restored_value,
         )
+        await self.coordinator.async_request_refresh()
 
     @property
     def native_value(self) -> float | None:
