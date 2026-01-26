@@ -65,6 +65,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         self._last_complete_time: datetime | None = None
         self._last_output: dict[str, object] | None = None
         self._last_offset: float = 0.0
+        self._last_offset_source: str = "memory"
         self._last_price_state: str | None = None
         self._last_price_state_changed: datetime | None = None
         self._last_today_missing: bool | None = None
@@ -162,6 +163,9 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
     async def _async_update_data(self) -> dict[str, object]:
         """Fetch data for SVOTC sensors."""
         now = dt_util.utcnow()
+        _LOGGER.debug(
+            "Coordinator refresh start (interval=%s).", self.update_interval
+        )
         entry_data = {**self.entry.data, **self.entry.options}
 
         indoor_entity_id = entry_data.get(CONF_INDOOR_TEMPERATURE)
@@ -264,12 +268,19 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
 
         if critical_missing and not in_grace and self._last_output is not None and not price_bypass:
             if missing_duration is not None and missing_duration <= _GLITCH_HOLD:
+                _LOGGER.debug(
+                    "Coordinator refresh end: holding last output due to temporary missing inputs."
+                )
                 held = dict(self._last_output)
                 held["status"] = "Holding (sensor glitch)"
                 held["reason_code"] = "TEMP_GLITCH_HOLD"
                 return held
 
         if critical_missing and not in_grace:
+            _LOGGER.debug(
+                "Coordinator refresh end: missing inputs (%s).",
+                ", ".join(missing_inputs) if missing_inputs else "unknown",
+            )
             if today_missing or current_price is None:
                 reason_code = "MISSING_PRICE"
             else:
@@ -308,10 +319,13 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "missing_inputs": missing_inputs,
             }
             self._last_output = result
-            self._last_offset = offset
             return result
 
         if in_grace and critical_missing:
+            _LOGGER.debug(
+                "Coordinator refresh end: startup grace with missing inputs (%s).",
+                ", ".join(missing_inputs) if missing_inputs else "unknown",
+            )
             offset = 0.0
             virtual_outdoor = outdoor_temp + offset if outdoor_temp is not None else None
             last_offset = self._last_offset
@@ -349,7 +363,6 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "missing_inputs": missing_inputs,
             }
             self._last_output = result
-            self._last_offset = offset
             return result
 
         decision = decide(
@@ -377,6 +390,11 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         max_delta = max_delta_per_update(max_abs_offset())
         requested_offset = decision.target_offset
         last_offset = self._last_offset
+        _LOGGER.debug(
+            "Using last_applied_offset_c=%.3f (source=%s).",
+            last_offset,
+            self._last_offset_source,
+        )
         ramped_offset = ramp_offset(last_offset, requested_offset, max_delta)
         ramp_limited = ramped_offset != requested_offset
         offset = ramped_offset
@@ -420,8 +438,23 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             "p70": p70,
             "missing_inputs": missing_inputs,
         }
+        previous_virtual = (
+            self._last_output.get("virtual_outdoor_temperature")
+            if self._last_output
+            else None
+        )
+        _LOGGER.debug(
+            "Computed virtual_outdoor_temperature %s -> %s (requested_offset=%.3f, applied_offset=%.3f, ramp_limited=%s).",
+            f"{previous_virtual:.3f}" if isinstance(previous_virtual, (int, float)) else "None",
+            f"{virtual_outdoor:.3f}" if isinstance(virtual_outdoor, (int, float)) else "None",
+            requested_offset,
+            offset,
+            ramp_limited,
+        )
         self._last_output = result
         self._last_offset = offset
+        self._last_offset_source = "memory"
+        _LOGGER.debug("Coordinator refresh end: update successful.")
         return {
             **result,
         }
