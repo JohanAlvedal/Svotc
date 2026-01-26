@@ -162,3 +162,11 @@ class SVOTCSensorEntity(CoordinatorEntity, SensorEntity, RestoreEntity):
     def available(self) -> bool:
         """Return entity availability."""
         return self.coordinator.last_update_success
+
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        value = self.coordinator.data.get(self.entity_description.key)
+        _LOGGER.debug(
+            "Coordinator update for %s: %s", self.entity_description.key, value
+        )
+        super()._handle_coordinator_update()
