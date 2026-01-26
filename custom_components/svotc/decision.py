@@ -19,6 +19,7 @@ _STATUS_BY_REASON = {
     "OFF": "Off",
     "FORECAST_HEAT_NEED": "Boosting (cold forecast ahead)",
     "PRICE_BRAKE": "Braking (expensive price)",
+    "PRICE_ELEVATED": "Braking (price elevated)",
     "PRICE_BOOST": "Boosting (cheap price)",
     "SAFETY_ANCHOR": "Safety anchor",
     "NEUTRAL": "Neutral",
@@ -37,6 +38,9 @@ class DecisionInput:
     brake_aggressiveness: int
     heat_aggressiveness: int
     price_class: str | None
+    current_price: float | None
+    price_p30: float | None
+    price_p70: float | None
     forecast_min_next_6h: float | None  # NOTE: may contain 12h min if coordinator uses 12h window
     price_available: bool
     forecast_available: bool
@@ -124,18 +128,43 @@ def decide(inputs: DecisionInput) -> DecisionOutput:
     reason_code = availability
     status = _status_for_reason(availability)
 
-    if inputs.price_class == "expensive":
-        target_offset = brake_offset(inputs.brake_aggressiveness)
-        reason_code = "PRICE_BRAKE"
-        price_state = "brake"
-    elif inputs.price_class == "cheap":
-        target_offset = heat_offset(inputs.heat_aggressiveness)
-        reason_code = "PRICE_BOOST"
-        price_state = "boost"
-    elif inputs.price_class == "neutral":
-        target_offset = 0.0
-        reason_code = "NEUTRAL"
-        price_state = "neutral"
+    if (
+        inputs.price_available
+        and inputs.current_price is not None
+        and inputs.price_p30 is not None
+        and inputs.price_p70 is not None
+        and inputs.price_p70 > inputs.price_p30
+    ):
+        max_brake = brake_offset(inputs.brake_aggressiveness)
+        if inputs.current_price <= inputs.price_p30:
+            target_offset = 0.0
+            reason_code = "NEUTRAL"
+            price_state = "neutral"
+        elif inputs.current_price >= inputs.price_p70:
+            target_offset = max_brake
+            reason_code = "PRICE_BRAKE"
+            price_state = "brake"
+        else:
+            ratio = (inputs.current_price - inputs.price_p30) / (
+                inputs.price_p70 - inputs.price_p30
+            )
+            ratio = max(0.0, min(1.0, ratio))
+            target_offset = ratio * max_brake
+            reason_code = "PRICE_ELEVATED"
+            price_state = "brake"
+    else:
+        if inputs.price_class == "expensive":
+            target_offset = brake_offset(inputs.brake_aggressiveness)
+            reason_code = "PRICE_BRAKE"
+            price_state = "brake"
+        elif inputs.price_class == "cheap":
+            target_offset = heat_offset(inputs.heat_aggressiveness)
+            reason_code = "PRICE_BOOST"
+            price_state = "boost"
+        elif inputs.price_class == "neutral":
+            target_offset = 0.0
+            reason_code = "NEUTRAL"
+            price_state = "neutral"
 
     if (
         inputs.forecast_available

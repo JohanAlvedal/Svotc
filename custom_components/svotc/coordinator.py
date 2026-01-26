@@ -380,6 +380,9 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                     self.values.get("heat_aggressiveness", DEFAULT_HEAT_AGGRESSIVENESS)
                 ),
                 price_class=price_class,
+                current_price=current_price,
+                price_p30=p30,
+                price_p70=p70,
                 forecast_min_next_6h=forecast_min,
                 price_available=price_available,
                 forecast_available=forecast_available,
@@ -391,6 +394,23 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
 
         max_delta = max_delta_per_update(max_abs_offset())
         requested_offset = decision.target_offset
+        brake_ratio = None
+        if (
+            current_price is not None
+            and p30 is not None
+            and p70 is not None
+            and p70 > p30
+        ):
+            brake_ratio = (current_price - p30) / (p70 - p30)
+            brake_ratio = max(0.0, min(1.0, brake_ratio))
+        _LOGGER.debug(
+            "Brake curve inputs: current_price=%s, p30=%s, p70=%s, ratio=%s, requested_offset=%.3f.",
+            f"{current_price:.4f}" if isinstance(current_price, (int, float)) else "None",
+            f"{p30:.4f}" if isinstance(p30, (int, float)) else "None",
+            f"{p70:.4f}" if isinstance(p70, (int, float)) else "None",
+            f"{brake_ratio:.4f}" if isinstance(brake_ratio, (int, float)) else "None",
+            requested_offset,
+        )
         last_offset = self._last_offset
         _LOGGER.debug(
             "Using last_applied_offset_c=%.3f (source=%s).",
