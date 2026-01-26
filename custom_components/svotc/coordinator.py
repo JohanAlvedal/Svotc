@@ -232,6 +232,8 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             missing_inputs.append("price_today")
         if current_price is None and not today_missing:
             missing_inputs.append("current_price")
+        if price_entity_tomorrow and not tomorrow_valid:
+            missing_inputs.append("price_tomorrow")
 
         critical_missing = False
         if indoor_entity_id and indoor_temp is None:
