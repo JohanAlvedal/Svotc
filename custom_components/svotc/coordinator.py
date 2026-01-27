@@ -24,12 +24,13 @@ from .const import (
     DEFAULT_VACATION_TEMPERATURE,
     DOMAIN,
 )
-from .decision import DecisionInput, decide
 from .forecast import min_outdoor_next_12h
-from .mapping import max_abs_offset
+from .mapping import brake_offset, heat_offset, max_abs_offset
+from .control import compute_price_offset, smooth_asymmetric, update_comfort_pi
 from .prices import (
     classify_price,
     extract_price_entries,
+    price_percentile,
     price_percentiles,
     select_current_price,
 )
@@ -40,6 +41,19 @@ _LOGGER = logging.getLogger(__name__)
 _GRACE_PERIOD = timedelta(seconds=60)
 _GLITCH_HOLD = timedelta(seconds=60)
 _TOMORROW_WARNING_AFTER = timedelta(minutes=10)
+_COMFORT_DEADBAND_C = 0.2
+_COMFORT_KP = -1.1
+_COMFORT_KI = -0.0006
+_COMFORT_I_MIN = -4.0
+_COMFORT_I_MAX = 4.0
+_COMFORT_FILTER_TAU_S = 300.0
+_PRICE_DECAY_TAU_S = 900.0
+_PRICE_BIAS_THRESHOLD_C = 0.2
+_BRAKE_EXIT_PERCENTILE = 0.60
+_BRAKE_EXIT_RATIO = 0.6
+_BRAKE_HOLD_TIME = timedelta(minutes=40)
+_BRAKE_HOLD_MIN_C = 0.3
+_BRAKE_STRONG_RATIO = 0.8
 
 
 class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
@@ -72,6 +86,12 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         self._last_required_missing: bool | None = None
         self._tomorrow_issue_since: datetime | None = None
         self._tomorrow_issue_warned: bool = False
+        self._comfort_integrator: float = 0.0
+        self._comfort_filtered_error: float | None = None
+        self._last_control_time: datetime | None = None
+        self._price_offset_smoothed: float | None = None
+        self._brake_active: bool = False
+        self._brake_hold_until: datetime | None = None
 
     def _read_temperature(self, entity_id: str | None) -> float | None:
         """Read a temperature from a Home Assistant state."""
@@ -214,6 +234,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         price_available = bool(today_entries) and current_price is not None
         price_class = classify_price(current_price, price_series)
         p30, p70 = price_percentiles(price_series)
+        p60 = price_percentile(price_series, _BRAKE_EXIT_PERCENTILE)
         self._log_today_missing(now, today_missing)
         if price_entity_tomorrow:
             self._log_tomorrow_issue(now, not tomorrow_valid)
@@ -367,30 +388,152 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             self._last_output = result
             return result
 
-        decision = decide(
-            DecisionInput(
-                mode=str(mode),
-                indoor_temp=indoor_temp,
-                outdoor_temp=outdoor_temp,
-                dynamic_target=float(dynamic_target),
-                brake_aggressiveness=int(
-                    self.values.get("brake_aggressiveness", DEFAULT_BRAKE_AGGRESSIVENESS)
-                ),
-                heat_aggressiveness=int(
-                    self.values.get("heat_aggressiveness", DEFAULT_HEAT_AGGRESSIVENESS)
-                ),
-                price_class=price_class,
-                forecast_min_next_6h=forecast_min,
-                price_available=price_available,
-                forecast_available=forecast_available,
-                now=now,
-                last_price_state=self._last_price_state,
-                last_price_state_changed=self._last_price_state_changed,
+        dt_seconds = (
+            (now - self._last_control_time).total_seconds()
+            if self._last_control_time is not None
+            else self.update_interval.total_seconds()
+        )
+        self._last_control_time = now
+        brake_aggressiveness = int(
+            self.values.get("brake_aggressiveness", DEFAULT_BRAKE_AGGRESSIVENESS)
+        )
+        heat_aggressiveness = int(
+            self.values.get("heat_aggressiveness", DEFAULT_HEAT_AGGRESSIVENESS)
+        )
+        max_brake_offset = brake_offset(brake_aggressiveness)
+        max_heat_offset = abs(heat_offset(heat_aggressiveness))
+        max_cool_offset = max_brake_offset
+        price_offset_raw, price_ratio = compute_price_offset(
+            current_price, p30, p70, max_brake_offset
+        )
+        brake_active = self._brake_active
+        if current_price is None or p70 is None:
+            brake_active = False
+        else:
+            if price_class == "expensive" or current_price >= p70:
+                brake_active = True
+            elif brake_active:
+                exit_threshold = p60 if p60 is not None else p30
+                if (
+                    exit_threshold is not None
+                    and current_price <= exit_threshold
+                ) or (price_ratio is not None and price_ratio <= _BRAKE_EXIT_RATIO):
+                    brake_active = False
+        if self._brake_active and not brake_active:
+            self._brake_hold_until = now + _BRAKE_HOLD_TIME
+        if brake_active:
+            self._brake_hold_until = None
+        hold_remaining = 0.0
+        if (
+            not brake_active
+            and self._brake_hold_until is not None
+            and now < self._brake_hold_until
+        ):
+            hold_remaining = (self._brake_hold_until - now).total_seconds()
+            price_offset_raw = max(price_offset_raw, _BRAKE_HOLD_MIN_C)
+        price_offset = smooth_asymmetric(
+            price_offset_raw,
+            self._price_offset_smoothed,
+            dt_seconds,
+            _PRICE_DECAY_TAU_S,
+        )
+        self._price_offset_smoothed = price_offset
+        self._brake_active = brake_active
+
+        if mode == "Off" or indoor_temp is None:
+            self._comfort_integrator = 0.0
+            self._comfort_filtered_error = 0.0
+            comfort_offset = 0.0
+        else:
+            error_c = float(dynamic_target) - indoor_temp
+            strong_brake = (
+                brake_active and price_offset >= max_brake_offset * _BRAKE_STRONG_RATIO
             )
+            if strong_brake:
+                self._comfort_integrator *= 0.9
+            ki_scale = 0.2 if brake_active else 1.0
+            comfort_result = update_comfort_pi(
+                error_c=error_c,
+                integrator=self._comfort_integrator,
+                filtered_error=self._comfort_filtered_error,
+                dt_seconds=dt_seconds,
+                kp=_COMFORT_KP,
+                ki=_COMFORT_KI * ki_scale,
+                i_min=_COMFORT_I_MIN,
+                i_max=_COMFORT_I_MAX,
+                deadband_c=_COMFORT_DEADBAND_C,
+                max_cool_c=max_cool_offset,
+                max_heat_c=max_heat_offset,
+                integrate=not strong_brake,
+                filter_time_constant_seconds=_COMFORT_FILTER_TAU_S,
+            )
+            self._comfort_integrator = comfort_result.integrator
+            self._comfort_filtered_error = comfort_result.filtered_error
+            comfort_offset = comfort_result.offset
+
+        if brake_active or price_class == "expensive":
+            w_pid = 0.2
+            w_price = 1.0
+            price_state = "brake"
+        elif price_class == "cheap":
+            w_pid = 1.0
+            w_price = 0.3
+            price_state = "boost"
+        else:
+            w_pid = 1.0
+            w_price = 0.6
+            price_state = "neutral" if price_class == "neutral" else None
+
+        requested_offset = w_price * price_offset + w_pid * comfort_offset
+        if mode == "Off":
+            requested_offset = 0.0
+            price_state = None
+
+        price_bias_active = price_offset > _PRICE_BIAS_THRESHOLD_C
+        if mode == "Off":
+            status = "Off"
+            reason_code = "OFF"
+        elif price_bias_active:
+            if current_price is not None and p70 is not None and current_price >= p70:
+                status = "Braking (expensive price)"
+                reason_code = "PRICE_BRAKE"
+            else:
+                status = "Braking (elevated price)"
+                reason_code = "PRICE_ELEVATED"
+        elif price_class == "cheap":
+            status = "Smart (comfort control)"
+            reason_code = "COMFORT_PI"
+        else:
+            status = "Neutral"
+            reason_code = "NEUTRAL"
+
+        _LOGGER.debug(
+            "Comfort PI: target=%.2f, indoor=%.2f, error=%.3f, P=%.3f, I=%.3f, offset=%.3f.",
+            float(dynamic_target),
+            indoor_temp if indoor_temp is not None else float("nan"),
+            (float(dynamic_target) - indoor_temp) if indoor_temp is not None else 0.0,
+            _COMFORT_KP * (self._comfort_filtered_error or 0.0),
+            self._comfort_integrator,
+            comfort_offset,
+        )
+        _LOGGER.debug(
+            "Price bias: current=%.3f, p30=%s, p70=%s, ratio=%s, offset=%.3f, brake=%s, hold_remaining=%.0fs.",
+            current_price if current_price is not None else float("nan"),
+            f"{p30:.3f}" if isinstance(p30, (int, float)) else "None",
+            f"{p70:.3f}" if isinstance(p70, (int, float)) else "None",
+            f"{price_ratio:.3f}" if isinstance(price_ratio, (int, float)) else "None",
+            price_offset,
+            brake_active,
+            hold_remaining,
+        )
+        _LOGGER.debug(
+            "Requested offset=%.3f (price_offset=%.3f, comfort_offset=%.3f).",
+            requested_offset,
+            price_offset,
+            comfort_offset,
         )
 
         max_delta = max_delta_per_update(max_abs_offset())
-        requested_offset = decision.target_offset
         last_offset = self._last_offset
         _LOGGER.debug(
             "Using last_applied_offset_c=%.3f (source=%s).",
@@ -408,9 +551,9 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 virtual_outdoor = clamped_virtual
                 ramp_limited = True
 
-        if decision.price_state is not None:
-            if decision.price_state != self._last_price_state:
-                self._last_price_state = decision.price_state
+        if price_state is not None:
+            if price_state != self._last_price_state:
+                self._last_price_state = price_state
                 self._last_price_state_changed = now
 
         result = {
@@ -424,8 +567,8 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             "max_delta_per_step": max_delta,
             "last_applied_offset": last_offset,
             "dynamic_target_temperature": dynamic_target,
-            "status": decision.status,
-            "reason_code": decision.reason_code,
+            "status": status,
+            "reason_code": reason_code,
             "price_entities_used": {
                 "today": price_entity_today,
                 "tomorrow": price_entity_tomorrow,
@@ -435,7 +578,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             "tomorrow_available": tomorrow_valid,
             "prices_count_total": len(price_series),
             "current_price": current_price,
-            "price_state": decision.price_state,
+            "price_state": price_state,
             "p30": p30,
             "p70": p70,
             "missing_inputs": missing_inputs,
