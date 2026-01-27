@@ -132,31 +132,9 @@ class SVOTCSensorEntity(CoordinatorEntity, SensorEntity, RestoreEntity):
     @property
     def extra_state_attributes(self) -> dict[str, object]:
         """Return additional sensor attributes."""
-        data = self.coordinator.data
-        return {
-            "status": data.get("status"),
-            "reason_code": data.get("reason_code"),
-            "offset_c": data.get("offset"),
-            "requested_offset_c": data.get("requested_offset"),
-            "applied_offset_c": data.get("applied_offset"),
-            "ramp_limited": data.get("ramp_limited"),
-            "max_delta_per_step": data.get("max_delta_per_step"),
-            "last_applied_offset_c": data.get("last_applied_offset"),
-            "dynamic_target_c": data.get("dynamic_target_temperature"),
-            "mode": self.coordinator.values.get("mode"),
-            "indoor_temp_c": data.get("indoor_temperature"),
-            "outdoor_temp_c": data.get("outdoor_temperature"),
-            "price_entities_used": data.get("price_entities_used"),
-            "prices_count_today": data.get("prices_count_today"),
-            "prices_count_tomorrow": data.get("prices_count_tomorrow"),
-            "tomorrow_available": data.get("tomorrow_available"),
-            "prices_count_total": data.get("prices_count_total"),
-            "current_price": data.get("current_price"),
-            "price_state": data.get("price_state"),
-            "p30": data.get("p30"),
-            "p70": data.get("p70"),
-            "missing_inputs": data.get("missing_inputs"),
-        }
+        data = dict(self.coordinator.data)
+        data["mode"] = self.coordinator.values.get("mode")
+        return data
 
     @property
     def available(self) -> bool:
