@@ -81,6 +81,16 @@ def price_percentiles(prices: list[float]) -> tuple[float | None, float | None]:
         return None, None
 
 
+def price_percentile(prices: list[float], percentile: float) -> float | None:
+    """Return a percentile value for a price list."""
+    if not prices:
+        return None
+    try:
+        return _percentile(prices, percentile)
+    except ValueError:
+        return None
+
+
 def classify_price(current_price: float | None, prices: list[float]) -> str | None:
     """Classify the current price as cheap, neutral, or expensive."""
     if current_price is None or not prices:
