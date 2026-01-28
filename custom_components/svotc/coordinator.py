@@ -7,6 +7,7 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -41,22 +42,34 @@ _LOGGER = logging.getLogger(__name__)
 _GRACE_PERIOD = timedelta(seconds=60)
 _GLITCH_HOLD = timedelta(seconds=60)
 _TOMORROW_WARNING_AFTER = timedelta(minutes=10)
+
 _COMFORT_DEADBAND_C = 0.2
 _COMFORT_KP = -1.1
 _COMFORT_KI = -0.0006
 _COMFORT_I_MIN = -4.0
 _COMFORT_I_MAX = 4.0
 _COMFORT_FILTER_TAU_S = 300.0
+
 _PRICE_DECAY_TAU_S = 900.0
 _PRICE_BIAS_THRESHOLD_C = 0.2
+
 _HEAT_WINDOW_C = 1.2
 _BRAKE_REDUCTION_MAX = 0.8
 _BRAKE_REDUCTION_MIN = 0.2
+
 _BRAKE_EXIT_PERCENTILE = 0.60
 _BRAKE_EXIT_RATIO = 0.6
 _BRAKE_HOLD_TIME = timedelta(minutes=40)
 _BRAKE_HOLD_MIN_C = 0.3
 _BRAKE_STRONG_RATIO = 0.8
+
+_STORE_VERSION = 1
+_STORE_KEY = "svotc_state"
+
+# Fast braking right after restart (but keep smooth ramp normally)
+_STARTUP_FASTLANE = timedelta(minutes=5)
+_STARTUP_MAX_DELTA_MULTIPLIER = 6.0  # base 0.5°C * 6 = 3.0°C per update (if base is 0.5)
+_STARTUP_MAX_DELTA_CAP_C = 4.0        # safety cap per update
 
 
 def _brake_reduction_strength(level: int) -> float:
@@ -92,23 +105,50 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             "vacation_temperature": DEFAULT_VACATION_TEMPERATURE,
             "mode": DEFAULT_MODE,
         }
+
         self._start_time = dt_util.utcnow()
+
         self._last_complete_time: datetime | None = None
         self._last_output: dict[str, object] | None = None
+
         self._last_offset: float = 0.0
         self._last_offset_source: str = "memory"
+
+        self._store = Store(hass, _STORE_VERSION, f"{DOMAIN}.{entry.entry_id}.{_STORE_KEY}")
+        self._baseline_loaded: bool = False
+
         self._last_price_state: str | None = None
         self._last_price_state_changed: datetime | None = None
+
         self._last_today_missing: bool | None = None
         self._last_required_missing: bool | None = None
+
         self._tomorrow_issue_since: datetime | None = None
         self._tomorrow_issue_warned: bool = False
+
         self._comfort_integrator: float = 0.0
         self._comfort_filtered_error: float | None = None
+
         self._last_control_time: datetime | None = None
         self._price_offset_smoothed: float | None = None
+
         self._brake_active: bool = False
         self._brake_hold_until: datetime | None = None
+
+    async def _async_load_baseline(self) -> None:
+        """Load last applied offset from persistent storage (once)."""
+        if self._baseline_loaded:
+            return
+        self._baseline_loaded = True
+        try:
+            data = await self._store.async_load() or {}
+            last = data.get("last_offset")
+            if last is not None:
+                self._last_offset = float(last)
+                self._last_offset_source = "store"
+                _LOGGER.debug("Loaded baseline last_offset=%.3f from store.", self._last_offset)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Failed to load baseline from store.", exc_info=True)
 
     def _read_temperature(self, entity_id: str | None) -> float | None:
         """Read a temperature from a Home Assistant state."""
@@ -159,9 +199,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             _LOGGER.warning("Price data for today is missing or empty.")
         self._last_today_missing = missing
 
-    def _log_required_missing(
-        self, now: datetime, missing: bool, details: list[str]
-    ) -> None:
+    def _log_required_missing(self, now: datetime, missing: bool, details: list[str]) -> None:
         """Log transitions for missing required inputs."""
         in_grace = now - self._start_time <= _GRACE_PERIOD
         if in_grace:
@@ -183,13 +221,8 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             self._tomorrow_issue_warned = False
             _LOGGER.debug("Price data for tomorrow is missing or invalid.")
             return
-        if (
-            not self._tomorrow_issue_warned
-            and now - self._tomorrow_issue_since > _TOMORROW_WARNING_AFTER
-        ):
-            _LOGGER.warning(
-                "Price data for tomorrow has been missing or invalid for over 10 minutes."
-            )
+        if (not self._tomorrow_issue_warned) and (now - self._tomorrow_issue_since > _TOMORROW_WARNING_AFTER):
+            _LOGGER.warning("Price data for tomorrow has been missing or invalid for over 10 minutes.")
             self._tomorrow_issue_warned = True
 
     async def async_set_value(self, key: str, value: object) -> None:
@@ -200,58 +233,55 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
     async def _async_update_data(self) -> dict[str, object]:
         """Fetch data for SVOTC sensors."""
         now = dt_util.utcnow()
-        _LOGGER.debug(
-            "Coordinator refresh start (interval=%s).", self.update_interval
-        )
+        await self._async_load_baseline()
+
+        _LOGGER.debug("Coordinator refresh start (interval=%s).", self.update_interval)
+
         entry_data = {**self.entry.data, **self.entry.options}
 
         indoor_entity_id = entry_data.get(CONF_INDOOR_TEMPERATURE)
         outdoor_entity_id = entry_data.get(CONF_OUTDOOR_TEMPERATURE)
-        price_entity_today = entry_data.get(CONF_PRICE_ENTITY_TODAY) or entry_data.get(
-            CONF_PRICE_ENTITY
-        )
+        price_entity_today = entry_data.get(CONF_PRICE_ENTITY_TODAY) or entry_data.get(CONF_PRICE_ENTITY)
         price_entity_tomorrow = entry_data.get(CONF_PRICE_ENTITY_TOMORROW)
         weather_entity_id = entry_data.get(CONF_WEATHER_ENTITY)
 
         indoor_temp = self._read_temperature(indoor_entity_id)
         outdoor_temp = self._read_temperature(outdoor_entity_id)
+
         price_today_state = self._read_state(price_entity_today)
         price_tomorrow_state = self._read_state(price_entity_tomorrow)
-        # weather_state is no longer used for forecasts; forecasts are retrieved via service API.
-        # weather_state = self._read_state(weather_entity_id)
 
         mode = self.values.get("mode", DEFAULT_MODE)
 
         if mode == "Vacation":
-            dynamic_target = self.values.get(
-                "vacation_temperature", DEFAULT_VACATION_TEMPERATURE
-            )
+            dynamic_target = self.values.get("vacation_temperature", DEFAULT_VACATION_TEMPERATURE)
         else:
-            dynamic_target = self.values.get(
-                "comfort_temperature", DEFAULT_COMFORT_TEMPERATURE
-            )
+            dynamic_target = self.values.get("comfort_temperature", DEFAULT_COMFORT_TEMPERATURE)
 
         today_entries = extract_price_entries(price_today_state)
-        tomorrow_entries = (
-            extract_price_entries(price_tomorrow_state) if price_entity_tomorrow else []
-        )
+        tomorrow_entries = extract_price_entries(price_tomorrow_state) if price_entity_tomorrow else []
         tomorrow_valid = bool(tomorrow_entries)
-        combined_entries = (
-            today_entries + tomorrow_entries if tomorrow_valid else list(today_entries)
-        )
+
+        combined_entries = today_entries + tomorrow_entries if tomorrow_valid else list(today_entries)
+
         current_price = None
         if today_entries:
             current_price = select_current_price(today_entries, now)
         if current_price is None and tomorrow_valid:
             current_price = select_current_price(tomorrow_entries, now)
+
         price_series = [float(entry["price"]) for entry in combined_entries]
+
         today_missing = not today_entries
         if today_missing:
             current_price = None
-        price_available = bool(today_entries) and current_price is not None
+
+        price_available = bool(today_entries) and (current_price is not None)
+
         price_class = classify_price(current_price, price_series)
         p30, p70 = price_percentiles(price_series)
         p60 = price_percentile(price_series, _BRAKE_EXIT_PERCENTILE)
+
         self._log_today_missing(now, today_missing)
         if price_entity_tomorrow and _should_require_tomorrow(now):
             self._log_tomorrow_issue(now, not tomorrow_valid)
@@ -270,11 +300,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             missing_inputs.append("price_today")
         if current_price is None and not today_missing:
             missing_inputs.append("current_price")
-        if (
-            price_entity_tomorrow
-            and not tomorrow_valid
-            and _should_require_tomorrow(now)
-        ):
+        if price_entity_tomorrow and (not tomorrow_valid) and _should_require_tomorrow(now):
             missing_inputs.append("price_tomorrow")
 
         critical_missing = False
@@ -295,46 +321,39 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         if price_entity_today and (today_missing or current_price is None):
             required_missing = True
 
-        required_missing_details = list(missing_inputs)
-        self._log_required_missing(now, required_missing, required_missing_details)
+        self._log_required_missing(now, required_missing, list(missing_inputs))
 
         if not critical_missing:
             self._last_complete_time = now
 
         in_grace = now - self._start_time <= _GRACE_PERIOD
         missing_duration = (
-            now - self._last_complete_time
-            if self._last_complete_time is not None
-            else None
+            (now - self._last_complete_time) if self._last_complete_time is not None else None
         )
 
-        price_bypass = today_missing or current_price is None
+        price_bypass = today_missing or (current_price is None)
 
-        if critical_missing and not in_grace and self._last_output is not None and not price_bypass:
-            if missing_duration is not None and missing_duration <= _GLITCH_HOLD:
-                _LOGGER.debug(
-                    "Coordinator refresh end: holding last output due to temporary missing inputs."
-                )
+        if critical_missing and (not in_grace) and (self._last_output is not None) and (not price_bypass):
+            if (missing_duration is not None) and (missing_duration <= _GLITCH_HOLD):
+                _LOGGER.debug("Coordinator refresh end: holding last output due to temporary missing inputs.")
                 held = dict(self._last_output)
                 held["status"] = "Holding (sensor glitch)"
                 held["reason_code"] = "TEMP_GLITCH_HOLD"
                 return held
 
-        if critical_missing and not in_grace:
-            _LOGGER.debug(
-                "Coordinator refresh end: missing inputs (%s).",
-                ", ".join(missing_inputs) if missing_inputs else "unknown",
-            )
+        if critical_missing and (not in_grace):
+            _LOGGER.debug("Coordinator refresh end: missing inputs (%s).", ", ".join(missing_inputs) or "unknown")
+
             if today_missing or current_price is None:
                 reason_code = "MISSING_PRICE"
             else:
-                reason_code = self._missing_reason(
-                    indoor_temp, outdoor_temp, price_available, forecast_available
-                )
+                reason_code = self._missing_reason(indoor_temp, outdoor_temp, price_available, forecast_available)
+
             status = reason_code.replace("_", " ").title()
             last_offset = self._last_offset
             offset = 0.0
             virtual_outdoor = outdoor_temp if outdoor_temp is not None else None
+
             result = {
                 "indoor_temperature": indoor_temp,
                 "outdoor_temperature": outdoor_temp,
@@ -354,10 +373,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "dynamic_target_temperature": dynamic_target,
                 "status": status,
                 "reason_code": reason_code,
-                "price_entities_used": {
-                    "today": price_entity_today,
-                    "tomorrow": price_entity_tomorrow,
-                },
+                "price_entities_used": {"today": price_entity_today, "tomorrow": price_entity_tomorrow},
                 "prices_count_today": len(today_entries),
                 "prices_count_tomorrow": len(tomorrow_entries) if tomorrow_valid else 0,
                 "tomorrow_available": tomorrow_valid,
@@ -372,19 +388,17 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             return result
 
         if in_grace and critical_missing:
-            _LOGGER.debug(
-                "Coordinator refresh end: startup grace with missing inputs (%s).",
-                ", ".join(missing_inputs) if missing_inputs else "unknown",
-            )
+            _LOGGER.debug("Coordinator refresh end: startup grace with missing inputs (%s).", ", ".join(missing_inputs) or "unknown")
+
             offset = 0.0
-            virtual_outdoor = outdoor_temp + offset if outdoor_temp is not None else None
+            virtual_outdoor = (outdoor_temp + offset) if outdoor_temp is not None else None
             last_offset = self._last_offset
+
             if today_missing or current_price is None:
                 reason_code = "MISSING_PRICE"
             else:
-                reason_code = self._missing_reason(
-                    indoor_temp, outdoor_temp, price_available, forecast_available
-                )
+                reason_code = self._missing_reason(indoor_temp, outdoor_temp, price_available, forecast_available)
+
             result = {
                 "indoor_temperature": indoor_temp,
                 "outdoor_temperature": outdoor_temp,
@@ -404,10 +418,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "dynamic_target_temperature": dynamic_target,
                 "status": "Startup grace",
                 "reason_code": reason_code,
-                "price_entities_used": {
-                    "today": price_entity_today,
-                    "tomorrow": price_entity_tomorrow,
-                },
+                "price_entities_used": {"today": price_entity_today, "tomorrow": price_entity_tomorrow},
                 "prices_count_today": len(today_entries),
                 "prices_count_tomorrow": len(tomorrow_entries) if tomorrow_valid else 0,
                 "tomorrow_available": tomorrow_valid,
@@ -421,24 +432,32 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             self._last_output = result
             return result
 
+        # ---- Control update ----
         dt_seconds = (
             (now - self._last_control_time).total_seconds()
             if self._last_control_time is not None
             else self.update_interval.total_seconds()
         )
         self._last_control_time = now
+
         brake_aggressiveness = int(
             self.values.get("brake_aggressiveness", DEFAULT_BRAKE_AGGRESSIVENESS)
         )
         heat_aggressiveness = int(
             self.values.get("heat_aggressiveness", DEFAULT_HEAT_AGGRESSIVENESS)
         )
+        heat_enabled = heat_aggressiveness > 0
+        
         max_brake_offset = brake_offset(brake_aggressiveness)
-        max_heat_offset = abs(heat_offset(heat_aggressiveness))
+        
+        # IMPORTANT: heat_aggressiveness == 0 means "no heat/boost at all"
+        # (no negative offset from PI, and no "boost" state)
+        max_heat_offset = abs(heat_offset(heat_aggressiveness)) if heat_enabled else 0.0
+        
         max_cool_offset = max_brake_offset
-        price_offset_raw, price_ratio = compute_price_offset(
-            current_price, p30, p70, max_brake_offset
-        )
+
+        price_offset_raw, price_ratio = compute_price_offset(current_price, p30, p70, max_brake_offset)
+
         brake_active = self._brake_active
         if current_price is None or p70 is None:
             brake_active = False
@@ -447,29 +466,22 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 brake_active = True
             elif brake_active:
                 exit_threshold = p60 if p60 is not None else p30
-                if (
-                    exit_threshold is not None
-                    and current_price <= exit_threshold
-                ) or (price_ratio is not None and price_ratio <= _BRAKE_EXIT_RATIO):
+                if ((exit_threshold is not None) and (current_price <= exit_threshold)) or (
+                    (price_ratio is not None) and (price_ratio <= _BRAKE_EXIT_RATIO)
+                ):
                     brake_active = False
+
         if self._brake_active and not brake_active:
             self._brake_hold_until = now + _BRAKE_HOLD_TIME
         if brake_active:
             self._brake_hold_until = None
+
         hold_remaining = 0.0
-        if (
-            not brake_active
-            and self._brake_hold_until is not None
-            and now < self._brake_hold_until
-        ):
+        if (not brake_active) and (self._brake_hold_until is not None) and (now < self._brake_hold_until):
             hold_remaining = (self._brake_hold_until - now).total_seconds()
             price_offset_raw = max(price_offset_raw, _BRAKE_HOLD_MIN_C)
-        price_offset = smooth_asymmetric(
-            price_offset_raw,
-            self._price_offset_smoothed,
-            dt_seconds,
-            _PRICE_DECAY_TAU_S,
-        )
+
+        price_offset = smooth_asymmetric(price_offset_raw, self._price_offset_smoothed, dt_seconds, _PRICE_DECAY_TAU_S)
         self._price_offset_smoothed = price_offset
         self._brake_active = brake_active
 
@@ -480,12 +492,13 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             error_c = 0.0
         else:
             error_c = float(dynamic_target) - indoor_temp
-            strong_brake = (
-                brake_active and price_offset >= max_brake_offset * _BRAKE_STRONG_RATIO
-            )
+
+            strong_brake = brake_active and (price_offset >= max_brake_offset * _BRAKE_STRONG_RATIO)
             if strong_brake:
                 self._comfort_integrator *= 0.9
+
             ki_scale = 0.2 if brake_active else 1.0
+
             comfort_result = update_comfort_pi(
                 error_c=error_c,
                 integrator=self._comfort_integrator,
@@ -497,23 +510,27 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 i_max=_COMFORT_I_MAX,
                 deadband_c=_COMFORT_DEADBAND_C,
                 max_cool_c=max_cool_offset,
-                max_heat_c=max_heat_offset,
+                max_heat_c=max_heat_offset,  # <= this is 0 when heat_aggressiveness=0
                 integrate=not strong_brake,
                 filter_time_constant_seconds=_COMFORT_FILTER_TAU_S,
             )
             self._comfort_integrator = comfort_result.integrator
             self._comfort_filtered_error = comfort_result.filtered_error
             comfort_offset = comfort_result.offset
+            
+            # If heat is disabled, do not allow any heating/boost request (negative offset).
+            # (We still allow braking/cooling direction.)
+            if not heat_enabled and comfort_offset < 0.0:
+                comfort_offset = 0.0
+                # Bleed integrator a bit to avoid "hanging" I-term when heating is disabled.
+                self._comfort_integrator *= 0.9
 
-        heat_need_factor = clamp(
-            (error_c - _COMFORT_DEADBAND_C) / _HEAT_WINDOW_C, 0.0, 1.0
-        )
+        heat_need_factor = clamp((error_c - _COMFORT_DEADBAND_C) / _HEAT_WINDOW_C, 0.0, 1.0)
         brake_reduction_strength = _brake_reduction_strength(brake_aggressiveness)
-        effective_price_offset = price_offset * (
-            1 - heat_need_factor * brake_reduction_strength
-        )
+        effective_price_offset = price_offset * (1 - heat_need_factor * brake_reduction_strength)
 
         requested_offset = comfort_offset + effective_price_offset
+
         if mode == "Off":
             requested_offset = 0.0
             effective_price_offset = 0.0
@@ -525,8 +542,9 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             and effective_price_offset < price_offset
             and error_c > _COMFORT_DEADBAND_C
         )
+
         price_bias_active = price_offset > _PRICE_BIAS_THRESHOLD_C
-        net_braking = requested_offset > _PRICE_BIAS_THRESHOLD_C and price_bias_active
+        net_braking = (requested_offset > _PRICE_BIAS_THRESHOLD_C) and price_bias_active
         net_heating = requested_offset < -_PRICE_BIAS_THRESHOLD_C
 
         if mode == "Off":
@@ -552,16 +570,19 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         elif net_heating:
             status = "Smart (comfort control)"
             reason_code = "COMFORT_PI"
+            # NOTE: boost mode label is handled below via price_state; effective_mode can still reflect behavior.
             effective_mode = "boost" if price_class == "cheap" else "comfort"
         else:
             status = "Neutral"
             reason_code = "NEUTRAL"
             effective_mode = "neutral"
 
+        # ---- price_state semantics: NO "boost" when heat_aggressiveness=0 ----
         if mode != "Off":
             if price_bias_active:
                 price_state = "brake"
-            elif price_class == "cheap":
+            elif price_class == "cheap" and heat_enabled:
+                # Only show boost when we actually allow heat/boost
                 price_state = "boost"
             else:
                 price_state = "neutral"
@@ -597,15 +618,37 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
 
         max_delta = max_delta_per_update(max_abs_offset())
         last_offset = self._last_offset
-        _LOGGER.debug(
-            "Using last_applied_offset_c=%.3f (source=%s).",
-            last_offset,
-            self._last_offset_source,
+
+        _LOGGER.debug("Using last_applied_offset_c=%.3f (source=%s).", last_offset, self._last_offset_source)
+
+        # Startup fast-lane: if we need braking shortly after restart, allow bigger step
+        in_fastlane = (now - self._start_time) <= _STARTUP_FASTLANE
+        needs_brake_now = (
+            mode != "Off"
+            and (
+                price_bias_active
+                or price_class == "expensive"
+                or brake_active
+                or net_braking
+                or effective_mode in ("brake", "limiting_comfort")
+            )
         )
+        if in_fastlane and needs_brake_now:
+            boosted = min(max_delta * _STARTUP_MAX_DELTA_MULTIPLIER, _STARTUP_MAX_DELTA_CAP_C)
+            if boosted > max_delta:
+                _LOGGER.debug(
+                    "Startup fast-lane active: max_delta %.3f -> %.3f (needs_brake=%s).",
+                    max_delta,
+                    boosted,
+                    needs_brake_now,
+                )
+                max_delta = boosted
+
         ramped_offset = ramp_offset(last_offset, requested_offset, max_delta)
         ramp_limited = ramped_offset != requested_offset
         offset = ramped_offset
-        virtual_outdoor = outdoor_temp + offset if outdoor_temp is not None else None
+
+        virtual_outdoor = (outdoor_temp + offset) if outdoor_temp is not None else None
         if virtual_outdoor is not None:
             clamped_virtual = max(-25.0, min(25.0, virtual_outdoor))
             if clamped_virtual != virtual_outdoor:
@@ -613,10 +656,9 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 virtual_outdoor = clamped_virtual
                 ramp_limited = True
 
-        if price_state is not None:
-            if price_state != self._last_price_state:
-                self._last_price_state = price_state
-                self._last_price_state_changed = now
+        if price_state is not None and price_state != self._last_price_state:
+            self._last_price_state = price_state
+            self._last_price_state_changed = now
 
         result = {
             "indoor_temperature": indoor_temp,
@@ -637,10 +679,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             "dynamic_target_temperature": dynamic_target,
             "status": status,
             "reason_code": reason_code,
-            "price_entities_used": {
-                "today": price_entity_today,
-                "tomorrow": price_entity_tomorrow,
-            },
+            "price_entities_used": {"today": price_entity_today, "tomorrow": price_entity_tomorrow},
             "prices_count_today": len(today_entries),
             "prices_count_tomorrow": len(tomorrow_entries) if tomorrow_valid else 0,
             "tomorrow_available": tomorrow_valid,
@@ -651,11 +690,8 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             "p70": p70,
             "missing_inputs": missing_inputs,
         }
-        previous_virtual = (
-            self._last_output.get("virtual_outdoor_temperature")
-            if self._last_output
-            else None
-        )
+
+        previous_virtual = self._last_output.get("virtual_outdoor_temperature") if self._last_output else None
         _LOGGER.debug(
             "Computed virtual_outdoor_temperature %s -> %s (requested_offset=%.3f, applied_offset=%.3f, ramp_limited=%s).",
             f"{previous_virtual:.3f}" if isinstance(previous_virtual, (int, float)) else "None",
@@ -664,10 +700,16 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             offset,
             ramp_limited,
         )
+
         self._last_output = result
         self._last_offset = offset
         self._last_offset_source = "memory"
+
+        # Persist last offset for next restart
+        try:
+            await self._store.async_save({"last_offset": float(self._last_offset)})
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Failed to persist last_offset to store.", exc_info=True)
+
         _LOGGER.debug("Coordinator refresh end: update successful.")
-        return {
-            **result,
-        }
+        return dict(result)
