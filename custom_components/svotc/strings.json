@@ -31,34 +31,18 @@
   },
   "entity": {
     "number": {
-      "svotc": {
-        "brake_aggressiveness": {
-          "name": "Brake aggressiveness"
-        },
-        "heat_aggressiveness": {
-          "name": "Heat aggressiveness"
-        },
-        "comfort_temperature": {
-          "name": "Comfort temperature"
-        },
-        "vacation_temperature": {
-          "name": "Vacation temperature"
-        }
-      }
+      "brake_aggressiveness": { "name": "Brake aggressiveness" },
+      "heat_aggressiveness": { "name": "Heat aggressiveness" },
+      "comfort_temperature": { "name": "Comfort temperature" },
+      "vacation_temperature": { "name": "Vacation temperature" }
     },
     "select": {
-      "svotc": {
-        "mode": {
-          "name": "Mode"
-        }
-      }
+      "mode": { "name": "Mode" }
     },
     "sensor": {
-      "svotc": {
-        "svotc": {
-          "name": "SVOTC"
-        }
-      }
+      "status": { "name": "Status" },
+      "virtual_outdoor_temperature": { "name": "Virtual outdoor temperature" },
+      "reason_code": { "name": "Reason code" }
     }
   }
 }
