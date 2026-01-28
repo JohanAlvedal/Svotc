@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN
+from .const import DOMAIN, SENSOR_OBJECT_IDS
 from .number import NUMBER_OBJECT_IDS, NUMBER_UNIQUE_ID_KEYS
 from .select import SELECT_OBJECT_IDS, SELECT_UNIQUE_ID_KEYS
-from .sensor import SENSOR_OBJECT_IDS, SENSOR_UNIQUE_ID_KEYS
+from .sensor import SENSOR_UNIQUE_ID_KEYS
 
-# Entity domain ("sensor"/"number"/"select") -> key -> desired object_id
+_LOGGER = logging.getLogger(__name__)
+
+# Entity domain ("sensor"/"binary_sensor"/"number"/"select") -> key -> desired object_id
 DOMAIN_OBJECT_IDS: dict[str, dict[str, str]] = {
+    "binary_sensor": SENSOR_OBJECT_IDS,
     "number": NUMBER_OBJECT_IDS,
     "select": SELECT_OBJECT_IDS,
     "sensor": SENSOR_OBJECT_IDS,
@@ -49,6 +54,13 @@ def _extract_key_from_bad_object_id(object_id: str, entry: ConfigEntry) -> str |
     return None
 
 
+def _extract_key_from_legacy_object_id(object_id: str, key_map: dict[str, str]) -> str | None:
+    """Extract the entity key from legacy object_id patterns."""
+    if object_id in key_map:
+        return object_id
+    return None
+
+
 async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Migrate bad auto-generated SVOTC entity_ids to clean defaults."""
     registry = er.async_get(hass)
@@ -81,23 +93,32 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
                     reg_entry.entity_id, new_unique_id=new_unique_id
                 )
 
-        # Only rename the known bad patterns
-        key = _extract_key_from_bad_object_id(object_id, entry)
-        if key is None:
-            continue
-
         key_map = DOMAIN_OBJECT_IDS.get(ent_domain)
         if not key_map:
+            continue
+
+        key = _extract_key_from_bad_object_id(object_id, entry)
+        if key is None:
+            key = _extract_key_from_legacy_object_id(object_id, key_map)
+        if key is None:
             continue
 
         desired_object_id = key_map.get(key)
         if not desired_object_id:
             continue
 
+        if object_id == desired_object_id:
+            continue
+
         new_entity_id = f"{ent_domain}.{desired_object_id}"
 
         # Only rename if target is free
         if registry.async_get(new_entity_id) is not None:
+            _LOGGER.warning(
+                "Skipping rename for %s to %s because the target already exists.",
+                reg_entry.entity_id,
+                new_entity_id,
+            )
             continue
 
         registry.async_update_entity(reg_entry.entity_id, new_entity_id=new_entity_id)

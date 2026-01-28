@@ -16,3 +16,15 @@ DEFAULT_VACATION_TEMPERATURE = 17.0
 DEFAULT_MODE = "Off"
 
 MODE_OPTIONS = ["Off", "Smart", "Vacation"]
+
+# Deterministic object_id mapping for coordinator data keys.
+SENSOR_OBJECT_IDS: dict[str, str] = {
+    "status": "svotc_status",
+    "reason_code": "svotc_reason_code",
+    "effective_mode": "svotc_effective_mode",
+    "current_price": "svotc_current_price",
+    "p70": "svotc_price_p70",
+    "dynamic_target_temperature": "svotc_dynamic_target_temperature",
+    "tomorrow_available": "svotc_tomorrow_available",
+    "virtual_outdoor_temperature": "svotc_virtual_outdoor_temperature",
+}
