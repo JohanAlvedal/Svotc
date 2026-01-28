@@ -7,15 +7,22 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
-from .number import NUMBER_OBJECT_IDS
-from .select import SELECT_OBJECT_IDS
-from .sensor import SENSOR_OBJECT_IDS
+from .number import NUMBER_OBJECT_IDS, NUMBER_UNIQUE_ID_KEYS
+from .select import SELECT_OBJECT_IDS, SELECT_UNIQUE_ID_KEYS
+from .sensor import SENSOR_OBJECT_IDS, SENSOR_UNIQUE_ID_KEYS
 
 # Entity domain ("sensor"/"number"/"select") -> key -> desired object_id
 DOMAIN_OBJECT_IDS: dict[str, dict[str, str]] = {
     "number": NUMBER_OBJECT_IDS,
     "select": SELECT_OBJECT_IDS,
     "sensor": SENSOR_OBJECT_IDS,
+}
+
+# Legacy unique_id -> key mapping by entity domain.
+DOMAIN_UNIQUE_ID_KEYS: dict[str, dict[str, str]] = {
+    "number": {legacy_id: key for key, legacy_id in NUMBER_UNIQUE_ID_KEYS.items()},
+    "select": {legacy_id: key for key, legacy_id in SELECT_UNIQUE_ID_KEYS.items()},
+    "sensor": {legacy_id: key for key, legacy_id in SENSOR_UNIQUE_ID_KEYS.items()},
 }
 
 
@@ -59,6 +66,20 @@ async def async_migrate_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> N
             continue
 
         ent_domain, object_id = parsed
+
+        legacy_unique_ids = DOMAIN_UNIQUE_ID_KEYS.get(ent_domain, {})
+        legacy_key = legacy_unique_ids.get(reg_entry.unique_id)
+
+        # Upgrade legacy unique_id to per-entry unique_id (prevents duplicates).
+        if legacy_key is not None:
+            new_unique_id = f"{entry.entry_id}_{legacy_key}"
+            existing_entity_id = registry.async_get_entity_id(
+                ent_domain, DOMAIN, new_unique_id
+            )
+            if existing_entity_id is None or existing_entity_id == reg_entry.entity_id:
+                registry.async_update_entity(
+                    reg_entry.entity_id, new_unique_id=new_unique_id
+                )
 
         # Only rename the known bad patterns
         key = _extract_key_from_bad_object_id(object_id, entry)
