@@ -252,6 +252,21 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         price_tomorrow_state = self._read_state(price_entity_tomorrow)
 
         mode = self.values.get("mode", DEFAULT_MODE)
+        settings_payload = {
+            "brake_aggressiveness": int(
+                self.values.get("brake_aggressiveness", DEFAULT_BRAKE_AGGRESSIVENESS)
+            ),
+            "heat_aggressiveness": int(
+                self.values.get("heat_aggressiveness", DEFAULT_HEAT_AGGRESSIVENESS)
+            ),
+            "comfort_temperature": float(
+                self.values.get("comfort_temperature", DEFAULT_COMFORT_TEMPERATURE)
+            ),
+            "vacation_temperature": float(
+                self.values.get("vacation_temperature", DEFAULT_VACATION_TEMPERATURE)
+            ),
+            "mode": mode,
+        }
 
         if mode == "Vacation":
             dynamic_target = self.values.get("vacation_temperature", DEFAULT_VACATION_TEMPERATURE)
@@ -339,6 +354,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 held = dict(self._last_output)
                 held["status"] = "Holding (sensor glitch)"
                 held["reason_code"] = "TEMP_GLITCH_HOLD"
+                held.update(settings_payload)
                 return held
 
         if critical_missing and (not in_grace):
@@ -384,6 +400,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "p70": p70,
                 "missing_inputs": missing_inputs,
             }
+            result.update(settings_payload)
             self._last_output = result
             return result
 
@@ -429,6 +446,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "p70": p70,
                 "missing_inputs": missing_inputs,
             }
+            result.update(settings_payload)
             self._last_output = result
             return result
 
@@ -690,6 +708,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
             "p70": p70,
             "missing_inputs": missing_inputs,
         }
+        result.update(settings_payload)
 
         previous_virtual = self._last_output.get("virtual_outdoor_temperature") if self._last_output else None
         _LOGGER.debug(

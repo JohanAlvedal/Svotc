@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DEFAULT_BRAKE_AGGRESSIVENESS,
@@ -99,10 +100,11 @@ async def async_setup_entry(
     )
 
 
-class SVOTCNumberEntity(NumberEntity, RestoreEntity):
+class SVOTCNumberEntity(CoordinatorEntity, NumberEntity, RestoreEntity):
     """Representation of a SVOTC number entity."""
 
     _attr_mode = NumberMode.BOX
+    _attr_should_poll = False
 
     def __init__(
         self,
@@ -111,8 +113,8 @@ class SVOTCNumberEntity(NumberEntity, RestoreEntity):
         description: SVOTCNumberDescription,
     ) -> None:
         """Initialize the SVOTC number entity."""
+        super().__init__(coordinator)
         self.entity_description = description
-        self.coordinator = coordinator
 
         # Unique per config entry + key (supports multiple entries safely)
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
@@ -134,11 +136,10 @@ class SVOTCNumberEntity(NumberEntity, RestoreEntity):
     @property
     def native_value(self) -> float:
         """Return the current value."""
-        return float(
-            self.coordinator.values.get(
-                self.entity_description.key, self.entity_description.default
-            )
-        )
+        value = self.coordinator.data.get(self.entity_description.key)
+        if value is None:
+            value = self.entity_description.default
+        return float(value)
 
     async def async_added_to_hass(self) -> None:
         """Restore value on startup."""
