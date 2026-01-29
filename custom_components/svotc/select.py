@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DEFAULT_MODE, DOMAIN, MODE_OPTIONS
 from .coordinator import SVOTCCoordinator
@@ -31,15 +32,16 @@ async def async_setup_entry(
     async_add_entities([SVOTCModeSelect(coordinator, entry)])
 
 
-class SVOTCModeSelect(SelectEntity, RestoreEntity):
+class SVOTCModeSelect(CoordinatorEntity, SelectEntity, RestoreEntity):
     """Representation of the SVOTC mode select."""
 
     _attr_options = MODE_OPTIONS
     _attr_translation_key = "mode"
+    _attr_should_poll = False
 
     def __init__(self, coordinator: SVOTCCoordinator, entry: ConfigEntry) -> None:
         """Initialize the mode select."""
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_mode"
         self._attr_suggested_object_id = SELECT_OBJECT_IDS["mode"]
         self._attr_device_info = DeviceInfo(
@@ -50,7 +52,7 @@ class SVOTCModeSelect(SelectEntity, RestoreEntity):
     @property
     def current_option(self) -> str:
         """Return the current selected mode."""
-        return str(self.coordinator.values.get("mode", DEFAULT_MODE))
+        return str(self.coordinator.data.get("mode", DEFAULT_MODE))
 
     async def async_added_to_hass(self) -> None:
         """Restore value on startup."""
