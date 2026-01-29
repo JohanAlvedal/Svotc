@@ -60,6 +60,9 @@ SENSOR_DESCRIPTIONS: tuple[SVOTCSensorDescription, ...] = (
     SVOTCSensorDescription(
         key="virtual_outdoor_temperature",
         translation_key="virtual_outdoor_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
     ),
 )
 
