@@ -95,11 +95,12 @@ def classify_price(current_price: float | None, prices: list[float]) -> str | No
     """Classify the current price as cheap, neutral, or expensive."""
     if current_price is None or not prices:
         return None
-    p30, p70 = price_percentiles(prices)
-    if p30 is None or p70 is None:
+    p30, _p70 = price_percentiles(prices)
+    p80 = price_percentile(prices, 0.80)
+    if p30 is None or p80 is None:
         return None
     if current_price <= p30:
         return "cheap"
-    if current_price >= p70:
+    if current_price > p80:
         return "expensive"
     return "neutral"
