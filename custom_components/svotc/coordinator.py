@@ -29,7 +29,7 @@ from .const import (
 )
 from .forecast import min_outdoor_next_12h
 from .mapping import brake_offset, heat_offset, max_abs_offset
-from .control import clamp, compute_price_offset, smooth_asymmetric, update_comfort_pi
+from .control import clamp, compute_brake_target, smooth_asymmetric, update_comfort_pi
 from .prices import (
     classify_price,
     extract_price_entries,
@@ -51,6 +51,7 @@ _COMFORT_KI = -0.0006
 _COMFORT_I_MIN = -4.0
 _COMFORT_I_MAX = 4.0
 _COMFORT_FILTER_TAU_S = 300.0
+_COMFORT_GUARD_MARGIN_C = 0.3
 
 _PRICE_DECAY_TAU_S = 900.0
 _PRICE_BIAS_THRESHOLD_C = 0.2
@@ -59,10 +60,7 @@ _HEAT_WINDOW_C = 1.2
 _BRAKE_REDUCTION_MAX = 0.8
 _BRAKE_REDUCTION_MIN = 0.2
 
-_BRAKE_EXIT_PERCENTILE = 0.60
-_BRAKE_EXIT_RATIO = 0.6
-_BRAKE_HOLD_TIME = timedelta(minutes=40)
-_BRAKE_HOLD_MIN_C = 0.3
+_BRAKE_ENTER_PERCENTILE = 0.80
 _BRAKE_STRONG_RATIO = 0.8
 
 _STORE_VERSION = 1
@@ -135,7 +133,6 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
         self._price_offset_smoothed: float | None = None
 
         self._brake_active: bool = False
-        self._brake_hold_until: datetime | None = None
 
     async def _async_load_baseline(self) -> None:
         """Load last applied offset from persistent storage (once)."""
@@ -310,7 +307,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
 
             price_class = classify_price(current_price, price_series)
             p30, p70 = price_percentiles(price_series)
-            p60 = price_percentile(price_series, _BRAKE_EXIT_PERCENTILE)
+            p80 = price_percentile(price_series, _BRAKE_ENTER_PERCENTILE)
 
             self._log_today_missing(now, today_missing)
             if price_entity_tomorrow and _should_require_tomorrow(now):
@@ -416,6 +413,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                     "price_state": None,
                     "p30": p30,
                     "p70": p70,
+                    "p80": p80,
                     "missing_inputs": missing_inputs,
                 }
                 result.update(settings_payload)
@@ -465,6 +463,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                     "price_state": None,
                     "p30": p30,
                     "p70": p70,
+                    "p80": p80,
                     "missing_inputs": missing_inputs,
                 }
                 result.update(settings_payload)
@@ -495,44 +494,32 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
 
             max_cool_offset = max_brake_offset
 
-            price_offset_raw, price_ratio = compute_price_offset(
-                current_price,
-                p30,
-                p70,
-                max_brake_offset,
+            comfort_guard_active = (
+                mode != "Off"
+                and indoor_temp is not None
+                and indoor_temp <= (float(dynamic_target) + _COMFORT_GUARD_MARGIN_C)
             )
 
-            brake_active = self._brake_active
-            if current_price is None or p70 is None:
-                brake_active = False
-            else:
-                if price_class == "expensive" or current_price >= p70:
-                    brake_active = True
-                elif brake_active:
-                    exit_threshold = p60 if p60 is not None else p30
-                    if ((exit_threshold is not None) and (current_price <= exit_threshold)) or (
-                        (price_ratio is not None) and (price_ratio <= _BRAKE_EXIT_RATIO)
-                    ):
-                        brake_active = False
-
-            if self._brake_active and not brake_active:
-                self._brake_hold_until = now + _BRAKE_HOLD_TIME
-            if brake_active:
-                self._brake_hold_until = None
-
-            hold_remaining = 0.0
-            if (not brake_active) and (self._brake_hold_until is not None) and (now < self._brake_hold_until):
-                hold_remaining = (self._brake_hold_until - now).total_seconds()
-                price_offset_raw = max(price_offset_raw, _BRAKE_HOLD_MIN_C)
+            brake_decision = compute_brake_target(
+                current_price=current_price,
+                p70=p70,
+                p80=p80,
+                max_brake_offset=max_brake_offset,
+                brake_active=self._brake_active,
+                last_offset=self._price_offset_smoothed,
+                comfort_guard_active=comfort_guard_active,
+            )
+            brake_active = brake_decision.brake_active
+            in_peak = brake_decision.in_peak
 
             price_offset = smooth_asymmetric(
-                price_offset_raw,
+                brake_decision.target_offset,
                 self._price_offset_smoothed,
                 dt_seconds,
                 _PRICE_DECAY_TAU_S,
             )
             self._price_offset_smoothed = price_offset
-            self._brake_active = brake_active
+            self._brake_active = brake_decision.brake_active
 
             if mode == "Off" or indoor_temp is None:
                 self._comfort_integrator = 0.0
@@ -585,12 +572,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 effective_price_offset = 0.0
                 price_offset = 0.0
 
-            limiting_comfort = (
-                mode != "Off"
-                and price_offset > 0.0
-                and effective_price_offset < price_offset
-                and error_c > _COMFORT_DEADBAND_C
-            )
+            limiting_comfort = brake_decision.limited_by_comfort
 
             price_bias_active = price_offset > _PRICE_BIAS_THRESHOLD_C
             net_braking = (requested_offset > _PRICE_BIAS_THRESHOLD_C) and price_bias_active
@@ -605,9 +587,18 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 reason_code = "PRICE_LIMITING_COMFORT"
                 effective_mode = "limiting_comfort"
             elif net_braking:
-                if current_price is not None and p70 is not None and current_price >= p70:
-                    status = "Braking (expensive price)"
-                    reason_code = "PRICE_BRAKE"
+                price_brake_reason = brake_decision.reason_code
+                if price_brake_reason is None and (price_offset > _PRICE_BIAS_THRESHOLD_C) and not in_peak:
+                    price_brake_reason = "PRICE_BRAKE_DECAY"
+                if price_brake_reason == "PRICE_BRAKE_ENTER":
+                    status = "Braking (entering peak)"
+                    reason_code = "PRICE_BRAKE_ENTER"
+                elif price_brake_reason == "PRICE_BRAKE_HOLD":
+                    status = "Braking (peak hold)"
+                    reason_code = "PRICE_BRAKE_HOLD"
+                elif price_brake_reason == "PRICE_BRAKE_DECAY":
+                    status = "Braking (decaying)"
+                    reason_code = "PRICE_BRAKE_DECAY"
                 else:
                     status = "Braking (elevated price)"
                     reason_code = "PRICE_ELEVATED"
@@ -648,14 +639,15 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 comfort_offset,
             )
             _LOGGER.debug(
-                "Price bias: current=%.3f, p30=%s, p70=%s, ratio=%s, offset=%.3f, brake=%s, hold_remaining=%.0fs.",
+                "Price bias: current=%.3f, p30=%s, p70=%s, p80=%s, offset=%.3f, brake=%s, in_peak=%s, reason=%s.",
                 current_price if current_price is not None else float("nan"),
                 f"{p30:.3f}" if isinstance(p30, (int, float)) else "None",
                 f"{p70:.3f}" if isinstance(p70, (int, float)) else "None",
-                f"{price_ratio:.3f}" if isinstance(price_ratio, (int, float)) else "None",
+                f"{p80:.3f}" if isinstance(p80, (int, float)) else "None",
                 price_offset,
                 brake_active,
-                hold_remaining,
+                in_peak,
+                brake_decision.reason_code,
             )
             _LOGGER.debug(
                 "Requested offset=%.3f (price_offset=%.3f, effective_price_offset=%.3f, comfort_offset=%.3f).",
@@ -757,6 +749,7 @@ class SVOTCCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "price_state": price_state,
                 "p30": p30,
                 "p70": p70,
+                "p80": p80,
                 "missing_inputs": missing_inputs,
             }
             result.update(settings_payload)
