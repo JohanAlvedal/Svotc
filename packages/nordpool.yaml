@@ -1,0 +1,154 @@
+template:
+  ###########################################################################
+  # Vanliga template-sensorer
+  ###########################################################################
+  - sensor:
+      - name: "nordpool_price_band_dynamic"
+        unique_id: nordpool_price_band_dynamic_minmax
+        state: >-
+          {% set s = 'sensor.nordpool_tibber' %}
+          {% set price = states(s) | replace(',', '.') | float(0) %}
+          {% set pmin = (state_attr(s,'min') if state_attr(s,'min') is not none else state_attr(s,'Min')) | string | replace(',', '.') | float(price) %}
+          {% set pmax = (state_attr(s,'max') if state_attr(s,'max') is not none else state_attr(s,'Max')) | string | replace(',', '.') | float(price) %}
+          {% set span = pmax - pmin %}
+          {% if span <= 0 %}
+            normal
+          {% else %}
+            {% set x = (price - pmin) / span %}
+
+            {% set t_vc = 0.15 %}
+            {% set t_c  = 0.35 %}
+            {% set t_e  = 0.65 %}
+            {% set t_ve = 0.85 %}
+
+            {# Hysteresis baserat på föregående state #}
+            {% set band_prev = this.state | default('normal') %}
+            {% set h = 0.02 %}
+            {% if band_prev == 'very_cheap' %}
+              {% set t_vc = t_vc + h %}
+            {% elif band_prev == 'cheap' %}
+              {% set t_vc = t_vc - h %}
+              {% set t_c  = t_c  + h %}
+            {% elif band_prev == 'normal' %}
+              {% set t_c  = t_c  - h %}
+              {% set t_e  = t_e  + h %}
+            {% elif band_prev == 'expensive' %}
+              {% set t_e  = t_e  - h %}
+              {% set t_ve = t_ve + h %}
+            {% elif band_prev == 'very_expensive' %}
+              {% set t_ve = t_ve - h %}
+            {% endif %}
+
+            {% if x <= t_vc %}very_cheap
+            {% elif x <= t_c %}cheap
+            {% elif x <  t_e %}normal
+            {% elif x <= t_ve %}expensive
+            {% else %}very_expensive
+            {% endif %}
+          {% endif %}
+        attributes:
+          source_entity: sensor.nordpool_tibber
+          current_price: "{{ states('sensor.nordpool_tibber') | replace(',', '.') | float(0) }}"
+          today_min: >-
+            {% set v = state_attr('sensor.nordpool_tibber','min') if state_attr('sensor.nordpool_tibber','min') is not none else state_attr('sensor.nordpool_tibber','Min') %}
+            {{ (v | string | replace(',', '.') | float(0)) }}
+          today_max: >-
+            {% set v = state_attr('sensor.nordpool_tibber','max') if state_attr('sensor.nordpool_tibber','max') is not none else state_attr('sensor.nordpool_tibber','Max') %}
+            {{ (v | string | replace(',', '.') | float(0)) }}
+          normalized_0_1: >-
+            {% set s = 'sensor.nordpool_tibber' %}
+            {% set price = states(s) | replace(',', '.') | float(0) %}
+            {% set pmin = (state_attr(s,'min') if state_attr(s,'min') is not none else state_attr(s,'Min')) | string | replace(',', '.') | float(price) %}
+            {% set pmax = (state_attr(s,'max') if state_attr(s,'max') is not none else state_attr(s,'Max')) | string | replace(',', '.') | float(price) %}
+            {% set span = pmax - pmin %}
+            {% if span <= 0 %}
+              0.5
+            {% else %}
+              {{ ((price - pmin) / span) | round(3) }}
+            {% endif %}
+          threshold_vc_max: 0.15
+          threshold_c_max: 0.35
+          threshold_e_min: 0.65
+          threshold_ve_min: 0.85
+          hysteresis: "±0.02 around active boundary"
+
+  ###########################################################################
+  # Trigger-baserad template-sensor (Elpriskoefficient)
+  ###########################################################################
+  - trigger:
+      - platform: time_pattern
+        minutes: "/5"
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id: sensor.nordpool_tibber
+    sensor:
+      - name: "Elpriskoefficient"
+        unique_id: elpriskoefficient_nordpool_tibber
+        unit_of_measurement: ""
+        state: >
+          {% set prev = this.state | float(default=0) %}
+
+          {# Tunable coefficients #}
+          {% set elpris_a = 1.3 | float %}
+          {% set elpris_b = -0.7 | float %}
+          {% set elpris_c = 0.25 | float %}
+
+          {# Try to get min/max/avg from attributes (handle different attribute keys) #}
+          {% set elpris_min = state_attr('sensor.nordpool_tibber', 'min')
+                              | default(state_attr('sensor.nordpool_tibber', 'Min'))
+                              | float(default=none) %}
+          {% set elpris_max = state_attr('sensor.nordpool_tibber', 'max')
+                              | default(state_attr('sensor.nordpool_tibber', 'Max'))
+                              | float(default=none) %}
+          {% set elpris_avg = state_attr('sensor.nordpool_tibber', 'mean')
+                              | default(state_attr('sensor.nordpool_tibber', 'Mean'))
+                              | default(state_attr('sensor.nordpool_tibber', 'average'))
+                              | default(state_attr('sensor.nordpool_tibber', 'Average'))
+                              | float(default=none) %}
+
+          {# Current price: try state first, then raw_today slot matching now() #}
+          {% set elpris_state = states('sensor.nordpool_tibber') | float(default=none) %}
+          {% set elpris = elpris_state %}
+
+          {% if elpris is none %}
+            {% set raw = state_attr('sensor.nordpool_tibber', 'raw_today') %}
+            {% if raw is iterable and raw is not string %}
+              {% set nowts = now() %}
+              {% for item in raw %}
+                {% set start = as_datetime(item.start) %}
+                {% set end = as_datetime(item.end) %}
+                {% if start <= nowts and nowts < end %}
+                  {% set elpris = item.value | float(default=none) %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          {% endif %}
+
+          {# Fallback avg if missing #}
+          {% if elpris_avg is none and elpris_max is not none and elpris_min is not none %}
+            {% set elpris_avg = (elpris_max + elpris_min) / 2 %}
+          {% endif %}
+
+          {% if elpris is none or elpris_max is none or elpris_min is none or elpris_max <= 0 %}
+            {{ prev }}
+          {% else %}
+            {% set elpris_graens =
+                 (elpris_max - elpris_min)
+                 * (elpris_a * (elpris_max ** elpris_b))
+                 * (1 / (1 + elpris_min * elpris_c))
+                 + elpris_min
+            %}
+            {{ (elpris / elpris_graens) | round(2, default=prev) }}
+          {% endif %}
+
+  ###########################################################################
+  # Template binary_sensor (Elpris OK) - INGEN separat trigger behövs
+  ###########################################################################
+  - binary_sensor:
+      - name: "Elpris OK"
+        unique_id: elpris_ok
+        state: >
+          {% set k = states('sensor.elpriskoefficient') | float(default=none) %}
+          {% set t = states('sensor.temperatur_nu') | float(default=none) %}
+          {{ k is not none and t is not none and k < 1 and t < 3 }}
