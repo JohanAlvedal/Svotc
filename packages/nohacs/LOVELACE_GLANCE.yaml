@@ -1,0 +1,282 @@
+# SVOTC Lovelace Cards - Snabb Glance Version
+
+## Ett enda kort för översikt (perfekt för huvuddashboard)
+
+```yaml
+# ============================================
+# SVOTC GLANCE CARD - Allt på ett kort
+# ============================================
+type: custom:stack-in-card
+mode: vertical
+cards:
+  # Header
+  - type: custom:mushroom-template-card
+    primary: SVOTC System
+    secondary: "{{ states('sensor.svotc_status') }}"
+    icon: |-
+      {% set reason = states('input_text.svotc_reason_code') %}
+      {% if reason == 'OFF' %} mdi:power-off
+      {% elif reason == 'PRICE_BRAKE' %} mdi:snowflake-alert
+      {% elif reason == 'MCP' %} mdi:brain
+      {% elif reason == 'COMFORT_GUARD' %} mdi:shield-home
+      {% elif reason == 'SAFE_MODE' %} mdi:alert
+      {% else %} mdi:home-thermometer
+      {% endif %}
+    icon_color: |-
+      {% set reason = states('input_text.svotc_reason_code') %}
+      {% if reason == 'OFF' %} grey
+      {% elif reason == 'PRICE_BRAKE' %} blue
+      {% elif reason == 'MCP' %} green
+      {% elif reason == 'COMFORT_GUARD' %} orange
+      {% elif reason == 'SAFE_MODE' %} red
+      {% else %} grey
+      {% endif %}
+    layout: horizontal
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/svotc
+    badge_icon: |-
+      {% set phase = states('input_text.svotc_brake_phase') %}
+      {% if phase == 'ramping_up' %} mdi:arrow-up-thick
+      {% elif phase == 'holding' %} mdi:hand-back-right
+      {% elif phase == 'ramping_down' %} mdi:arrow-down-thick
+      {% endif %}
+    badge_color: |-
+      {% set phase = states('input_text.svotc_brake_phase') %}
+      {% if phase in ['ramping_up','holding'] %} blue
+      {% elif phase == 'ramping_down' %} orange
+      {% else %} grey
+      {% endif %}
+
+  # Quick Stats
+  - type: glance
+    entities:
+      - entity: sensor.svotc_src_indoor
+        name: Inne
+        
+      - entity: sensor.svotc_dynamic_target_temperature
+        name: Mål
+        
+      - entity: sensor.svotc_current_price
+        name: Pris
+        icon: mdi:lightning-bolt
+        
+      - entity: input_number.svotc_applied_offset_c
+        name: Offset
+    show_name: true
+    show_state: true
+    columns: 4
+
+  # Mini Controls
+  - type: horizontal-stack
+    cards:
+      - type: button
+        entity: input_select.svotc_mode
+        name: Mode
+        show_state: true
+        icon: mdi:playlist-edit
+        tap_action:
+          action: more-info
+          
+      - type: button
+        entity: input_number.svotc_heat_aggressiveness
+        name: Värme
+        show_state: true
+        icon: mdi:fire
+        tap_action:
+          action: more-info
+          
+      - type: button
+        entity: input_number.svotc_brake_aggressiveness
+        name: Broms
+        show_state: true
+        icon: mdi:snowflake
+        tap_action:
+          action: more-info
+```
+
+---
+
+## Status-banner (toppen av alla sidor)
+
+```yaml
+# ============================================
+# SVOTC STATUS BANNER - För toppen av dashboard
+# ============================================
+type: custom:mushroom-chips-card
+alignment: center
+chips:
+  # Mode Chip
+  - type: entity
+    entity: input_select.svotc_mode
+    icon: mdi:tune
+    tap_action:
+      action: more-info
+    
+  # Status Chip
+  - type: template
+    icon: |-
+      {% set reason = states('input_text.svotc_reason_code') %}
+      {% if reason == 'PRICE_BRAKE' %} mdi:snowflake-alert
+      {% elif reason == 'MCP' %} mdi:brain
+      {% elif reason == 'COMFORT_GUARD' %} mdi:shield-home
+      {% else %} mdi:check-circle
+      {% endif %}
+    icon_color: |-
+      {% set reason = states('input_text.svotc_reason_code') %}
+      {% if reason == 'PRICE_BRAKE' %} blue
+      {% elif reason == 'MCP' %} green
+      {% elif reason == 'COMFORT_GUARD' %} orange
+      {% else %} grey
+      {% endif %}
+    content: "{{ states('sensor.svotc_status') }}"
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/svotc
+  
+  # Temperature Chip
+  - type: template
+    icon: mdi:home-thermometer
+    icon_color: |-
+      {% set indoor = states('sensor.svotc_src_indoor') | float(0) %}
+      {% set target = states('sensor.svotc_dynamic_target_temperature') | float(0) %}
+      {% if indoor < target - 1 %} blue
+      {% elif indoor > target + 0.5 %} red
+      {% else %} green
+      {% endif %}
+    content: "{{ states('sensor.svotc_src_indoor') }}°"
+    tap_action:
+      action: more-info
+      entity: sensor.svotc_src_indoor
+  
+  # Price Chip with trend
+  - type: template
+    icon: mdi:lightning-bolt
+    icon_color: |-
+      {% set price = states('sensor.svotc_current_price') | float(0) %}
+      {% set p30 = states('sensor.svotc_p30') | float(0) %}
+      {% set p80 = states('sensor.svotc_p80') | float(0) %}
+      {% if price > p80 %} red
+      {% elif price < p30 %} green
+      {% else %} orange
+      {% endif %}
+    content: "{{ states('sensor.svotc_current_price') | round(2) }} kr"
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/energy
+  
+  # Offset indicator
+  - type: template
+    icon: mdi:thermometer-lines
+    icon_color: |-
+      {% set offset = states('input_number.svotc_applied_offset_c') | float(0) %}
+      {% if offset > 3 %} red
+      {% elif offset < -3 %} blue
+      {% elif offset | abs > 1 %} orange
+      {% else %} grey
+      {% endif %}
+    content: |-
+      {% set offset = states('input_number.svotc_applied_offset_c') | float(0) %}
+      {% if offset > 0 %}+{% endif %}{{ offset | round(1) }}°
+    tap_action:
+      action: more-info
+      entity: input_number.svotc_applied_offset_c
+```
+
+---
+
+## Animerat Status-kort med gradient
+
+```yaml
+# ============================================
+# SVOTC ANIMATED STATUS CARD
+# ============================================
+type: custom:mushroom-template-card
+primary: SVOTC Smart Värmestyrning
+secondary: |-
+  {% set reason = states('input_text.svotc_reason_code') %}
+  {% set indoor = states('sensor.svotc_src_indoor') %}
+  {% set offset = states('input_number.svotc_applied_offset_c') %}
+  {% if reason == 'MCP' %}
+    🧠 Optimerar vid billigt pris • {{ indoor }}°C • Offset {{ offset }}°C
+  {% elif reason == 'PRICE_BRAKE' %}
+    ❄️ Bromsar vid högt pris • {{ indoor }}°C • Offset {{ offset }}°C
+  {% elif reason == 'COMFORT_GUARD' %}
+    🛡️ Skyddar komfort • {{ indoor }}°C • Offset {{ offset }}°C
+  {% else %}
+    ✓ Normal drift • {{ indoor }}°C • Offset {{ offset }}°C
+  {% endif %}
+icon: |-
+  {% set reason = states('input_text.svotc_reason_code') %}
+  {% if reason == 'MCP' %} mdi:brain
+  {% elif reason == 'PRICE_BRAKE' %} mdi:snowflake-alert
+  {% elif reason == 'COMFORT_GUARD' %} mdi:shield-home
+  {% else %} mdi:home-thermometer
+  {% endif %}
+icon_color: |-
+  {% set reason = states('input_text.svotc_reason_code') %}
+  {% if reason == 'MCP' %} green
+  {% elif reason == 'PRICE_BRAKE' %} blue
+  {% elif reason == 'COMFORT_GUARD' %} orange
+  {% else %} grey
+  {% endif %}
+tap_action:
+  action: navigate
+  navigation_path: /lovelace/svotc
+card_mod:
+  style: |
+    ha-card {
+      {% set reason = states('input_text.svotc_reason_code') %}
+      {% if reason == 'MCP' %}
+        background: linear-gradient(135deg, rgba(76, 175, 80, 0.15) 0%, rgba(76, 175, 80, 0.05) 100%);
+        border: 1px solid rgba(76, 175, 80, 0.3);
+      {% elif reason == 'PRICE_BRAKE' %}
+        background: linear-gradient(135deg, rgba(33, 150, 243, 0.15) 0%, rgba(33, 150, 243, 0.05) 100%);
+        border: 1px solid rgba(33, 150, 243, 0.3);
+      {% elif reason == 'COMFORT_GUARD' %}
+        background: linear-gradient(135deg, rgba(255, 152, 0, 0.15) 0%, rgba(255, 152, 0, 0.05) 100%);
+        border: 1px solid rgba(255, 152, 0, 0.3);
+      {% endif %}
+      transition: all 0.3s ease;
+    }
+```
+
+---
+
+## Widget för Apple Watch / Mobil Widget
+
+```yaml
+# ============================================
+# MINI WIDGET - För små utrymmen
+# ============================================
+type: custom:mushroom-entity-card
+entity: sensor.svotc_status
+name: SVOTC
+icon: |-
+  {% set reason = states('input_text.svotc_reason_code') %}
+  {% if reason == 'MCP' %} mdi:brain
+  {% elif reason == 'PRICE_BRAKE' %} mdi:snowflake-alert
+  {% elif reason == 'COMFORT_GUARD' %} mdi:shield-home
+  {% else %} mdi:home-thermometer
+  {% endif %}
+icon_color: |-
+  {% set reason = states('input_text.svotc_reason_code') %}
+  {% if reason == 'MCP' %} green
+  {% elif reason == 'PRICE_BRAKE' %} blue
+  {% elif reason == 'COMFORT_GUARD' %} orange
+  {% else %} grey
+  {% endif %}
+primary_info: state
+secondary_info: none
+tap_action:
+  action: navigate
+  navigation_path: /lovelace/svotc
+layout: vertical
+fill_container: false
+card_mod:
+  style: |
+    ha-card {
+      height: 100px;
+      border-radius: 16px;
+    }
+```
