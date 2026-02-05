@@ -178,7 +178,10 @@ input_text:
   svotc_entity_outdoor:
     name: "Outdoor temperature entity"
     initial: "sensor.temperatur_nu"
-
+    # Ändra till din elpris-sensor
+    # Måste ha attributes: current_price, raw_today, raw_tomorrow
+    # Kompatibel med Nordpool/Tibber HACS-integrationen
+    
   svotc_entity_price:
     name: "Price entity"
     initial: "sensor.nordpool_tibber"
@@ -190,6 +193,10 @@ input_text:
 #   svotc_entity_price_tomorrow:
 #     name: "SVOTC Entity: Price tomorrow (official Nordpool)"
 #     initial: "sensor.tomorrow_price"
+
+#   svotc_entity_price_current:
+#     name: "SVOTC Entity: Price current (official Nordpool)"
+#     initial: "sensor.current_price"
 
   svotc_notifier:
     name: "Notifier service"
