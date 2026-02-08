@@ -1,0 +1,241 @@
+input_number:
+  tibber_addon_ore_per_kwh:
+    name: "Tibber påslag (öre/kWh)"
+    min: 0
+    max: 20
+    step: 0.01
+    unit_of_measurement: "öre/kWh"
+    mode: box
+    icon: mdi:plus-circle
+
+  tibber_vat_percent:
+    name: "Moms (%)"
+    min: 0
+    max: 30
+    step: 0.1
+    unit_of_measurement: "%"
+    mode: box
+    icon: mdi:percent
+    
+template:
+  - trigger:
+      - platform: time_pattern
+        minutes: "/10"
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id:
+          - input_number.tibber_addon_ore_per_kwh
+          - input_number.tibber_vat_percent
+
+    action:
+      - action: nordpool.get_prices_for_date
+        data:
+          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T
+          date: "{{ now().date() }}"
+          areas: SE3
+          currency: SEK
+        response_variable: today_price
+
+      - action: nordpool.get_prices_for_date
+        data:
+          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T
+          date: "{{ now().date() + timedelta(days=1) }}"
+          areas: SE3
+          currency: SEK
+        response_variable: tomorrow_price
+
+    sensor:
+      - name: "Nordpool (Offical)"
+        unique_id: nordpool_offical
+        device_class: monetary
+        unit_of_measurement: "SEK/kWh"
+        state_class: measurement
+        icon: mdi:flash
+
+        availability: >
+          {% set entries = today_price.get('SE3', []) %}
+          {{ entries | length > 0 }}
+
+        state: >
+          {% set addon_ore_per_kwh = states('input_number.tibber_addon_ore_per_kwh') | float(0) %}
+          {% set vat_percent = states('input_number.tibber_vat_percent') | float(0) %}
+          {% set addon_sek = addon_ore_per_kwh / 100 %}
+          {% set vat_mult = 1 + (vat_percent / 100) %}
+
+          {% set entries = today_price.get('SE3', []) %}
+          {% set now_ts = now().timestamp() %}
+          {% set ns = namespace(v=None) %}
+          {% for s in entries %}
+            {% if as_timestamp(s.start) <= now_ts < as_timestamp(s.end) %}
+              {% set base = (s.price / 1000) | float(0) %}
+              {% set ns.v = (base + addon_sek) * vat_mult %}
+              {% break %}
+            {% endif %}
+          {% endfor %}
+          {{ (ns.v | round(3)) if ns.v is not none else 'unavailable' }}
+
+        attributes:
+          unit: kWh
+          currency: SEK
+          country: Sweden
+          region: SE3
+
+          tibber_addon_ore_per_kwh: "{{ states('input_number.tibber_addon_ore_per_kwh') | float(0) }}"
+          tibber_vat_percent: "{{ states('input_number.tibber_vat_percent') | float(0) }}"
+
+          current_price: >
+            {% set addon_ore_per_kwh = states('input_number.tibber_addon_ore_per_kwh') | float(0) %}
+            {% set vat_percent = states('input_number.tibber_vat_percent') | float(0) %}
+            {% set addon_sek = addon_ore_per_kwh / 100 %}
+            {% set vat_mult = 1 + (vat_percent / 100) %}
+         
+            {% set now_ts = as_timestamp(now()) %}
+            {% set entries = (today_price.get('SE3', []) + tomorrow_price.get('SE3', [])) %}
+            {% set ns = namespace(p=none) %}
+        
+            {% for s in entries %}
+              {% set st = as_timestamp(s.start, default=none) %}
+              {% set en = as_timestamp(s.end, default=none) %}
+              {% if st is number and en is number and st <= now_ts < en %}
+                {% set base = (s.price/1000) | float(0) %}
+                {% set ns.p = ((base + addon_sek) * vat_mult) | round(3) %}
+              {% endif %}
+            {% endfor %}
+        
+            {{ ns.p if ns.p is not none else 'unavailable' }}
+
+          tomorrow_valid: >
+            {{ (tomorrow_price.get('SE3', []) | length) > 0 }}
+
+          min: >
+            {% set addon_ore_per_kwh = states('input_number.tibber_addon_ore_per_kwh') | float(0) %}
+            {% set vat_percent = states('input_number.tibber_vat_percent') | float(0) %}
+            {% set addon_sek = addon_ore_per_kwh / 100 %}
+            {% set vat_mult = 1 + (vat_percent / 100) %}
+            {% set entries = today_price.get('SE3', []) %}
+            {% if entries | length > 0 %}
+              {% set base_min = ((entries | map(attribute='price') | map('float') | list | min) / 1000) %}
+              {{ ((base_min + addon_sek) * vat_mult) | round(3) }}
+            {% else %}unavailable{% endif %}
+
+          max: >
+            {% set addon_ore_per_kwh = states('input_number.tibber_addon_ore_per_kwh') | float(0) %}
+            {% set vat_percent = states('input_number.tibber_vat_percent') | float(0) %}
+            {% set addon_sek = addon_ore_per_kwh / 100 %}
+            {% set vat_mult = 1 + (vat_percent / 100) %}
+            {% set entries = today_price.get('SE3', []) %}
+            {% if entries | length > 0 %}
+              {% set base_max = ((entries | map(attribute='price') | map('float') | list | max) / 1000) %}
+              {{ ((base_max + addon_sek) * vat_mult) | round(3) }}
+            {% else %}unavailable{% endif %}
+
+          today: >
+            {% set addon_ore_per_kwh = states('input_number.tibber_addon_ore_per_kwh') | float(0) %}
+            {% set vat_percent = states('input_number.tibber_vat_percent') | float(0) %}
+            {% set addon_sek = addon_ore_per_kwh / 100 %}
+            {% set vat_mult = 1 + (vat_percent / 100) %}
+            {% set e = today_price.get('SE3', []) %}
+            {% set ns = namespace(vals=[]) %}
+            {% for s in e %}
+              {% set base = (s.price/1000) | float(0) %}
+              {% set ns.vals = ns.vals + [((base + addon_sek) * vat_mult) | round(3)] %}
+            {% endfor %}
+            {{ ns.vals }}
+
+          tomorrow: >
+            {% set e = tomorrow_price.get('SE3', []) %}
+            {% if e | length == 0 %}
+              []
+            {% else %}
+              {% set addon_ore_per_kwh = states('input_number.tibber_addon_ore_per_kwh') | float(0) %}
+              {% set vat_percent = states('input_number.tibber_vat_percent') | float(0) %}
+              {% set addon_sek = addon_ore_per_kwh / 100 %}
+              {% set vat_mult = 1 + (vat_percent / 100) %}
+              {% set ns = namespace(vals=[]) %}
+              {% for s in e %}
+                {% set base = (s.price/1000) | float(0) %}
+                {% set ns.vals = ns.vals + [((base + addon_sek) * vat_mult) | round(3)] %}
+              {% endfor %}
+              {{ ns.vals }}
+            {% endif %}
+
+          raw_today: >
+            {% set addon_ore_per_kwh = states('input_number.tibber_addon_ore_per_kwh') | float(0) %}
+            {% set vat_percent = states('input_number.tibber_vat_percent') | float(0) %}
+            {% set addon_sek = addon_ore_per_kwh / 100 %}
+            {% set vat_mult = 1 + (vat_percent / 100) %}
+            {% set e = today_price.get('SE3', []) %}
+            {% set ns = namespace(r=[]) %}
+            {% for s in e %}
+              {% set base = (s.price/1000) | float(0) %}
+              {% set val = ((base + addon_sek) * vat_mult) %}
+              {% set ns.r = ns.r + [{
+                'start': (s.start | as_datetime | as_local).isoformat(),
+                'end': (s.end | as_datetime | as_local).isoformat(),
+                'value': (val | round(3))
+              }] %}
+            {% endfor %}
+            {{ ns.r }}
+
+          raw_tomorrow: >
+            {% set e = tomorrow_price.get('SE3', []) %}
+            {% if e | length == 0 %}
+              []
+            {% else %}
+              {% set addon_ore_per_kwh = states('input_number.tibber_addon_ore_per_kwh') | float(0) %}
+              {% set vat_percent = states('input_number.tibber_vat_percent') | float(0) %}
+              {% set addon_sek = addon_ore_per_kwh / 100 %}
+              {% set vat_mult = 1 + (vat_percent / 100) %}
+              {% set ns = namespace(r=[]) %}
+              {% for s in e %}
+                {% set base = (s.price/1000) | float(0) %}
+                {% set val = ((base + addon_sek) * vat_mult) %}
+                {% set ns.r = ns.r + [{
+                  'start': (s.start | as_datetime | as_local).isoformat(),
+                  'end': (s.end | as_datetime | as_local).isoformat(),
+                  'value': (val | round(3))
+                }] %}
+              {% endfor %}
+              {{ ns.r }}
+            {% endif %}
+
+
+
+    #   # --- ELPRISKOEFFICIENT (BASERAD PÅ NYA SENSORN) ---
+    #   - name: "Elpriskoefficient"
+    #     unique_id: elpriskoefficient_se3
+    #     unit_of_measurement: ""
+    #     state: >
+    #       {% set elpris = states('sensor.nordpool_tibber_style') | float(none) %}
+    #       {% set elpris_max = state_attr('sensor.nordpool_tibber_style', 'max') | float(none) %}
+    #       {% set elpris_min = state_attr('sensor.nordpool_tibber_style', 'min') | float(none) %}
+          
+    #       {% if elpris is none or elpris_max is none or elpris_min is none or elpris_max <= 0 %}
+    #         {{ this.state | default(0) }}
+    #       {% else %}
+    #         {% set elpris_graens = (elpris_max - elpris_min) * (1.3 * (elpris_max ** -0.7)) * (1 / (1 + elpris_min * 0.25)) + elpris_min %}
+    #         {{ (elpris / elpris_graens) | round(2) }}
+    #       {% endif %}
+
+    # binary_sensor:
+    #   - name: "Elpris OK"
+    #     unique_id: elpris_ok
+    #     state: >
+    #       {% set k = states('sensor.elpriskoefficient_se3') | float(none) %}
+    #       {% set t = states('sensor.ute_temperatur_met') | float(none) %}
+    #       {{ (k is not none) and (t is not none) and (k < 1) and (t < 3) }}
+
+    #   - name: "Kort peak nu"
+    #     unique_id: kort_peak_nu
+    #     state: >
+    #       {% set k_now = states('sensor.elpriskoefficient_se3') | float(none) %}
+    #       {% set entries = state_attr('sensor.nordpool_tibber_style', 'today') %}
+    #       {# Vi behöver kolla index för att veta föregående/nästa kvartal #}
+    #       {% if k_now is not none and entries | length > 2 %}
+    #         {# Logik för att hitta nuvarande index kan vara komplex vid kvartal, 
+    #           här förenklat: om k > 1 är det peak #}
+    #         {{ k_now >= 1.0 }}
+    #       {% else %}
+    #         false
+        #   {% endif %}
