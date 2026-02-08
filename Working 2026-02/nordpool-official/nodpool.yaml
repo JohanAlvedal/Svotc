@@ -31,7 +31,7 @@ template:
     action:
       - action: nordpool.get_prices_for_date
         data:
-          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T
+          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T    # <-- OBS VIKTIGT Ändra HÄR 
           date: "{{ now().date() }}"
           areas: SE3
           currency: SEK
@@ -39,7 +39,7 @@ template:
 
       - action: nordpool.get_prices_for_date
         data:
-          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T
+          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T    # <-- OBS VIKTIGT Ändra HÄR 
           date: "{{ now().date() + timedelta(days=1) }}"
           areas: SE3
           currency: SEK
