@@ -2,7 +2,7 @@
 
 ## 🎯 Vad är detta?
 
-En enkel adapter som gör den **officiella Nordpool-integrationen** kompatibel med SVOTC.
+En enkelt paket som gör den **officiella Nordpool-integrationen** kompatibel med SVOTC.
 
 SVOTC behöver specifika attribut som `current_price`, `raw_today`, och `raw_tomorrow`. Den officiella Nordpool-integrationen har inte dessa attribut direkt, så denna fil skapar en ny sensor som har dem.
 
