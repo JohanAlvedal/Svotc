@@ -3,188 +3,152 @@
 SVOTC is a minimal, drift-safe Home Assistant custom integration that generates a **virtual outdoor temperature** value.  
 By gently adjusting a *virtual* outdoor temperature (instead of changing your heat pump setpoints directly), SVOTC can reduce heating during expensive hours and increase heating during cheap hours — while prioritizing indoor comfort and stability.
 
-The main output is a single sensor:
+# SVOTC – Stable Core Edition (2026-02)
 
-- `sensor.svotc`  
-  **State:** Virtual outdoor temperature (°C)  
-  **Attributes:** Status, reason codes, offset, targets, and diagnostics
+SVOTC (Smart Virtual Outdoor Temperature Control) styr värmepumpen **indirekt** genom att skapa en *virtuell utetemperatur*.
 
----
+I stället för att slå av/på pumpen eller ändra börvärden aggressivt, justerar SVOTC en **offset (°C)** som adderas till verklig utetemperatur:
 
-## What it does (current behavior)
+- **Positiv offset** → “varmare ute” → värmepumpen drar ner (pris-broms)
+- **Negativ offset** → “kallare ute” → värmepumpen drar upp (komfort-skydd)
 
-SVOTC decides a **target offset** (in °C) and applies it to the real outdoor temperature:
-
-- **Expensive electricity** → **Brake** heating by increasing the virtual outdoor temperature
-- **Cheap electricity** → **Boost** heating by decreasing the virtual outdoor temperature
-- **Neutral price** → no change (bypass), unless a cold-forecast rule requires boosting
-- **Safety first:** if indoor temperature is too low, SVOTC boosts regardless of price
-
-The output is always **rate-limited and clamped** to avoid sudden jumps and unstable behavior.
+Designmål:
+- Stabilt (ingen fladdrig prisspik-styrning)
+- Förklarbart (reason codes)
+- Layered arkitektur: sensing → stabilisering → planering → ramp-limited execution
 
 ---
 
-## Core controls (created by the integration)
+## 1) Krav
 
-SVOTC creates the following entities:
+Du behöver:
+- Home Assistant
+- En innetemperatur-sensor (t.ex. `sensor.inomhusmedel`)
+- En utetemperatur-sensor (t.ex. `sensor.temperatur_nu`)
+- Elpris-sensor (Nordpool/Tibber HACS-stil) som har attribut:
+  - `current_price`
+  - `raw_today` (lista av `{start,end,value}`)
+  - `raw_tomorrow` (lista av `{start,end,value}`)
 
-### Main output
-- `sensor.svotc` — Virtual outdoor temperature (°C)
-
-### User controls
-- `number.svotc_brake` (0–5) — Brake aggressiveness  
-- `number.svotc_heat` (0–5) — Heat/boost aggressiveness  
-- `number.svotc_comfort` (°C) — Comfort target temperature  
-- `number.svotc_vacation` (°C) — Vacation target temperature  
-- `select.svotc_mode` — `Off`, `Smart`, `Vacation`
-
-No Home Assistant helpers (`input_number`, `input_select`, etc.) are required.
+> Standard i koden är `sensor.nordpool_tibber`.
 
 ---
 
-## Aggressiveness mapping
+## 2) Installation (kort)
 
-### Brake mapping (`number.svotc_brake`)
-| Level | Offset (°C) |
-|------:|------------:|
-| 0 | +0 |
-| 1 | +3 |
-| 2 | +5 |
-| 3 | +7 |
-| 4 | +9 |
-| 5 | +10 |
-
-### Heat/boost mapping (`number.svotc_heat`)
-| Level | Offset (°C) |
-|------:|------------:|
-| 0 | 0 |
-| 1 | -1 |
-| 2 | -2 |
-| 3 | -3 |
-| 4 | -4 |
-| 5 | -5 |
+1. Lägg YAML-filen i t.ex. `packages/svotc.yaml`
+2. Aktivera packages i `configuration.yaml` (om du inte redan gjort det)
+3. Starta om Home Assistant
+4. Gå till **Inställningar → Enheter & tjänster → Hjälpare** och verifiera att SVOTC-helpers skapats
 
 ---
 
-## Modes
+## 3) Viktigast att ändra: Entity mapping (peka på dina sensorer)
 
-### Off
-- SVOTC runs in **bypass** mode:
-  - virtual outdoor temp = real outdoor temp
+Dessa tre helpers är “mappningen” – de gör att du slipper ändra koden på massa ställen:
 
-### Smart
-- Uses electricity price data when available.
-- Uses weather forecast only for a single minimal override (see below).
-- Always uses a safety anchor if indoor temperature is available.
+- `input_text.svotc_entity_indoor`  → din innetemp-sensor
+- `input_text.svotc_entity_outdoor` → din utetemp-sensor
+- `input_text.svotc_entity_price`   → din elpris-sensor
 
-### Vacation
-- Uses `number.svotc_vacation` as the target temperature.
-- Safety anchor is active if indoor temperature is available.
+Exempel:
+- Indoor: `sensor.inomhusmedel`
+- Outdoor: `sensor.temperatur_nu`
+- Price:  `sensor.nordpool_tibber`
 
----
-
-## Minimal forecast logic (v1)
-
-SVOTC only uses forecast for one purpose: **avoid falling behind when colder weather is imminent**.
-
-If all conditions below are true:
-
-- `indoor_temp < dynamic_target + 0.2°C`
-- `forecast_outdoor_min_next_6h < current_outdoor - 2.0°C`
-
-Then SVOTC allows heat boosting even if the price is neutral, with:
-
-- `reason_code = FORECAST_HEAT_NEED`
-- `status = "Boosting (cold forecast ahead)"`
-
-SVOTC does not implement warm-day / night-brake behavior in v1.
+> Tips: Ändra dem i UI (Hjälpare), så överlever det om du uppdaterar YAML senare.
 
 ---
 
-## Price classification (A-model)
+## 4) Lovelace – “Setup & Control” kort (det här är kortet du ändrar)
 
-SVOTC classifies prices into three states:
+Detta kort är gjort för att vara UI-vänligt.
+Det visar:
+- vad du ska ändra (mapping)
+- driftläge
+- viktiga reglage
+- diagnoser + utdata (requested/applied, virtual outdoor temp)
 
-- `cheap` if price is at or below the **30th percentile (P30)**
-- `expensive` if price is at or above the **70th percentile (P70)**
-- `neutral` otherwise
+### 4.1 Entities-kort (rekommenderas)
 
-Percentiles are computed over the available prices for the **remaining day**, including tomorrow if available (Tibber-like behavior).
+Kopiera detta till en Lovelace dashboard (YAML-läge för kortet):
 
----
+```yaml
+type: entities
+title: SVOTC – Setup & Control
+show_header_toggle: false
+entities:
+  - type: section
+    label: "1) Entity mapping (ÄNDRA HÄR)"
+  - entity: input_text.svotc_entity_indoor
+    name: "Indoor temp entity"
+  - entity: input_text.svotc_entity_outdoor
+    name: "Outdoor temp entity"
+  - entity: input_text.svotc_entity_price
+    name: "Price entity"
 
-## Drift-safe behavior (anti-jumps, fallbacks, restarts)
+  - type: section
+    label: "2) Mode"
+  - entity: input_select.svotc_mode
+    name: "Mode (Off/Smart/PassThrough/ComfortOnly)"
 
-### Update interval
-- SVOTC updates every **60 seconds**.
+  - type: section
+    label: "3) Comfort guard (skydd mot för kallt)"
+  - entity: input_number.svotc_comfort_temperature
+    name: "Target temp"
+  - entity: input_number.svotc_comfort_guard_activate_below_c
+    name: "Activate below (°C under target)"
+  - entity: input_number.svotc_comfort_guard_deactivate_above_c
+    name: "Deactivate above (°C under target)"
+  - entity: input_number.svotc_heat_aggressiveness
+    name: "Heat aggressiveness (boost)"
 
-### Startup grace period
-- After Home Assistant startup, SVOTC waits **60 seconds** before emitting warnings.
-- During grace, it prefers holding or bypass behavior without log noise.
+  - type: section
+    label: "4) Price braking"
+  - entity: input_number.svotc_brake_aggressiveness
+    name: "Brake aggressiveness (look-ahead)"
+  - entity: input_number.svotc_brake_hold_offset_c
+    name: "Brake hold offset (°C)"
 
-### Short glitches
-- If critical inputs are temporarily missing, SVOTC **holds the last output** for up to **60 seconds**.
+  - type: section
+    label: "5) Stability & rate limit"
+  - entity: input_number.svotc_max_delta_per_step_c
+    name: "Max delta per minute (°C/min)"
 
-### Longer outages
-- If missing inputs last longer than 60 seconds, SVOTC switches to **bypass** when possible:
-  - virtual outdoor = real outdoor
-- If real outdoor temperature is also unavailable, SVOTC continues to hold the last output and reports the issue via status and logs.
+  - type: section
+    label: "6) Diagnostics"
+  - entity: sensor.svotc_src_indoor
+    name: "Indoor (validated)"
+  - entity: sensor.svotc_src_outdoor
+    name: "Outdoor (validated)"
+  - entity: sensor.svotc_current_price
+    name: "Current price (mirror)"
+  - entity: sensor.svotc_p30
+    name: "P30"
+  - entity: sensor.svotc_p80
+    name: "P80"
+  - entity: sensor.svotc_raw_price_state
+    name: "Raw price state (instant)"
+  - entity: input_text.svotc_last_price_state
+    name: "Stable price state (dwell)"
+  - entity: sensor.svotc_prebrake_strength
+    name: "Prebrake strength (0..1)"
+  - entity: input_text.svotc_brake_phase
+    name: "Brake phase"
+  - entity: binary_sensor.svotc_comfort_guard_active
+    name: "Comfort guard active"
+  - entity: binary_sensor.svotc_inputs_healthy
+    name: "Inputs healthy"
+  - entity: binary_sensor.svotc_price_available
+    name: "Price available"
+  - entity: input_text.svotc_reason_code
+    name: "Reason code"
 
-### Ramping (rate limiting)
-- SVOTC never jumps directly to a new offset.
-- It ramps toward the target offset smoothly over **20 minutes**.
-
-### Clamps
-- Virtual outdoor temperature is clamped to **-25°C .. +25°C**.
-
----
-
-## Data availability matrix
-
-SVOTC behaves predictably depending on which inputs are available:
-
-1. **Price + Forecast available**  
-   → Full Smart (price + minimal forecast override + safety)
-
-2. **Price only**  
-   → Smart (price only + safety)
-
-3. **Forecast only**  
-   → Bypass + safety
-
-4. **Neither price nor forecast**  
-   → Bypass (and safety if indoor temp exists)
-
----
-
-## `sensor.svotc` attributes
-
-The main `sensor.svotc` exposes useful diagnostics as attributes (keys in English), typically including:
-
-- `status` — human-readable explanation
-- `reason_code` — short reason code
-- `offset_c` — current applied offset (°C)
-- `mode` — Off/Smart/Vacation
-- `dynamic_target_c` — currently active target temperature (°C)
-- `indoor_temp_c` — current indoor temperature (°C) if available
-- `outdoor_temp_c` — current outdoor temperature (°C) if available
-- `price_state` — cheap/neutral/expensive/unknown
-- `forecast_min_next_6h_c` — forecast min (°C) if available
-- `startup_grace_active` — true/false
-
-Exact attributes may expand slightly over time, but the core set is kept minimal.
-
----
-
-## Notes
-
-- SVOTC is designed to be **predictable, stable, and easy to understand**.
-- It does not require any helpers.
-- It can run without price and/or weather data and will safely fall back to bypass behavior while reporting degraded states.
-- Existing entities may keep their old entity IDs in the entity registry; remove and re-add the integration (or delete the old entities from the entity registry) to get the shorter `sensor.svotc` / `number.svotc_*` / `select.svotc_mode` IDs.
-
----
-
-**Disclaimer:** *Manipulating heating systems carries risks. Ensure your system has hardware-level safety limits and that you understand the thermal characteristics of your building before applying aggressive offsets.*
-
----
+  - type: section
+    label: "7) Outputs"
+  - entity: input_number.svotc_requested_offset_c
+    name: "Requested offset (engine)"
+  - entity: input_number.svotc_applied_offset_c
+    name: "Applied offset (ramp-limited)"
+  - entity: sensor.svotc_virtual_outdoor_temperature
+    name: "Virtual outdoor temperature"
