@@ -1,4 +1,4 @@
-# Nordpool Adapter för SVOTC
+# Nordpool Paket för SVOTC
 
 ## 🎯 Vad är detta?
 
