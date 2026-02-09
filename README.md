@@ -1,15 +1,15 @@
+````markdown
 # SVOTC – Stable Core Edition (2026-02)
-
 **Smart Virtual Outdoor Temperature Control**
 
-SVOTC styr din värmepump **indirekt** genom att skapa en *virtuell utetemperatur* som värmepumpen använder för sina kurvor.
+SVOTC styr din värmepump **indirekt** genom att skapa en *virtuell utetemperatur* som värmepumpen kan använda i sina kurvor.
 
 I stället för att slå av/på pumpen eller ändra börvärden aggressivt, justerar SVOTC en **offset (°C)** som adderas till verklig utetemperatur:
 
-- **Positiv offset** (+2°C) → "varmare ute" → värmepumpen drar ner värme (pris-broms)
-- **Negativ offset** (−1°C) → "kallare ute" → värmepumpen drar upp värme (komfort-skydd)
+- **Positiv offset** (+2°C) → "varmare ute" → värmepumpen drar ner värme (**pris-broms**)
+- **Negativ offset** (−1°C) → "kallare ute" → värmepumpen drar upp värme (**komfort-skydd**)
 
-**Designmål:**
+**Designmål**
 - 🎯 Stabilt (ingen fladdrig prisspik-styrning)
 - 📊 Förklarbart (reason codes visar varför beslut tas)
 - 🏗️ Layered arkitektur: sensing → stabilisering → planering → ramp-limited execution
@@ -17,653 +17,957 @@ I stället för att slå av/på pumpen eller ändra börvärden aggressivt, just
 ---
 
 ## 📋 Innehållsförteckning
-
 1. [Krav](#1-krav)
 2. [Installation](#2-installation)
 3. [Första gången du kör SVOTC](#3-första-gången-du-kör-svotc-5-minuters-setup)
 4. [Entity mapping](#4-entity-mapping-viktigast-att-ändra)
-5. [Lovelace dashboard](#5-lovelace-dashboard)
-6. [Felsökning](#6-felsökning)
-7. [Hur systemet fungerar](#7-hur-systemet-fungerar)
-8. [Rekommenderade startvärden](#8-rekommenderade-startvärden-defaults)
-9. [Reason codes](#9-reason-codes-vad-betyder-de)
-10. [FAQ](#10-faq)
-11. [Avancerat: Brake phase timing](#11-avancerat-brake-phase-timing)
-12. [License](#12-license--disclaimer)
+5. [Lovelace dashboards](#5-lovelace-dashboards)
+   - [5.1 Krav (HACS / custom cards)](#51-krav-hacs--custom-cards)
+   - [5.2 Importguide: så lägger du in YAML-dashboards](#52-importguide-så-lägger-du-in-yaml-dashboards)
+   - [5.3 Minimal dashboard (utan custom cards)](#53-minimal-dashboard-utan-custom-cards)
+   - [5.4 Färdiga dashboards (copy/paste)](#54-färdiga-dashboards-copypaste)
+7. [Felsökning](#6-felsökning)
+8. [Hur systemet fungerar](#7-hur-systemet-fungerar)
+9. [Rekommenderade startvärden](#8-rekommenderade-startvärden-defaults)
+10. [Reason codes](#9-reason-codes-vad-betyder-de)
+11. [FAQ](#10-faq)
+12. [Avancerat: Brake phase timing](#11-avancerat-brake-phase-timing)
+13. [License](#12-license--disclaimer)
 
 ---
 
 ## 1) Krav
-
 Du behöver:
-- ✅ **Home Assistant** (2024.1 eller senare rekommenderas)
-- ✅ **Innetemperatur-sensor** (t.ex. `sensor.inomhusmedel`)
-- ✅ **Utetemperatur-sensor** (t.ex. `sensor.temperatur_nu`)
-- ✅ **Elpris-sensor** (Nordpool/Tibber HACS-stil) med attribut:
-  - `current_price` (aktuellt pris)
+- ✅ Home Assistant (modern version rekommenderas)
+- ✅ Innetemperatur-sensor (t.ex. `sensor.inomhusmedel`)
+- ✅ Utetemperatur-sensor (t.ex. `sensor.temperatur_nu`)
+- ✅ Elpris-sensor (Nordpool/Tibber) med attribut:
+  - `current_price`
   - `raw_today` (lista av `{start, end, value}`)
   - `raw_tomorrow` (lista av `{start, end, value}`)
 
-> **Standard i koden:** `sensor.nordpool_tibber`
+> SVOTC läser prissensorn via **entity mapping** (input_text). Ingen hårdkodad prissensor används i denna Stable Core-version.
 
 ---
 
 ## 2) Installation
 
 ### Steg 1: Lägg till YAML-filen
+Lägg filen i din packages-mapp, t.ex:
 ```bash
-# Lägg filen i packages-mappen
 /config/packages/svotc.yaml
+````
 
+### Steg 2: Aktivera packages (om du inte redan har)
 
-Steg 2: Aktivera packages
-I configuration.yaml, lägg till (om inte redan aktiverat):
+I `configuration.yaml`:
 
+```yaml
 homeassistant:
   packages: !include_dir_named packages
+```
 
+### Steg 3: Starta om Home Assistant
 
-Steg 3: Starta om Home Assistant
-	∙	Gå till Inställningar → System → Starta om
-	∙	Vänta ~1 minut
-Steg 4: Verifiera installation
-	∙	Gå till Inställningar → Enheter & tjänster → Hjälpare
-	∙	Sök på “SVOTC”
-	∙	Du ska se ~30 helpers (input_number, input_select, input_text etc.)
-
-3) Första gången du kör SVOTC (5-minuters setup)
-⏱️ Snabbstart
-	1.	Installera (enligt steg 2 ovan)
-	2.	Vänta 1 minut (automationer startar)
-	3.	Öppna Hjälpare i Home Assistant
-	4.	Sök på “SVOTC”
-	5.	Sätt entity mapping (se nästa avsnitt):
-	∙	Indoor → din innetemp-sensor
-	∙	Outdoor → din utetemp-sensor
-	∙	Price → din elpris-sensor
-	6.	Sätt Mode = Smart
-	7.	Vänta 2 minuter
-	8.	Kontrollera:
-	∙	✅ binary_sensor.svotc_inputs_healthy = ON
-	∙	✅ input_text.svotc_reason_code visar INTE “MISSING_INPUTS”
-	∙	✅ sensor.svotc_virtual_outdoor_temperature har ett rimligt värde
-Om något är fel: Gå till avsnitt 6 (Felsökning)
-
-4) Entity mapping (viktigast att ändra)
-Dessa tre helpers pekar SVOTC till dina sensorer. Du MÅSTE ändra dem.
-
-
-
-|Helper                           |Vad            |Standard                |Din sensor        |
-|---------------------------------|---------------|------------------------|------------------|
-|`input_text.svotc_entity_indoor` |Innetemp-sensor|`sensor.inomhusmedel`   |`sensor.DIN_INNE` |
-|`input_text.svotc_entity_outdoor`|Utetemp-sensor |`sensor.temperatur_nu`  |`sensor.DIN_UTE`  |
-|`input_text.svotc_entity_price`  |Elpris-sensor  |`sensor.nordpool_tibber`|`sensor.DITT_PRIS`|
-
-Hur man ändrar (UI-metod, rekommenderas)
-	1.	Gå till Hjälpare (Developer Tools → States)
-	2.	Sök på svotc_entity
-	3.	Klicka på varje helper
-	4.	Skriv in din entity_id
-	5.	Spara
-✅ Tips: Använd UI-metoden så överlever inställningarna om du uppdaterar YAML senare.
-
-5) Lovelace dashboard
-5.1 Snabbkort (nybörjare)
-För dig som bara vill sätta igång snabbt:
-
-type: entities
-title: SVOTC – Snabbkontroll
-entities:
-  # Setup (EN GÅNG)
-  - entity: input_text.svotc_entity_indoor
-    name: "📍 Innetemp-sensor"
-  - entity: input_text.svotc_entity_outdoor
-    name: "🌡️ Utetemp-sensor"
-  - entity: input_text.svotc_entity_price
-    name: "💰 Elpris-sensor"
-  
-  # Drift
-  - type: section
-    label: "Läge & komfort"
-  - entity: input_select.svotc_mode
-    name: "Mode"
-  - entity: input_number.svotc_comfort_temperature
-    name: "Target temp"
-  
-  # Status (läs av)
-  - type: section
-    label: "Status"
-  - entity: binary_sensor.svotc_inputs_healthy
-    name: "✅ System OK?"
-  - entity: binary_sensor.svotc_price_available
-    name: "💰 Pris tillgängligt?"
-  - entity: input_text.svotc_reason_code
-    name: "🔍 Vad gör den nu?"
-  - entity: sensor.svotc_virtual_outdoor_temperature
-    name: "🎯 Virtuell utetemp (till värmepump)"
-
-
-5.2 Fullständigt kort (avancerade användare)
-
-type: entities
-title: SVOTC – Setup & Control
-show_header_toggle: false
-entities:
-  - type: section
-    label: "1) Entity mapping (ÄNDRA HÄR)"
-  - entity: input_text.svotc_entity_indoor
-    name: "Indoor temp entity"
-  - entity: input_text.svotc_entity_outdoor
-    name: "Outdoor temp entity"
-  - entity: input_text.svotc_entity_price
-    name: "Price entity"
-
-  - type: section
-    label: "2) Mode"
-  - entity: input_select.svotc_mode
-    name: "Mode (Off/Smart/PassThrough/ComfortOnly)"
-
-  - type: section
-    label: "3) Comfort guard (skydd mot för kallt)"
-  - entity: input_number.svotc_comfort_temperature
-    name: "Target temp"
-  - entity: input_number.svotc_comfort_guard_activate_below_c
-    name: "Activate below (°C under target)"
-  - entity: input_number.svotc_comfort_guard_deactivate_above_c
-    name: "Deactivate above (°C under target)"
-  - entity: input_number.svotc_heat_aggressiveness
-    name: "Heat aggressiveness (boost)"
-
-  - type: section
-    label: "4) Price braking"
-  - entity: input_number.svotc_brake_aggressiveness
-    name: "Brake aggressiveness (look-ahead)"
-  - entity: input_number.svotc_brake_hold_offset_c
-    name: "Brake hold offset (°C)"
-
-  - type: section
-    label: "5) Stability & rate limit"
-  - entity: input_number.svotc_max_delta_per_step_c
-    name: "Max delta per minute (°C/min)"
-
-  - type: section
-    label: "6) Diagnostics"
-  - entity: sensor.svotc_src_indoor
-    name: "Indoor (validated)"
-  - entity: sensor.svotc_src_outdoor
-    name: "Outdoor (validated)"
-  - entity: sensor.svotc_current_price
-    name: "Current price"
-  - entity: sensor.svotc_p30
-    name: "P30 (billigt under)"
-  - entity: sensor.svotc_p80
-    name: "P80 (dyrt över)"
-  - entity: sensor.svotc_raw_price_state
-    name: "Raw price state (instant)"
-  - entity: input_text.svotc_last_price_state
-    name: "Stable price state (dwell)"
-  - entity: sensor.svotc_prebrake_strength
-    name: "Prebrake strength (0..1)"
-  - entity: input_text.svotc_brake_phase
-    name: "Brake phase"
-  - entity: binary_sensor.svotc_comfort_guard_active
-    name: "Comfort guard active"
-  - entity: binary_sensor.svotc_inputs_healthy
-    name: "Inputs healthy"
-  - entity: binary_sensor.svotc_price_available
-    name: "Price available"
-  - entity: input_text.svotc_reason_code
-    name: "Reason code"
-
-  - type: section
-    label: "7) Outputs"
-  - entity: input_number.svotc_requested_offset_c
-    name: "Requested offset (engine)"
-  - entity: input_number.svotc_applied_offset_c
-    name: "Applied offset (ramp-limited)"
-  - entity: sensor.svotc_virtual_outdoor_temperature
-    name: "Virtual outdoor temperature"
-
-
-6) Felsökning
-🔴 Det händer inget
-Kolla i denna ordning:
-	1.	✅ input_select.svotc_mode = Smart (inte Off/PassThrough)
-	2.	✅ binary_sensor.svotc_inputs_healthy = ON
-	3.	✅ Entity mapping pekar på rätt sensorer:
-	∙	input_text.svotc_entity_indoor
-	∙	input_text.svotc_entity_outdoor
-	∙	input_text.svotc_entity_price
-	4.	✅ input_text.svotc_reason_code för ledtråd:
-	∙	OFF → Mode = Off
-	∙	PASS_THROUGH → Mode = PassThrough
-	∙	MISSING_INPUTS_FREEZE → Sensorer saknas (se nedan)
-🔴 Priset verkar “dött”
-Diagnos:
-	1.	✅ binary_sensor.svotc_price_available = ON?
-	2.	✅ sensor.svotc_current_price visar ett rimligt värde?
-	3.	✅ Verifiera att din prissensor har attribut:
-
-# Developer Tools → States → din prissensor
-attributes:
-  current_price: 1.234
-  raw_today: [{start: ..., end: ..., value: ...}, ...]
-  raw_tomorrow: [...]
-
-
-	4.	✅ Om sensor.svotc_p30 och sensor.svotc_p80 är unknown/none:
-	∙	SVOTC kräver minst 20 priser från raw_today + raw_tomorrow
-	∙	Vanligt problem: kl 13-14 innan morgondagens priser publicerats
-	∙	Lösning: Vänta tills data finns, eller använd ComfortOnly-mode
-
-# I FREEZE-läge:
-requested_offset: 0        # Nollställs
-applied_offset: FROZEN     # Fryses på sista kända värde
-reason_code: MISSING_INPUTS_FREEZE
-
-
-Varför FREEZE är viktigt:
-	∙	Förhindrar att värmepumpen hoppar vilt om sensorer tillfälligt tappas
-	∙	Ingen vertikal “spike” i offset
-	∙	Säkert läge tills sensorer återhämtar sig
-Åtgärd:
-	1.	Kontrollera sensorerna som mapping pekar på:
-	∙	input_text.svotc_entity_indoor
-	∙	input_text.svotc_entity_outdoor
-	2.	Verifiera att de inte är unknown/unavailable:
-	∙	Developer Tools → States → sök din sensor
-	3.	Om sensorn är trasig: Byt sensor i entity mapping
-
-7) Hur systemet fungerar
-🏗️ Arkitektur (layers)
-SVOTC är byggt enligt “layered control”-principen:
-
-┌─────────────────────────────────────────────────────────────┐
-│ 1. SENSING (validerade råinputs)                            │
-│    sensor.svotc_src_indoor                                  │
-│    sensor.svotc_src_outdoor                                 │
-│    sensor.svotc_src_current_price                           │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────────┐
-│ 2. RAW PRICE STATE (instant, ingen memory)                 │
-│    sensor.svotc_raw_price_state                             │
-│    → cheap / neutral / brake                                │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────────┐
-│ 3. DWELL (raw → stable, förhindrar spikar)                 │
-│    Automation: SVOTC Price dwell                            │
-│    Output: input_text.svotc_last_price_state                │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────────┐
-│ 4. FORWARD LOOK (prebrake_strength 0..1)                   │
-│    sensor.svotc_prebrake_strength                           │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────────┐
-│ 5. BRAKE PHASE (undvik att "starta om" varje minut)        │
-│    input_text.svotc_brake_phase                             │
-│    Automation: SVOTC Brake phase controller                 │
-│    → idle / ramping_up / holding / ramping_down             │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────────┐
-│ 6. ENGINE (requested → ramp-limited applied)                │
-│    Automation: SVOTC Engine                                 │
-│    Output: input_number.svotc_requested_offset_c            │
-│            input_number.svotc_applied_offset_c              │
-│    Slutresultat: sensor.svotc_virtual_outdoor_temperature   │
-└─────────────────────────────────────────────────────────────┘
-
-
-🧮 Offset-beräkning (Engine logic)
-
-# Comfort term (negativ offset = mer värme)
-if comfort_guard_active:
-    comfort_term = -(heat_aggressiveness * 0.4)
-    # heat=5 → -2.0°C boost
-else:
-    comfort_term = 0
-
-# Price term (positiv offset = mindre värme)
-if mode == Smart and not comfort_guard_active:
-    price_term = brake_hold_offset * prebrake_strength
-    # hold=2.0, strength=1.0 → +2.0°C bromsning
-else:
-    price_term = 0
-
-# Requested offset
-requested = comfort_term + price_term
-
-# Applied offset (ramp-limited)
-if abs(requested - prev_applied) > max_delta_per_step:
-    applied = prev_applied + sign(delta) * max_delta_per_step
-else:
-    applied = requested
-
-# Virtual outdoor temperature
-virtual_outdoor = real_outdoor + applied
-
-
-8) Rekommenderade startvärden (defaults)
-8.1 Mode
-	∙	input_select.svotc_mode: Smart
-8.2 Comfort guard (skydd mot för kallt)
-
-
-
-|Parameter                               |Värde   |Förklaring                    |
-|----------------------------------------|--------|------------------------------|
-|`svotc_comfort_temperature`             |**21.0**|Måltemperatur inomhus         |
-|`svotc_comfort_guard_activate_below_c`  |**0.8** |Aktiveras vid <20.2°C         |
-|`svotc_comfort_guard_deactivate_above_c`|**0.4** |Deaktiveras vid >20.6°C       |
-|`svotc_heat_aggressiveness`             |**2**   |Boost ≈ −0.8°C när guard aktiv|
-
-Hysteresis-förklaring:
-
-Target: 21.0°C
-├─────────────────────────────────────────────┤
-     ↓ 20.2°C                ↓ 20.6°C
-   ACTIVATE              DEACTIVATE
-   (guard ON)            (guard OFF)
-
-Hysteresis gap: 0.8 - 0.4 = 0.4°C
-→ Förhindrar att guard slår av/på varje minut
-
-
-Aktivering:
-	∙	Slår PÅ när: innetemp < (target - activate_below)
-	∙	Exempel: 21.0 - 0.8 = 20.2°C
-Deaktivering:
-	∙	Slår AV när: innetemp > (target - deactivate_above)
-	∙	Exempel: 21.0 - 0.4 = 20.6°C
-✅ Tips: För att undvika att det blir kallt, sänk activate_below till 0.6
-8.3 Price braking (pris-broms)
-
-
-
-|Parameter                   |Värde  |Förklaring             |
-|----------------------------|-------|-----------------------|
-|`svotc_brake_aggressiveness`|**2**  |Prebrake-fönster 60 min|
-|`svotc_brake_hold_offset_c` |**2.0**|Max bromsning +2.0°C   |
-
-Prebrake-fönster per aggressivitetsnivå:
-
-
-
-|Level|Fönster|Användning                      |
-|-----|-------|--------------------------------|
-|**0**|0 min  |Ingen prebrake                  |
-|**1**|30 min |Tidig varning                   |
-|**2**|60 min |✅ **Balanserad (rekommenderad)**|
-|**3**|90 min |Aggressiv                       |
-|**4**|105 min|Mycket aggressiv                |
-|**5**|120 min|Maximal                         |
-
-Prebrake-styrka (linear ramp):
-
-prebrake_strength = (window - minutes_to_brake) / window
-
-Exempel (window=60):
-- 60 min kvar → strength = 0.00 (ingen bromsning)
-- 30 min kvar → strength = 0.50 (halv bromsning)
-- 0 min kvar  → strength = 1.00 (full bromsning)
-
-
-✅ Tips: För att spara mer, höj brake_hold_offset_c till 3.0
-8.4 Dwell (stabilitet mot prisspikar)
-
-
-
-|Transition       |Tid (min)|Förklaring                            |
-|-----------------|---------|--------------------------------------|
-|`neutral → brake`|**30**   |Kräver 30 min över P80 innan bromsning|
-|`brake → neutral`|**15**   |Snabbare återhämtning                 |
-|`neutral → cheap`|**20**   |Försiktig cheap-klassning             |
-|`cheap → neutral`|**15**   |Måttlig övergång                      |
-
-✅ Tips: Vill du ha snabbare reaktion? Sänk dwell. Vill du ha mer stabilitet? Höj dwell.
-8.5 Brake phase durations
-
-
-
-|Phase     |Tid (min)|Vad händer             |
-|----------|---------|-----------------------|
-|`rampup`  |**30**   |0 → hold_offset gradvis|
-|`hold`    |**60**   |Håller hold_offset     |
-|`rampdown`|**45**   |hold_offset → 0 gradvis|
-
-Se avsnitt 11 för visuell timeline.
-8.6 Rate limiting (mjukhet per minut)
-
-
-
-|Parameter                   |Värde   |Förklaring           |
-|----------------------------|--------|---------------------|
-|`svotc_max_delta_per_step_c`|**0.10**|Max ±0.10°C per minut|
-
-✅ Tips: Vill du ha snabbare respons? 0.20. Vill du ha supermjukt? 0.05.
-
-9) Reason codes (vad betyder de?)
-Visar varför SVOTC fattar sitt nuvarande beslut.
-
-
-
-|Kod                    |Betydelse            |Vad händer                        |Offset                |
-|-----------------------|---------------------|----------------------------------|----------------------|
-|`INIT`                 |Initial state        |Systemet startar                  |0                     |
-|`OFF`                  |Mode = Off           |Ingen styrning                    |0                     |
-|`PASS_THROUGH`         |Mode = PassThrough   |Ingen offset, bara monitorering   |0                     |
-|`COMFORT_ONLY`         |Mode = ComfortOnly   |Endast comfort guard, inget pris  |comfort_term          |
-|`MISSING_INPUTS_FREEZE`|Sensorer saknas      |Offset **fryses** (ingen styrning)|FROZEN                |
-|`COMFORT_GUARD`        |Innetemp för låg     |Boost-värme aktiv                 |comfort_term (negativ)|
-|`MCP_BLOCKS_BRAKE`     |Guard blockerar broms|Komfort prioriteras över pris     |comfort_term (negativ)|
-|`PRICE_BRAKE`          |Dyrt elpris          |Bromsning aktiv                   |price_term (positiv)  |
-|`NEUTRAL`              |Normalläge           |Ingen justering behövs            |0                     |
-
-🔍 Exempel på reason code-logik
-
-if mode == 'Off':
-    reason = 'OFF'
-elif not inputs_healthy:
-    reason = 'MISSING_INPUTS_FREEZE'  # FREEZE applied offset
-elif mode == 'PassThrough':
-    reason = 'PASS_THROUGH'
-elif mode == 'ComfortOnly':
-    reason = 'COMFORT_ONLY'
-elif comfort_guard_active and prebrake_strength > 0:
-    reason = 'MCP_BLOCKS_BRAKE'       # Comfort wins over price
-elif comfort_guard_active:
-    reason = 'COMFORT_GUARD'
-elif prebrake_strength > 0:
-    reason = 'PRICE_BRAKE'
-else:
-    reason = 'NEUTRAL'
-
-
-10) FAQ
-❓ Styr SVOTC direkt värmepumpen?
-Nej. SVOTC skapar en virtuell utetemperatur (sensor.svotc_virtual_outdoor_temperature) som du sedan mappar in till din värmepump/integration.
+* Inställningar → System → Starta om
+
+### Steg 4: Verifiera att allt laddat
+
+* Inställningar → Enheter & tjänster → **Hjälpare**
+* Sök på **SVOTC**
+* Du ska se hjälpare (`input_*`) och nya sensorer (`sensor.svotc_*`)
+
+---
+
+## 3) Första gången du kör SVOTC (5-minuters setup)
+
+⏱️ **Snabbstart**
+
+1. Installera enligt [Installation](#2-installation)
+2. Starta om Home Assistant
+3. Gå till **Hjälpare** och sök på “SVOTC”
+4. Fyll i Entity mapping (se nästa avsnitt):
+
+   * Indoor → din innetemp-sensor
+   * Outdoor → din utetemp-sensor
+   * Price → din elpris-sensor
+5. Sätt **Mode = Smart**
+6. Vänta 2 minuter
+7. Kontrollera:
+
+   * ✅ `binary_sensor.svotc_inputs_healthy` = **on**
+   * ✅ `input_text.svotc_reason_code` visar **inte** `MISSING_INPUTS_FREEZE`
+   * ✅ `sensor.svotc_virtual_outdoor_temperature` visar ett rimligt värde
+
+Om något är fel: se [Felsökning](#6-felsökning)
+
+---
+
+## 4) Entity mapping (viktigast att ändra)
+
+Dessa helpers pekar SVOTC till dina sensorer. Du **måste** sätta dem.
+
+| Helper                                       | Vad             | Exempel                         |
+| -------------------------------------------- | --------------- | ------------------------------- |
+| `input_text.svotc_entity_indoor`             | Innetemp-sensor | `sensor.inomhusmedel`           |
+| `input_text.svotc_entity_outdoor`            | Utetemp-sensor  | `sensor.temperatur_nu`          |
+| `input_text.svotc_entity_price`              | Elpris-sensor   | `sensor.nordpool_tibber`        |
+| `input_text.svotc_notify_service` *(valfri)* | notify-service  | `notify.mobile_app_iphone13pro` |
+
+### Så ändrar du (rekommenderat sätt)
+
+1. Inställningar → Enheter & tjänster → **Hjälpare**
+2. Sök: `svotc_entity`
+3. Öppna respektive helper och skriv in `entity_id`
+4. Spara
+
+✅ Tips: Eftersom mapping ligger i helpers överlever det uppdateringar av YAML-filen.
+
+---
+
+## 5) Lovelace dashboards
+
+### 5.1 Krav (HACS / custom cards)
+
+Dina “Styrsystem”-kort använder:
+
+* `custom:mini-graph-card`
+
+👉 Installera **mini-graph-card** via HACS, annars blir de korten trasiga.
+
+**Installationsguide (kort)**
+
+1. HACS → Frontend
+2. Sök “mini graph card”
+3. Installera
+4. Starta om Home Assistant (eller ladda om frontend)
+5. Kontrollera att ett `type: custom:mini-graph-card` inte visar fel längre
+
+---
+
+### 5.2 Importguide: så lägger du in YAML-dashboards
+
+Det finns två vanliga sätt. Välj den som passar hur din HA kör Lovelace.
+
+#### A) Dashboard i “Storage mode” (vanligast)
+
+Detta är när du normalt bygger dashboards via UI, men kan klistra in YAML i en vy.
+
+**Så gör du:**
+
+1. Inställningar → Dashboards
+2. Skapa ny dashboard (eller öppna befintlig)
+3. Skapa ny **View** (flik) t.ex. “SVOTC”
+4. Uppe till höger: **⋮ → Redigera dashboard**
+5. Välj **Raw configuration editor**
+6. Klistra in YAML (se [5.4](#54-färdiga-dashboards-copypaste))
+7. Spara
+
+> Tips: Om du redan har en dashboard och bara vill lägga till SVOTC som en ny vy,
+> klistra bara in *view*-delen (en “title/type/sections…”).
+
+#### B) Dashboard i YAML-mode (om du kör lovelace: yaml)
+
+Om du har en YAML-dashboardfil (t.ex. i repo) och vill peka HA mot den.
+
+**Exempelstruktur i repo**
+
+```
+lovelace/
+  svotc_styrsystem.yaml
+  svotc_debug.yaml
+```
+
+**Konceptet:**
+
+* du skapar en ny dashboard och anger YAML-filen som källa
+* alternativt lägger du in som “views” beroende på din setup
+
+> Exakt var detta ställs in skiljer lite beroende på HA-version och hur du redan kör Lovelace.
+> Om du vill: skriv om du kör storage eller yaml idag, så kan du få en super-exakt steglista för just din variant.
+> (Manualen funkar ändå utan den detaljen.)
+
+---
+
+### 5.3 Minimal dashboard (utan custom cards)
+
+För nybörjare som vill ha en “måste-funka”-vy utan mini-graph-card:
+
+```yaml
+title: SVOTC Minimal
+type: sections
+sections:
+  - type: grid
+    cards:
+      - type: entities
+        title: SVOTC – Setup & Drift
+        show_header_toggle: false
+        state_color: true
+        entities:
+          - type: section
+            label: Setup (en gång)
+          - entity: input_text.svotc_entity_indoor
+            name: "📍 Innetemp-sensor"
+          - entity: input_text.svotc_entity_outdoor
+            name: "🌡️ Utetemp-sensor"
+          - entity: input_text.svotc_entity_price
+            name: "💰 Elpris-sensor"
+          - entity: input_text.svotc_notify_service
+            name: "🔔 Notify service (valfri)"
+
+          - type: divider
+          - type: section
+            label: Läge & mål
+          - entity: input_select.svotc_mode
+            name: "Mode"
+          - entity: input_number.svotc_comfort_temperature
+            name: "Måltemperatur"
+
+          - type: divider
+          - type: section
+            label: Status
+          - entity: binary_sensor.svotc_inputs_healthy
+            name: "✅ Temperatursensorer OK?"
+          - entity: binary_sensor.svotc_price_available
+            name: "💰 Pris tillgängligt?"
+          - entity: input_text.svotc_reason_code
+            name: "🧠 Reason code"
+          - entity: input_number.svotc_applied_offset_c
+            name: "↕️ Applied offset (°C)"
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: "🎯 Virtuell utetemp (→ VP)"
+```
+
+---
+
+### 5.4 Färdiga dashboards (copy/paste)
+
+Här är dina två dashboards. De är redo att klistra in som **views** i Lovelace.
+
+> **Obs:** “SVOTC Styrsystem” använder `custom:mini-graph-card` → installera via HACS (se 5.1).
+
+#### 5.4.1 SVOTC Styrsystem (view)
+
+```yaml
+title: SVOTC Styrsystem
+icon: ""
+badges: []
+cards: []
+type: sections
+sections:
+  - type: grid
+    cards:
+      - type: entities
+        title: 🎛️ SVOTC Kontroller
+        state_color: true
+        show_header_toggle: false
+        entities:
+          - entity: input_select.svotc_mode
+            name: Driftsläge
+            icon: mdi:toggle-switch
+          - type: divider
+          - type: section
+            label: Komfortinställningar
+          - entity: input_number.svotc_comfort_temperature
+            name: Måltemperatur
+            icon: mdi:target
+          - entity: input_number.svotc_comfort_guard_activate_below_c
+            name: Skydd vid (under mål)
+            icon: mdi:shield-alert
+          - entity: input_number.svotc_comfort_guard_deactivate_above_c
+            name: Skydd vid (över mål)
+            icon: mdi:shield-check
+          - type: divider
+          - type: section
+            label: Prisoptimering
+          - entity: input_number.svotc_brake_aggressiveness
+            name: Broms (0-5)
+            icon: mdi:speedometer-slow
+          - entity: input_number.svotc_heat_aggressiveness
+            name: Värme (0-5)
+            icon: mdi:fire
+          - entity: input_number.svotc_brake_hold_offset_c
+            name: Max bromsoffset (°C)
+            icon: mdi:thermometer-minus
+      - type: horizontal-stack
+        cards:
+          - type: entity
+            entity: input_select.svotc_mode
+            name: SVOTC Läge
+            icon: mdi:power
+          - type: entity
+            entity: binary_sensor.svotc_inputs_healthy
+            name: System OK
+            icon: mdi:heart-pulse
+      - type: horizontal-stack
+        cards:
+          - type: entity
+            entity: binary_sensor.svotc_comfort_guard_active
+            name: Komfortskydd
+            icon: mdi:shield-home
+          - type: entity
+            entity: input_text.svotc_reason_code
+            name: Strategi
+            icon: mdi:brain
+      - type: custom:mini-graph-card
+        name: 📈 Offset-utveckling (24h)
+        hours_to_show: 24
+        points_per_hour: 4
+        line_width: 3
+        font_size: 75
+        animate: true
+        show:
+          labels: true
+          legend: true
+          icon: false
+        entities:
+          - entity: input_number.svotc_requested_offset_c
+            name: Begärd offset
+            color: "#f39c12"
+            show_state: true
+          - entity: input_number.svotc_applied_offset_c
+            name: Tillämpad offset
+            color: "#e67e22"
+            show_state: true
+      - type: custom:mini-graph-card
+        name: 🌡️ Temperaturöversikt (24h)
+        hours_to_show: 24
+        points_per_hour: 4
+        line_width: 2
+        font_size: 75
+        animate: true
+        show:
+          labels: true
+          legend: true
+          icon: false
+        entities:
+          - entity: sensor.svotc_src_indoor
+            name: Inomhus
+            color: "#e74c3c"
+            show_state: true
+          - entity: sensor.svotc_src_outdoor
+            name: Utomhus (verklig)
+            color: "#3498db"
+            show_state: true
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: Virtuell ute (→VP)
+            color: "#9b59b6"
+            show_state: true
+          - entity: sensor.svotc_dynamic_target_temperature
+            name: Måltemperatur
+            color: "#2ecc71"
+            show_line: true
+            show_points: false
+            show_state: true
+            line_width: 1
+      - type: entities
+        title: 🔬 Diagnostik
+        state_color: true
+        show_header_toggle: false
+        entities:
+          - type: section
+            label: Systemhälsa
+          - entity: binary_sensor.svotc_inputs_healthy
+            name: Temperatursensorer OK
+            icon: mdi:thermometer-check
+          - entity: binary_sensor.svotc_price_available
+            name: Prisdata tillgänglig
+            icon: mdi:cash-check
+          - type: divider
+          - type: section
+            label: Timing
+          - entity: sensor.svotc_minutes_to_next_brake_start
+            name: Minuter till nästa dyr period
+            icon: mdi:timer-outline
+          - entity: sensor.svotc_prebrake_window_min
+            name: Förbromsfönster (min)
+            icon: mdi:window-open
+          - type: divider
+          - type: section
+            label: Prisstatus (flöde)
+          - entity: sensor.svotc_raw_price_state
+            name: Råprisstatus (direkt)
+            icon: mdi:flash
+          - entity: input_text.svotc_pending_price_state
+            name: Pending status (väntar)
+            icon: mdi:timer-sand
+          - entity: input_text.svotc_last_price_state
+            name: Stabil status (aktiv)
+            icon: mdi:lock-check
+          - type: divider
+          - type: section
+            label: Tidsstämplar
+          - entity: input_datetime.svotc_last_price_state_changed
+            name: Pending sedan
+            icon: mdi:clock-start
+          - entity: input_datetime.svotc_brake_phase_changed
+            name: Bromsfas startade
+            icon: mdi:clock-start
+      - type: markdown
+        title: 📋 System Status
+        content: >
+          ### SVOTC Statusöversikt
+
+          **Driftsläge:** `{{ states('input_select.svotc_mode') }}`
+          **Aktuell Strategi:** `{{ states('input_text.svotc_reason_code') }}`
+
+          ---
+
+          #### Temperaturer
+          - 🏠 Inne: **{{ states('sensor.svotc_src_indoor') }}°C** (mål: {{ states('sensor.svotc_dynamic_target_temperature') }}°C)
+          - 🌡️ Ute (verklig): **{{ states('sensor.svotc_src_outdoor') }}°C**
+          - 🎯 Ute (virtuell → VP): **{{ states('sensor.svotc_virtual_outdoor_temperature') }}°C**
+          - 📊 Offset tillämpad: **{{ states('input_number.svotc_applied_offset_c') }}°C**
+
+          ---
+
+          #### Prisstatus
+          - 💵 Pris nu: **{{ states('sensor.svotc_current_price') }} SEK/kWh**
+          - 📉 P30 (billig): **{{ states('sensor.svotc_p30') }} SEK/kWh**
+          - 📈 P80 (dyr): **{{ states('sensor.svotc_p80') }} SEK/kWh**
+          - 🚦 Status: **{{ states('input_text.svotc_last_price_state') }}**
+          - ⏱️ Nästa dyr period om: **{{ states('sensor.svotc_minutes_to_next_brake_start') }} min**
+
+          ---
+
+          #### Kontrollstatus
+          - 🛡️ Komfortskydd: **{% if is_state('binary_sensor.svotc_comfort_guard_active', 'on') %}🟢 AKTIVT{% else %}⚪ Inaktivt{% endif %}**
+          - 🔄 Bromsfas: **{{ states('input_text.svotc_brake_phase') }}**
+          - 💪 Förbromsstyrka: **{{ (states('sensor.svotc_prebrake_strength') | float * 100) | round(0) }}%**
+
+          ---
+
+          #### Systemhälsa
+          - ✅ Sensorer: **{% if is_state('binary_sensor.svotc_inputs_healthy','on') %}OK{% else %}⚠️ PROBLEM{% endif %}**
+          - 💰 Prisdata: **{% if is_state('binary_sensor.svotc_price_available','on') %}OK{% else %}⚠️ SAKNAS{% endif %}**
+
+          ---
+
+          *Senast uppdaterad: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}*
+  - type: grid
+    cards:
+      - type: entities
+        title: 📊 Aktuell Status
+        state_color: true
+        show_header_toggle: false
+        entities:
+          - type: section
+            label: Temperaturer
+          - entity: sensor.svotc_src_indoor
+            name: Inomhus
+            icon: mdi:home-thermometer
+          - entity: sensor.svotc_dynamic_target_temperature
+            name: Måltemperatur
+            icon: mdi:target
+          - entity: sensor.svotc_src_outdoor
+            name: Utomhus (verklig)
+            icon: mdi:thermometer
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: Utomhus (virtuell → VP)
+            icon: mdi:thermometer-chevron-up
+            secondary_info: last-changed
+          - type: divider
+          - type: section
+            label: Prisstyrning
+          - entity: sensor.svotc_current_price
+            name: Elpris nu
+            icon: mdi:currency-usd
+          - entity: sensor.svotc_p30
+            name: P30 (billig under)
+            icon: mdi:arrow-down-bold-circle
+          - entity: sensor.svotc_p80
+            name: P80 (dyr över)
+            icon: mdi:arrow-up-bold-circle
+          - entity: input_text.svotc_last_price_state
+            name: Prisstatus (stabil)
+            icon: mdi:state-machine
+          - entity: input_text.svotc_brake_phase
+            name: Bromsfas
+            icon: mdi:timeline-clock
+          - type: divider
+          - type: section
+            label: Offset & Kontroll
+          - entity: input_number.svotc_requested_offset_c
+            name: Begärd offset
+            icon: mdi:delta
+          - entity: input_number.svotc_applied_offset_c
+            name: Tillämpad offset
+            icon: mdi:slope-uphill
+          - entity: sensor.svotc_prebrake_strength
+            name: Förbromsstyrka (0-1)
+            icon: mdi:speedometer
+      - type: entities
+        title: 🔧 Entitetskonfiguration
+        state_color: true
+        show_header_toggle: false
+        entities:
+          - entity: input_text.svotc_entity_indoor
+            name: Inomhustemperatur-sensor
+            icon: mdi:home-thermometer-outline
+          - entity: input_text.svotc_entity_outdoor
+            name: Utomhustemperatur-sensor
+            icon: mdi:thermometer
+          - entity: input_text.svotc_entity_price
+            name: Prisentitet (Nordpool)
+            icon: mdi:currency-usd
+          - entity: input_text.svotc_notify_service
+      - type: entities
+        title: ⚙️ Avancerade Inställningar
+        state_color: true
+        show_header_toggle: false
+        entities:
+          - type: section
+            label: Dwell Times (Pristösklar)
+          - entity: input_number.svotc_price_dwell_cheap_to_neutral_min
+            name: Billig → Neutral (min)
+            icon: mdi:arrow-right-bold
+          - entity: input_number.svotc_price_dwell_neutral_to_brake_min
+            name: Neutral → Broms (min)
+            icon: mdi:arrow-right-bold
+          - entity: input_number.svotc_price_dwell_brake_to_neutral_min
+            name: Broms → Neutral (min)
+            icon: mdi:arrow-left-bold
+          - entity: input_number.svotc_price_dwell_neutral_to_cheap_min
+            name: Neutral → Billig (min)
+            icon: mdi:arrow-left-bold
+          - type: divider
+          - type: section
+            label: Bromsfaser (Duration)
+          - entity: input_number.svotc_brake_rampup_duration_min
+            name: Ramp-up tid (min)
+            icon: mdi:slope-uphill
+          - entity: input_number.svotc_brake_hold_duration_min
+            name: Hold tid (min)
+            icon: mdi:minus-circle
+          - entity: input_number.svotc_brake_rampdown_duration_min
+            name: Ramp-down tid (min)
+            icon: mdi:slope-downhill
+          - type: divider
+          - type: section
+            label: Rate Limiting
+          - entity: input_number.svotc_max_delta_per_step_c
+            name: Max förändring per minut (°C)
+            icon: mdi:speedometer
+max_columns: 4
+```
+
+#### 5.4.2 SVOTC Debug (view)
+
+```yaml
+title: SVOTC Debug
+type: sections
+cards: []
+sections:
+  - type: grid
+    cards:
+      - type: entities
+        title: 🚦 Systemstatus
+        show_header_toggle: false
+        entities:
+          - entity: input_select.svotc_mode
+            name: Driftsläge
+          - entity: binary_sensor.svotc_inputs_healthy
+            name: Sensorer OK
+          - entity: binary_sensor.svotc_price_available
+            name: Prisdata OK
+          - entity: binary_sensor.svotc_comfort_guard_active
+            name: Komfortskydd
+          - entity: input_text.svotc_reason_code
+            name: Reason code
+      - type: entities
+        title: 🌡️ Temperaturer
+        show_header_toggle: false
+        entities:
+          - entity: sensor.svotc_src_indoor
+            name: Inomhus (källa)
+            secondary_info: last-changed
+          - entity: sensor.svotc_dynamic_target_temperature
+            name: Måltemperatur
+            secondary_info: last-changed
+          - entity: sensor.svotc_src_outdoor
+            name: Utomhus (källa)
+            secondary_info: last-changed
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: Virtuell ute (→VP)
+            secondary_info: last-changed
+          - entity: input_number.svotc_requested_offset_c
+            name: Requested offset (°C)
+            secondary_info: last-changed
+          - entity: input_number.svotc_applied_offset_c
+            name: Applied offset (°C)
+            secondary_info: last-changed
+      - type: entities
+        title: 💰 Pris & percentiler
+        show_header_toggle: false
+        entities:
+          - entity: sensor.svotc_src_current_price
+            name: Råpris (källa)
+            secondary_info: last-changed
+          - entity: sensor.svotc_current_price
+            name: Current price
+            secondary_info: last-changed
+          - entity: sensor.svotc_p30
+            name: P30 (billig)
+            secondary_info: last-changed
+          - entity: sensor.svotc_p80
+            name: P80 (dyr)
+            secondary_info: last-changed
+      - type: entities
+        title: 🔧 Entity mapping
+        show_header_toggle: false
+        entities:
+          - entity: input_text.svotc_entity_indoor
+            name: Indoor sensor entity
+          - entity: input_text.svotc_entity_outdoor
+            name: Outdoor sensor entity
+          - entity: input_text.svotc_entity_price
+            name: Price sensor entity
+      - type: history-graph
+        title: 📊 Temperaturhistorik (8h)
+        hours_to_show: 8
+        entities:
+          - entity: sensor.svotc_src_indoor
+            name: Inne
+          - entity: sensor.svotc_src_outdoor
+            name: Ute (verklig)
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: Virtuell ute
+          - entity: sensor.svotc_dynamic_target_temperature
+            name: Måltemp
+      - type: history-graph
+        title: 📈 Offset-historik (8h)
+        hours_to_show: 8
+        entities:
+          - entity: input_number.svotc_requested_offset_c
+            name: Requested
+          - entity: input_number.svotc_applied_offset_c
+            name: Applied
+  - type: grid
+    cards:
+      - type: entities
+        title: 🔄 Price state machine
+        show_header_toggle: false
+        entities:
+          - entity: sensor.svotc_raw_price_state
+            name: Raw state
+          - entity: input_text.svotc_pending_price_state
+            name: Pending state
+          - entity: input_text.svotc_last_price_state
+            name: Stable state
+          - entity: input_datetime.svotc_last_price_state_changed
+            name: Pending sedan
+      - type: entities
+        title: 🛑 Brake phase & look-ahead
+        show_header_toggle: false
+        entities:
+          - entity: input_text.svotc_brake_phase
+            name: Bromsfas
+          - entity: input_datetime.svotc_brake_phase_changed
+            name: Fas startade
+          - entity: sensor.svotc_minutes_to_next_brake_start
+            name: Min till dyr period
+          - entity: sensor.svotc_prebrake_window_min
+            name: Prebrake window (min)
+          - entity: sensor.svotc_prebrake_strength
+            name: Prebrake strength
+      - type: entities
+        title: 🛡️ / ⏱️ / ⚡ Tuning
+        show_header_toggle: false
+        entities:
+          - entity: input_number.svotc_comfort_guard_activate_below_c
+            name: Guard activate Δ (°C)
+          - entity: input_number.svotc_comfort_guard_deactivate_above_c
+            name: Guard deactivate Δ (°C)
+          - type: divider
+          - entity: input_number.svotc_price_dwell_cheap_to_neutral_min
+            name: Dwell Cheap → Neutral (min)
+          - entity: input_number.svotc_price_dwell_neutral_to_brake_min
+            name: Dwell Neutral → Brake (min)
+          - entity: input_number.svotc_price_dwell_brake_to_neutral_min
+            name: Dwell Brake → Neutral (min)
+          - entity: input_number.svotc_price_dwell_neutral_to_cheap_min
+            name: Dwell Neutral → Cheap (min)
+          - type: divider
+          - entity: input_number.svotc_brake_rampup_duration_min
+            name: Brake ramp-up (min)
+          - entity: input_number.svotc_brake_hold_duration_min
+            name: Brake hold (min)
+          - entity: input_number.svotc_brake_rampdown_duration_min
+            name: Brake ramp-down (min)
+          - type: divider
+          - entity: input_number.svotc_max_delta_per_step_c
+            name: Max Δ per min (°C)
+          - entity: input_number.svotc_brake_hold_offset_c
+            name: Brake hold offset (°C)
+          - entity: input_number.svotc_heat_aggressiveness
+            name: Heat aggressiveness
+          - entity: input_number.svotc_brake_aggressiveness
+            name: Brake aggressiveness
+      - type: history-graph
+        title: 💰 Prishistorik (24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.svotc_current_price
+            name: Pris
+          - entity: sensor.svotc_p30
+            name: P30
+          - entity: sensor.svotc_p80
+            name: P80
+```
+
+---
+
+## 6) Felsökning
+
+### 🔴 Det händer inget
+
+Kontrollera i denna ordning:
+
+1. `input_select.svotc_mode` = **Smart**
+2. `binary_sensor.svotc_inputs_healthy` = **on**
+3. Entity mapping:
+
+   * `input_text.svotc_entity_indoor`
+   * `input_text.svotc_entity_outdoor`
+   * `input_text.svotc_entity_price`
+4. Läs `input_text.svotc_reason_code`:
+
+   * `OFF` → Mode = Off
+   * `PASS_THROUGH` → Mode = PassThrough
+   * `MISSING_INPUTS_FREEZE` → temp-sensor saknas/är trasig
+
+### 🔴 Priset verkar “dött”
+
+1. `binary_sensor.svotc_price_available` = **on**?
+
+2. `sensor.svotc_current_price` visar rimligt värde?
+
+3. Verifiera attribut på prissensorn:
+
+   * Developer Tools → States → din prissensor
+   * ska ha `current_price`, `raw_today`, `raw_tomorrow`
+
+4. Om `sensor.svotc_p30` och `sensor.svotc_p80` är `none`:
+
+   * SVOTC kräver minst **20** priser från `raw_today + raw_tomorrow`
+   * vanligt när morgondagens priser inte är publicerade än
+   * lösning: vänta, eller kör **ComfortOnly** temporärt
+
+---
+
+## 7) Hur systemet fungerar
+
+### 🏗️ Arkitektur (layers)
+
+SVOTC är byggt enligt “layered control”:
+
+```
+1) SENSING (validerade inputs)
+   - sensor.svotc_src_indoor
+   - sensor.svotc_src_outdoor
+   - sensor.svotc_src_current_price
+
+2) RAW PRICE STATE (instant, ingen memory)
+   - sensor.svotc_raw_price_state
+
+3) DWELL (raw → stable, anti-spikar)
+   - automation: SVOTC Price dwell
+   - output: input_text.svotc_last_price_state
+
+4) FORWARD LOOK (prebrake_strength 0..1)
+   - sensor.svotc_prebrake_strength
+
+5) BRAKE PHASE (minne; undvik “starta om”)
+   - input_text.svotc_brake_phase
+   - automation: SVOTC Brake phase controller
+
+6) ENGINE (requested → ramp-limited applied)
+   - automation: SVOTC Engine
+   - output:
+     - input_number.svotc_requested_offset_c
+     - input_number.svotc_applied_offset_c
+   - slutresultat:
+     - sensor.svotc_virtual_outdoor_temperature
+```
+
+### 🧮 Offset-beräkning (Engine)
+
+**Comfort term (negativ = mer värme)**
+
+* om comfort guard aktiv:
+
+  * `comfort_term = -(heat_aggressiveness * 0.4)`
+  * heat=5 → −2.0°C
+
+**Price term (positiv = mindre värme)**
+
+* i Smart och om comfort guard inte aktiv:
+
+  * `price_term = brake_hold_offset * prebrake_strength`
+  * hold=2.0 och strength=1.0 → +2.0°C
+
+**Requested**
+
+* `requested = comfort_term + price_term`
+
+**Applied (ramp-limited)**
+
+* begränsas av `svotc_max_delta_per_step_c`
+
+**Virtuell utetemp**
+
+* `virtual_outdoor = real_outdoor + applied`
+
+---
+
+## 8) Rekommenderade startvärden (defaults)
+
+### 8.1 Mode
+
+* `svotc_mode` = **Smart**
+
+### 8.2 Comfort guard
+
+| Parameter                                | Värde | Förklaring           |
+| ---------------------------------------- | ----: | -------------------- |
+| `svotc_comfort_temperature`              |  21.0 | Måltemperatur        |
+| `svotc_comfort_guard_activate_below_c`   |   0.8 | Guard ON vid 20.2°C  |
+| `svotc_comfort_guard_deactivate_above_c` |   0.4 | Guard OFF vid 20.6°C |
+| `svotc_heat_aggressiveness`              |     2 | Boost ≈ −0.8°C       |
+
+### 8.3 Price braking
+
+| Parameter                    | Värde | Förklaring              |
+| ---------------------------- | ----: | ----------------------- |
+| `svotc_brake_aggressiveness` |     2 | prebrake-fönster 60 min |
+| `svotc_brake_hold_offset_c`  |   2.0 | max broms +2.0°C        |
+
+Aggressiveness → fönster:
+
+| Level | Fönster |
+| ----: | ------: |
+|     0 |       0 |
+|     1 |      30 |
+|     2 |      60 |
+|     3 |      90 |
+|     4 |     105 |
+|     5 |     120 |
+
+### 8.4 Dwell (stabilitet)
+
 Exempel:
 
-# Din värmepump-integration
-climate.heat_pump:
-  outdoor_temperature: sensor.svotc_virtual_outdoor_temperature
+| Transition      | Tid (min) |
+| --------------- | --------: |
+| neutral → brake |        30 |
+| brake → neutral |        15 |
+| neutral → cheap |        20 |
+| cheap → neutral |        15 |
 
+### 8.5 Brake phase durations
 
-❓ Vad är skillnaden på requested och applied offset?
+| Phase    | Tid (min) |
+| -------- | --------: |
+| rampup   |        30 |
+| hold     |        60 |
+| rampdown |        45 |
 
+### 8.6 Rate limiting
 
+* `svotc_max_delta_per_step_c` = **0.10** °C/min (mjukt)
 
-|Typ          |Beskrivning                                                                |Exempel                   |
-|-------------|---------------------------------------------------------------------------|--------------------------|
-|**Requested**|Vad logiken “vill” (utan begränsningar)                                    |+2.0°C                    |
-|**Applied**  |Vad som faktiskt appliceras efter ramp-begränsning (`max_delta_per_step_c`)|+1.8°C (om ramp 0.2°C/min)|
+---
 
-Exempel på ramp:
+## 9) Reason codes (vad betyder de?)
 
-Tid:      0 min → 1 min → 2 min
-Requested:  +2.0     +2.0     +2.0
-Applied:     0.0     +0.2     +0.4  (ramp 0.2°C/min)
+| Kod                   | Betydelse                            |
+| --------------------- | ------------------------------------ |
+| INIT                  | Startläge                            |
+| OFF                   | Mode = Off                           |
+| PASS_THROUGH          | Mode = PassThrough                   |
+| COMFORT_ONLY          | Endast komfortskydd                  |
+| MISSING_INPUTS_FREEZE | Temp-input saknas → applied fryser   |
+| COMFORT_GUARD         | Komfortskydd värmer (negativ offset) |
+| MCP_BLOCKS_BRAKE      | Guard blockerar prisbroms            |
+| PRICE_BRAKE           | Prisbroms aktiv (positiv offset)     |
+| NEUTRAL               | Normalläge                           |
 
+---
 
-❓ Hur skyddas komforten?
-Comfort guard med hysteresis:
-	1.	Aktiveras när innetemp < (target − activate_below)
-	2.	Blockerar prisbroms (reason = MCP_BLOCKS_BRAKE)
-	3.	Ger boost via heat_aggressiveness:
+## 10) FAQ
 
-comfort_term = -(heat_aggressiveness * 0.4)
-# heat=5 → -2.0°C boost (värmepumpen "tror" det är kallare ute)
+### Styr SVOTC direkt värmepumpen?
 
+Nej. SVOTC skapar `sensor.svotc_virtual_outdoor_temperature` som du mappar in i din integration/metod för att påverka värmepumpen.
 
-	4.	Deaktiveras när innetemp > (target − deactivate_above)
+### Requested vs Applied?
 
-{% set prices = (today + tomorrow) | map(attribute='value') | select('number') | list %}
-{% if prices | length >= 20 %}
-  # Beräkna P30/P80
-{% else %}
-  {{ none }}  # Inte tillräckligt med data
-{% endif %}
+| Typ       | Beskrivning                                   |
+| --------- | --------------------------------------------- |
+| Requested | Vad logiken vill ha                           |
+| Applied   | Vad som faktiskt gäller efter rampbegränsning |
 
+---
 
-När kan detta bli problem:
-	∙	⏰ Tidigt på morgonen (kl 13-14) innan morgondagens priser publicerats
-	∙	🔌 Prisensor ger inte båda listorna (raw_today och raw_tomorrow)
-	∙	❌ Prisensorfel (sensor unavailable)
-Vad händer då:
-	∙	sensor.svotc_p30 och sensor.svotc_p80 blir none
-	∙	sensor.svotc_raw_price_state kan inte avgöra cheap/brake
-	∙	Systemet faller tillbaka till neutral (säkert läge)
-Lösning:
-	∙	✅ Vänta tills data finns
-	∙	✅ Använd ComfortOnly-mode temporärt
-	∙	✅ Kontrollera att din prissensor levererar båda listorna
-❓ Vad händer om sensorer försvinner?
-FREEZE-läge (MISSING_INPUTS_FREEZE):
+## 11) Avancerat: Brake phase timing
 
-if not inputs_healthy and mode in ['Smart', 'ComfortOnly']:
-    requested_offset = 0
-    applied_offset = FROZEN  # Fryses på sista kända värde
-    reason = 'MISSING_INPUTS_FREEZE'
+### 📊 Visuell timeline
 
-
-Varför FREEZE är viktigt:
-	∙	🛡️ Förhindrar vertikala “spikar” om sensorer tillfälligt tappas
-	∙	🎯 Värmepumpen fortsätter med sista kända offset
-	∙	⚠️ Ingen ny styrning tills sensorer återhämtar sig
-Vilka sensorer kollas:
-
-inputs_healthy = (
-    sensor.svotc_src_indoor is available AND
-    sensor.svotc_src_outdoor is available
-)
-# OBS: Pris kollas INTE här (price glitches ska inte stoppa styrning)
-
-
-❓ Kan jag använda SVOTC utan prisstyrning?
-Ja, Mode = ComfortOnly:
-	∙	✅ Endast comfort guard
-	∙	❌ Ingen prisbroms
-	∙	✅ Fungerar även om prissensor saknas
-
-11) Avancerat: Brake phase timing
-📊 Visuell timeline
-
-Tid:     0 min ────── 30 min ────── 90 min ──── 135 min ──→
-Phase:  [idle]    | [ramping_up] | [holding] | [ramping_down] | [idle]
-Offset:   0°C → → → → → 2.0°C → → → 2.0°C → → → → → 0°C
+```
+Tid:     0 ─── 30 ───────── 90 ───── 135 ──→
+Phase:  idle | ramping_up | holding | ramping_down | idle
+Offset:  0 →→→→→ hold_offset →→ hold_offset →→→→→ 0
+```
 
 Parametrar:
-├─ rampup   = 30 min (0 → 2.0°C gradvis)
-├─ hold     = 60 min (håller 2.0°C)
-└─ rampdown = 45 min (2.0°C → 0 gradvis)
 
-Total tid: 30 + 60 + 45 = 135 minuter
+* rampup   = 30 min (0 → hold_offset)
+* hold     = 60 min
+* rampdown = 45 min (hold_offset → 0)
 
+⚠️ Om stable price state slutar vara `brake` så tvingas phase till `idle`.
 
-⚠️ OBS: Detta sker endast om stable price state = brake hela tiden.Om priset går ner tidigare → phase återställs till idle.
-🔄 State machine transitions
+---
 
-┌──────┐  price=brake  ┌────────────┐  elapsed≥rampup  ┌─────────┐
-│ idle ├──────────────→│ ramping_up ├─────────────────→│ holding │
-└──────┘               └────────────┘                  └────┬────┘
-   ↑                                                         │
-   │                                                         │ elapsed≥hold
-   │  price≠brake                                            ↓
-   │  (anywhere)      ┌──────────────┐  elapsed≥rampdown  ┌────────────┐
-   └──────────────────┤ ramping_down │←────────────────────│  holding   │
-                      └──────────────┘                     └────────────┘
+## 12) License / Disclaimer
 
-
-🧮 Offset under varje phase
-
-if phase == 'idle':
-    brake_offset = 0
-
-elif phase == 'ramping_up':
-    progress = elapsed_min / rampup_duration
-    brake_offset = hold_offset * progress
-    # Exempel: 15 min / 30 min = 0.5 → offset = 2.0 * 0.5 = 1.0°C
-
-elif phase == 'holding':
-    brake_offset = hold_offset
-    # Exempel: offset = 2.0°C
-
-elif phase == 'ramping_down':
-    progress = elapsed_min / rampdown_duration
-    brake_offset = hold_offset * (1 - progress)
-    # Exempel: 22.5 min / 45 min = 0.5 → offset = 2.0 * 0.5 = 1.0°C
-
-
-⏱️ Exempel på realistisk timeline
-Scenario: Pris går över P80 kl 17:00, under P80 kl 19:30
-
-17:00  Price > P80 → stable state = 'brake' → phase = 'ramping_up'
-       ├─ Offset: 0 → 2.0°C (30 min ramp)
-
-17:30  Phase → 'holding'
-       ├─ Offset: 2.0°C (håller)
-
-18:30  Phase → 'ramping_down' (hold duration 60 min slut)
-       ├─ Offset: 2.0 → 0°C (45 min ramp)
-
-19:15  Phase → 'idle' (rampdown klar)
-       ├─ Offset: 0°C
-
-19:30  Price < P80 → stable state = 'neutral'
-       ├─ Phase stannar i 'idle' (redan där)
-
-
-12) License / Disclaimer
 ⚠️ Använd på egen risk.
-Detta projekt styr värme indirekt via en virtuell utetemperatur.Testa och verifiera beteendet i din miljö innan du litar på det i skarpt läge.
-📋 Rekommendation för säker start
-	1.	Börja försiktigt:
-	∙	Låg brake_hold_offset_c (1.0°C)
-	∙	Låg max_delta_per_step_c (0.10°C/min)
-	∙	Tydlig comfort guard (activate 0.8, deactivate 0.4)
-	2.	Övervaka första veckan:
-	∙	Följ grafer för:
-	∙	sensor.svotc_virtual_outdoor_temperature
-	∙	input_number.svotc_applied_offset_c
-	∙	sensor.svotc_src_indoor
-	∙	Kolla input_text.svotc_reason_code dagligen
-	3.	Öka aggressivitet stegvis:
-	∙	Efter 1 vecka: Höj brake_hold_offset_c till 2.0
-	∙	Efter 2 veckor: Testa brake_aggressiveness = 3
-	∙	Efter 1 månad: Finjustera comfort guard
+SVOTC påverkar värme indirekt via virtuell utetemperatur. Testa och verifiera beteendet i din miljö innan du litar på det i skarpt läge.
 
-🎯 Credits
+**Rekommendation för säker start**
+
+1. Börja försiktigt:
+
+   * `brake_hold_offset_c` = 1.0°C
+   * `max_delta_per_step_c` = 0.10°C/min
+   * comfort guard: activate 0.8 / deactivate 0.4
+2. Övervaka första veckan:
+
+   * `sensor.svotc_virtual_outdoor_temperature`
+   * `input_number.svotc_applied_offset_c`
+   * `sensor.svotc_src_indoor`
+   * `input_text.svotc_reason_code`
+3. Öka aggressivitet stegvis:
+
+   * vecka 2: hold_offset 2.0
+   * vecka 3: brake_aggressiveness 3
+   * därefter: finjustera guard/ramp
+
+
+---
+
+## 12) License / Disclaimer
+
+⚠️ Använd på egen risk.
+SVOTC påverkar värme indirekt via virtuell utetemperatur. Testa och verifiera beteendet i din miljö innan du litar på det i skarpt läge.
+
+---
+
+## Credits
+
 SVOTC – Stable Core Edition (2026-02)
 Designad för:
-	∙	🏠 Svenska villor med värmepump
-	∙	⚡ Nordpool/Tibber spotpris-styrning
-	∙	🎚️ Mjuk, förutsägbar, och förklarbar kontroll
-Arkitektur: Layered control med dwell, prebrake, och ramp-limiting.
-Support: Se GitHub Issues eller Home Assistant Community
 
-🚀 Lycka till med din SVOTC-installation!
+* 🏠 Svenska villor med värmepump
+* ⚡ Nordpool/Tibber spotpris-styrning
+* 🎚️ Mjuk, förutsägbar och förklarbar kontroll
