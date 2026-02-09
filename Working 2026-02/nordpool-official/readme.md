@@ -1,127 +1,139 @@
-# Nordpool Paket för SVOTC
+# Nordpool Package for SVOTC
 
-## 🎯 Vad är detta?
+## 🎯 What is this?
 
-En enkelt paket som gör den **officiella Nordpool-integrationen** kompatibel med SVOTC.
+A simple package that makes the **official Nordpool integration** compatible with SVOTC.
 
-SVOTC behöver specifika attribut som `current_price`, `raw_today`, och `raw_tomorrow`. Den officiella Nordpool-integrationen har inte dessa attribut direkt, så denna fil skapar en ny sensor som har dem.
-
----
-
-## ✅ Förutsättningar
-
-Du måste ha **Nordpool-integrationen** installerad och fungerande i Home Assistant.
-
-**Verifiera:**
-1. Gå till **Inställningar → Enheter & tjänster**
-2. Sök efter "Nordpool"
-3. Kontrollera att du har priser som uppdateras
+SVOTC expects specific attributes like `current_price`, `raw_today`, and `raw_tomorrow`. The official Nordpool integration does not expose these attributes directly, so this file creates a new sensor that provides them.
 
 ---
 
-## 📥 Installation (3 steg)
+## ✅ Prerequisites
 
-### Steg 1: Hitta ditt config_entry ID
+You must have the **Nordpool integration** installed and working in Home Assistant.
 
-**Enklaste sättet:**
-1. Gå till **Developer Tools → States**
-2. Sök efter din Nordpool-sensor (t.ex. `sensor.nordpool`)
-3. Klicka på sensorn
-4. Kopiera **config_entry** från attributen
+**Verify:**
+1. Go to **Settings → Devices & services**
+2. Search for “Nordpool”
+3. Confirm that prices are updating
 
-**Alternativt via URL:**
+---
+
+## 📥 Installation (3 steps)
+
+### Step 1: Find your `config_entry` ID
+
+**Easiest method:**
+1. Go to **Developer Tools → States**
+2. Search for your Nordpool sensor (e.g. `sensor.nordpool`)
+3. Click the sensor
+4. Copy **config_entry** from the attributes
+
+**Alternative via URL:**
 ```
-Inställningar → Enheter & tjänster → Nordpool → Klicka på integration
-URL:en innehåller config_entry: 
+
+Settings → Devices & services → Nordpool → Click the integration
+The URL contains the config_entry:
 .../config/integrations/integration/01KGFMFDG6SDFKHQFKK5QKCJ5T
-                                    ^^^^^^^^^^^^^^^^^^^^^^^^
-                                    Kopiera denna del
-```
+^^^^^^^^^^^^^^^^^^^^^^^^
+Copy this part
 
-### Steg 2: Anpassa filen
+````
 
-Öppna `nordpool_svotc_adapter.yaml` och ändra på **TVÅ STÄLLEN**:
+---
 
-⚠️ **VIKTIGT: Du måste ändra `config_entry` på BÅDA ställena i filen!**
+### Step 2: Customize the file
+
+Open `nordpool_svotc_adapter.yaml` and change **TWO PLACES**:
+
+⚠️ **IMPORTANT: You must change `config_entry` in BOTH places in the file!**
 ```yaml
-# FÖRSTA STÄLLET (rad ~20):
+# FIRST PLACE (around line ~20):
 action:
   - action: nordpool.get_prices_for_date
     data:
-      config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T  # ← ÄNDRA TILL DIN
+      config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T  # ← CHANGE TO YOURS
       date: "{{ now().date() }}"
-      areas: SE3  # ← ÄNDRA TILL DITT OMRÅDE
+      areas: SE3  # ← CHANGE TO YOUR PRICE AREA
       currency: SEK
     response_variable: today_price
 
-# ANDRA STÄLLET (rad ~27):
+# SECOND PLACE (around line ~27):
   - action: nordpool.get_prices_for_date
     data:
-      config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T  # ← ÄNDRA TILL DIN (igen!)
+      config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T  # ← CHANGE TO YOURS (again!)
       date: "{{ now().date() + timedelta(days=1) }}"
-      areas: SE3  # ← ÄNDRA TILL DITT OMRÅDE (igen!)
+      areas: SE3  # ← CHANGE TO YOUR PRICE AREA (again!)
       currency: SEK
     response_variable: tomorrow_price
+````
+
+**Summary of changes:**
+
+| What           | Where           | Example                              |
+| -------------- | --------------- | ------------------------------------ |
+| `config_entry` | **Both places** | `01KGFMFDG6SDFKHQFKK5QKCJ5T` → YOURS |
+| `areas`        | **Both places** | `SE3` → Your area                    |
+
+**Price areas (Sweden):**
+
+* **SE1** – Northern Sweden (Luleå)
+* **SE2** – Northern Central Sweden (Sundsvall)
+* **SE3** – Southern Central Sweden (Stockholm)
+* **SE4** – Southern Sweden (Malmö)
+
+**💡 Tip:** Use Find & Replace (Ctrl+F) in your editor:
+
+```
+Find:       01KGFMFDG6SDFKHQFKK5QKCJ5T
+Replace:    YOUR_CONFIG_ENTRY_HERE
+Replace all: 2 matches should be replaced
 ```
 
-**Sammanfattning av ändringar:**
+---
 
-| Vad | Var | Exempel |
-|-----|-----|---------|
-| `config_entry` | **Båda ställen** | `01KGFMFDG6SDFKHQFKK5QKCJ5T` → DIN |
-| `areas` | **Båda ställen** | `SE3` → Ditt område |
+### Step 3: Install the file
 
-**Elområden:**
-- **SE1** - Norra Sverige (Luleå)
-- **SE2** - Norra Mellansverige (Sundsvall)  
-- **SE3** - Södra Mellansverige (Stockholm)
-- **SE4** - Södra Sverige (Malmö)
-
-**💡 Tips:** Använd Sök & Ersätt (Ctrl+F) i din editor:
-```
-Sök efter:    01KGFMFDG6SDFKHQFKK5QKCJ5T
-Ersätt med:   DIN_CONFIG_ENTRY_HÄR
-Ersätt alla:  2 träffar ska ersättas
-```
-
-### Steg 3: Installera filen
 ```bash
-# Lägg filen här:
+# Place the file here:
 /config/packages/nordpool_svotc_adapter.yaml
 
-# Starta om Home Assistant
+# Restart Home Assistant
 ```
 
 ---
 
-## ⚙️ Konfiguration
+## ⚙️ Configuration
 
-Efter omstart finns två nya helpers:
+After restarting, two new helpers are created:
 
-| Helper | Beskrivning | Exempel |
-|--------|-------------|---------|
-| `Tibber påslag (öre/kWh)` | Påslag från din elleverantör | 4.0 öre/kWh |
-| `Moms (%)` | Moms (standard 25%) | 25% |
+| Helper                    | Description       | Example     |
+| ------------------------- | ----------------- | ----------- |
+| `Tibber markup (öre/kWh)` | Supplier markup   | 4.0 öre/kWh |
+| `VAT (%)`                 | VAT (default 25%) | 25%         |
 
-**Sätt dessa i UI:**
-1. Gå till **Inställningar → Enheter & tjänster → Hjälpare**
-2. Sök "Tibber påslag"
-3. Ange ditt påslag (vanligt är 3-5 öre/kWh)
-4. Sök "Moms"
-5. Ange 25%
+**Set these in the UI:**
+
+1. Go to **Settings → Devices & services → Helpers**
+2. Search “Tibber markup”
+3. Enter your markup (commonly 3–5 öre/kWh)
+4. Search “VAT”
+5. Enter 25%
 
 ---
 
-## 🔗 Koppla till SVOTC
+## 🔗 Connect to SVOTC
 
-Den nya sensorn heter: `sensor.nordpool_offical`
+The new sensor is named: `sensor.nordpool_offical`
 
-**I SVOTC entity mapping:**
-1. Öppna **Hjälpare**
-2. Sök: `svotc_entity_price`
-3. Sätt värde till: `sensor.nordpool_offical`
+**In SVOTC entity mapping:**
 
-**Eller via YAML:**
+1. Open **Helpers**
+2. Search: `svotc_entity_price`
+3. Set value to: `sensor.nordpool_offical`
+
+**Or via YAML:**
+
 ```yaml
 input_text:
   svotc_entity_price:
@@ -130,223 +142,248 @@ input_text:
 
 ---
 
-## 📊 Vad sensorn innehåller
+## 📊 What the sensor contains
 
-`sensor.nordpool_offical` har följande attribut (som SVOTC kräver):
+`sensor.nordpool_offical` exposes these attributes (required by SVOTC):
 
-| Attribut | Beskrivning |
-|----------|-------------|
-| `current_price` | Aktuellt pris inkl. påslag + moms |
-| `raw_today` | Lista med priser för idag: `[{start, end, value}, ...]` |
-| `raw_tomorrow` | Lista med priser för imorgon (tom före kl 13) |
-| `min` | Lägsta pris idag |
-| `max` | Högsta pris idag |
-| `today` | Array med 24 priser |
-| `tomorrow` | Array med 24 priser (tom före kl 13) |
+| Attribute       | Description                                          |
+| --------------- | ---------------------------------------------------- |
+| `current_price` | Current price incl. markup + VAT                     |
+| `raw_today`     | List of today’s prices: `[{start, end, value}, ...]` |
+| `raw_tomorrow`  | List of tomorrow’s prices (empty before ~13:00)      |
+| `min`           | Lowest price today                                   |
+| `max`           | Highest price today                                  |
+| `today`         | Array of 24 prices                                   |
+| `tomorrow`      | Array of 24 prices (empty before ~13:00)             |
 
 ---
 
-## 🧮 Prisberäkning
+## 🧮 Price calculation
+
 ```python
-# Exempel:
-Nordpool spotpris = 0.50 SEK/kWh
-Tibber påslag     = 4.0 öre/kWh (= 0.04 SEK/kWh)
-Moms              = 25%
+# Example:
+Nordpool spot price = 0.50 SEK/kWh
+Tibber markup       = 4.0 öre/kWh (= 0.04 SEK/kWh)
+VAT                 = 25%
 
-# Beräkning:
-Pris med påslag = 0.50 + 0.04 = 0.54 SEK/kWh
-Slutpris        = 0.54 × 1.25 = 0.675 SEK/kWh
+# Calculation:
+Price w/ markup = 0.50 + 0.04 = 0.54 SEK/kWh
+Final price     = 0.54 × 1.25 = 0.675 SEK/kWh
 ```
 
 ---
 
-## ⏱️ Uppdatering
+## ⏱️ Updates
 
-Sensorn uppdateras automatiskt:
-- ✅ Var 10:e minut (backup)
-- ✅ När du ändrar påslag eller moms (omedelbart)
-- ✅ Vid Home Assistant start
+The sensor updates automatically:
+
+* ✅ Every 10 minutes (backup)
+* ✅ When you change markup or VAT (immediately)
+* ✅ At Home Assistant startup
 
 ---
 
-## ❓ Felsökning
+## ❓ Troubleshooting
 
-### Sensorn blir "unavailable"
+### The sensor becomes `unavailable`
 
-**Kontrollera i denna ordning:**
+Check in this order:
 
-1. ✅ **Nordpool-integrationen fungerar**
+1. ✅ **The Nordpool integration works**
+
 ```
-   Inställningar → Enheter & tjänster → Nordpool
-   Kontrollera att den är aktiverad
+Settings → Devices & services → Nordpool
+Confirm it is loaded/enabled and updating
 ```
 
-2. ✅ **config_entry är rätt på BÅDA ställen**
+2. ✅ **`config_entry` is correct in BOTH places**
+
 ```yaml
-   # Öppna filen och sök efter "config_entry"
-   # Du ska hitta 2 rader med samma ID
+# Open the file and search for "config_entry"
+# You should find 2 lines with the same ID
 ```
 
-3. ✅ **areas är rätt (SE1/SE2/SE3/SE4) på BÅDA ställen**
+3. ✅ **`areas` is correct (SE1/SE2/SE3/SE4) in BOTH places**
 
-4. ✅ **Testa manuellt:**
+4. ✅ **Test manually:**
+
 ```yaml
-   # Developer Tools → Services
-   service: nordpool.get_prices_for_date
-   data:
-     config_entry: DIN_CONFIG_ENTRY_HÄR
-     date: "{{ now().date() }}"
-     areas: SE3
-     currency: SEK
-   
-   # Om detta ger fel → problem med Nordpool-integration eller fel config_entry
-   # Om detta fungerar → problem i adapter-filen
+# Developer Tools → Services
+service: nordpool.get_prices_for_date
+data:
+  config_entry: YOUR_CONFIG_ENTRY_HERE
+  date: "{{ now().date() }}"
+  areas: SE3
+  currency: SEK
+
+# If this fails → Nordpool integration issue or wrong config_entry
+# If this works → issue in the adapter file
 ```
 
-### Priserna stämmer inte
+---
 
-**Kontrollera:**
-1. ✅ `Tibber påslag` är rätt (öre/kWh, inte SEK/kWh!)
-2. ✅ `Moms` är 25% (inte 0.25)
+### Prices are incorrect
 
-**Jämför:**
+Check:
+
+1. ✅ `Tibber markup` is correct (öre/kWh, not SEK/kWh!)
+2. ✅ `VAT` is 25% (not 0.25)
+
+Compare:
+
 ```
-Nordpool spotpris × 1000 = öre/kWh
-Din sensor.nordpool_offical = spotpris + påslag, sedan × 1.25
+Nordpool spot price × 1000 = öre/kWh
+sensor.nordpool_offical = spot + markup, then × 1.25
 ```
 
-### Morgondagens priser saknas
+---
 
-**Detta är normalt före kl 13-14.**
+### Tomorrow’s prices are missing
 
-Nordpool publicerar morgondagens priser ca kl 13:00 varje dag.
+**This is normal before ~13:00–14:00.**
 
-Kontrollera attribut:
+Nordpool publishes tomorrow’s prices around 13:00 each day.
+
+Check attributes:
+
 ```yaml
 # Developer Tools → States → sensor.nordpool_offical
 attributes:
-  tomorrow_valid: false  # ← false före kl 13
-  raw_tomorrow: []       # ← tom lista före kl 13
-```
-
-### Sensorn skapas inte alls
-
-**Checklista:**
-1. ✅ Filen ligger i `/config/packages/`
-2. ✅ Packages är aktiverat i `configuration.yaml`:
-```yaml
-   homeassistant:
-     packages: !include_dir_named packages
-```
-3. ✅ Home Assistant har startats om
-4. ✅ Kontrollera loggen för fel:
-```
-   Inställningar → System → Loggar
-   Sök efter: "nordpool_offical" eller "template"
+  tomorrow_valid: false  # ← false before ~13:00
+  raw_tomorrow: []       # ← empty list before ~13:00
 ```
 
 ---
 
-## 🔍 Verifiera att det fungerar
+### The sensor is not created at all
 
-### Test 1: Sensor finns och uppdateras
+Checklist:
+
+1. ✅ File is in `/config/packages/`
+2. ✅ Packages are enabled in `configuration.yaml`:
+
+```yaml
+homeassistant:
+  packages: !include_dir_named packages
+```
+
+3. ✅ Home Assistant has been restarted
+4. ✅ Check logs for errors:
+
+```
+Settings → System → Logs
+Search for: "nordpool_offical" or "template"
+```
+
+---
+
+## 🔍 Verify it works
+
+### Test 1: Sensor exists and updates
+
 ```yaml
 # Developer Tools → States
-# Sök: sensor.nordpool_offical
-# Ska visa aktuellt pris i SEK/kWh
+# Search: sensor.nordpool_offical
+# Should show current price in SEK/kWh
 ```
 
-### Test 2: Attribut finns
+### Test 2: Attributes exist
+
 ```yaml
 # Developer Tools → States → sensor.nordpool_offical
-# Klicka på sensorn och verifiera:
+# Click the sensor and verify:
 attributes:
-  current_price: 0.675  # ← Ett pris
-  raw_today: [{start: ..., end: ..., value: ...}, ...]  # ← 24 poster
-  raw_tomorrow: [...]  # ← 24 poster (eller [] före kl 13)
+  current_price: 0.675
+  raw_today: [{start: ..., end: ..., value: ...}, ...]  # ← 24 entries
+  raw_tomorrow: [...]  # ← 24 entries (or [] before ~13:00)
   min: 0.450
   max: 0.890
 ```
 
-### Test 3: SVOTC använder sensorn
+### Test 3: SVOTC uses the sensor
+
 ```yaml
 # Developer Tools → States
-# Sök: sensor.svotc_src_current_price
-# Ska visa samma pris som sensor.nordpool_offical
+# Search: sensor.svotc_src_current_price
+# Should match sensor.nordpool_offical
 ```
 
 ---
 
-## 📋 Snabb checklista
+## 📋 Quick checklist
 
-Före installation:
-- [ ] Nordpool-integration installerad och fungerar
-- [ ] Hittat mitt config_entry ID
-- [ ] Vet vilket elområde jag är i (SE1/SE2/SE3/SE4)
+Before install:
 
-Vid installation:
-- [ ] Ändrat `config_entry` på **FÖRSTA stället** (idag)
-- [ ] Ändrat `config_entry` på **ANDRA stället** (imorgon)
-- [ ] Ändrat `areas` på **FÖRSTA stället** (idag)
-- [ ] Ändrat `areas` på **ANDRA stället** (imorgon)
-- [ ] Lagt filen i `/config/packages/`
-- [ ] Startat om Home Assistant
+* [ ] Nordpool integration installed and working
+* [ ] Found my `config_entry` ID
+* [ ] Know my price area (SE1/SE2/SE3/SE4)
 
-Efter installation:
-- [ ] `sensor.nordpool_offical` finns i States
-- [ ] Sensorn visar ett pris (inte "unavailable")
-- [ ] Attribut `current_price` finns och har ett värde
-- [ ] Attribut `raw_today` har 24 poster
-- [ ] Satt Tibber påslag (t.ex. 4.0 öre/kWh)
-- [ ] Satt Moms (25%)
-- [ ] Kopplat till SVOTC via `svotc_entity_price`
+During install:
 
----
+* [ ] Changed `config_entry` in the **FIRST** place (today)
+* [ ] Changed `config_entry` in the **SECOND** place (tomorrow)
+* [ ] Changed `areas` in the **FIRST** place (today)
+* [ ] Changed `areas` in the **SECOND** place (tomorrow)
+* [ ] Placed the file in `/config/packages/`
+* [ ] Restarted Home Assistant
 
-## ✅ Klart!
+After install:
 
-Nu har du:
-- ✅ `sensor.nordpool_offical` med SVOTC-kompatibla attribut
-- ✅ Påslag och moms inkluderat i priserna
-- ✅ Automatisk uppdatering var 10:e minut
-
-**Nästa steg:** Konfigurera SVOTC (se SVOTC README)
+* [ ] `sensor.nordpool_offical` exists in States
+* [ ] Sensor shows a price (not `unavailable`)
+* [ ] Attribute `current_price` exists and has a value
+* [ ] Attribute `raw_today` has 24 entries
+* [ ] Set Tibber markup (e.g. 4.0 öre/kWh)
+* [ ] Set VAT (25%)
+* [ ] Connected it in SVOTC via `svotc_entity_price`
 
 ---
 
-## 📝 Vanliga frågor
+## ✅ Done!
 
-### Kan jag använda denna med Tibber också?
+Now you have:
 
-Nej, denna adapter är **endast för Nordpool Official Integration**.
+* ✅ `sensor.nordpool_offical` with SVOTC-compatible attributes
+* ✅ Markup and VAT included in the price
+* ✅ Automatic updates every 10 minutes
 
-Om du har Tibber använder du Tibber HACS-integrationen direkt:
+**Next step:** Configure SVOTC (see the SVOTC README)
+
+---
+
+## 📝 Frequently asked questions
+
+### Can I use this with Tibber too?
+
+No—this adapter is **only for the official Nordpool integration**.
+
+If you use Tibber, use the Tibber HACS integration directly:
+
 ```yaml
 input_text:
   svotc_entity_price:
-    initial: "sensor.electricity_price_skarholmen"  # Din Tibber-sensor
+    initial: "sensor.electricity_price_skarholmen"  # Your Tibber sensor
 ```
 
-### Vad händer om Nordpool-integrationen slutar fungera?
+### What if the Nordpool integration stops working?
 
-Sensorn blir `unavailable`. SVOTC går då in i `MISSING_INPUTS` eller fortsätter i `ComfortOnly`-läge (beroende på konfiguration).
+The sensor becomes `unavailable`. SVOTC will then go into `MISSING_INPUTS` or continue in `ComfortOnly` mode (depending on configuration).
 
-### Måste jag ändra något när priset uppdateras?
+### Do I need to change anything when prices update?
 
-Nej, allt är automatiskt. Morgondagens priser läses in automatiskt när de publicerats (ca kl 13).
+No—everything is automatic. Tomorrow’s prices are pulled in automatically when published (around 13:00).
 
-### Kan jag ha flera elområden?
+### Can I have multiple price areas?
 
-Ja, men du måste skapa en sensor per område. Kopiera hela `sensor`-blocket och byt `unique_id`, `name`, och `areas`.
+Yes, but you must create one sensor per area. Copy the entire `sensor` block and change `unique_id`, `name`, and `areas`.
 
-### Varför två gånger samma config_entry?
+### Why is `config_entry` repeated twice?
 
-Filen hämtar priser för **två dagar**:
-- **Första anropet** (`today_price`) hämtar idag
-- **Andra anropet** (`tomorrow_price`) hämtar imorgon
+Because the file fetches prices for **two dates**:
 
-Båda måste använda samma `config_entry` och `areas`.
+* **First call** (`today_price`) fetches today
+* **Second call** (`tomorrow_price`) fetches tomorrow
+
+Both must use the same `config_entry` and `areas`.
 
 ---
-
-**💡 Tips:** Lägg till denna sensor i din Lovelace-dashboard för att övervaka priserna visuellt!
