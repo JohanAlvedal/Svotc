@@ -1,6 +1,6 @@
 input_number:
   tibber_addon_ore_per_kwh:
-    name: "Tibber påslag (öre/kWh)"
+    name: "Tibber markup (öre/kWh)"
     min: 0
     max: 20
     step: 0.01
@@ -9,14 +9,14 @@ input_number:
     icon: mdi:plus-circle
 
   tibber_vat_percent:
-    name: "Moms (%)"
+    name: "VAT (%)"
     min: 0
     max: 30
     step: 0.1
     unit_of_measurement: "%"
     mode: box
     icon: mdi:percent
-    
+
 template:
   - trigger:
       - platform: time_pattern
@@ -31,7 +31,7 @@ template:
     action:
       - action: nordpool.get_prices_for_date
         data:
-          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T    # <-- OBS VIKTIGT Ändra HÄR 
+          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T    # <-- IMPORTANT: change this ID
           date: "{{ now().date() }}"
           areas: SE3
           currency: SEK
@@ -39,14 +39,14 @@ template:
 
       - action: nordpool.get_prices_for_date
         data:
-          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T    # <-- OBS VIKTIGT Ändra HÄR 
+          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T    # <-- IMPORTANT: change this ID (again)
           date: "{{ now().date() + timedelta(days=1) }}"
           areas: SE3
           currency: SEK
         response_variable: tomorrow_price
 
     sensor:
-      - name: "Nordpool (Offical)"
+      - name: "Nordpool (Official)"
         unique_id: nordpool_offical
         device_class: monetary
         unit_of_measurement: "SEK/kWh"
@@ -89,11 +89,11 @@ template:
             {% set vat_percent = states('input_number.tibber_vat_percent') | float(0) %}
             {% set addon_sek = addon_ore_per_kwh / 100 %}
             {% set vat_mult = 1 + (vat_percent / 100) %}
-         
+
             {% set now_ts = as_timestamp(now()) %}
             {% set entries = (today_price.get('SE3', []) + tomorrow_price.get('SE3', [])) %}
             {% set ns = namespace(p=none) %}
-        
+
             {% for s in entries %}
               {% set st = as_timestamp(s.start, default=none) %}
               {% set en = as_timestamp(s.end, default=none) %}
@@ -102,7 +102,7 @@ template:
                 {% set ns.p = ((base + addon_sek) * vat_mult) | round(3) %}
               {% endif %}
             {% endfor %}
-        
+
             {{ ns.p if ns.p is not none else 'unavailable' }}
 
           tomorrow_valid: >
@@ -199,8 +199,6 @@ template:
               {% endfor %}
               {{ ns.r }}
             {% endif %}
-
-
 
     #   # --- ELPRISKOEFFICIENT (BASERAD PÅ NYA SENSORN) ---
     #   - name: "Elpriskoefficient"
