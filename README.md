@@ -41,7 +41,7 @@ You need:
 - ✅ Home Assistant (modern version recommended)
 - ✅ Indoor temperature sensor (e.g. `sensor.inomhusmedel`)
 - ✅ Outdoor temperature sensor (e.g. `sensor.temperatur_nu`)
-- ✅ Electricity price sensor (Nordpool/Tibber) with attributes:
+- ✅ Electricity price sensor (Nordpool/Tibber) that provides:
   - `current_price`
   - `raw_today` (list of `{start, end, value}`)
   - `raw_tomorrow` (list of `{start, end, value}`)
@@ -51,7 +51,6 @@ You need:
 ### Price sensor compatibility (HACS vs Official Nordpool)
 
 SVOTC requires a price entity that exposes **SVOTC-compatible** attributes:
-
 - `current_price`
 - `raw_today` (list of `{start, end, value}`)
 - `raw_tomorrow` (list of `{start, end, value}`)
@@ -63,9 +62,9 @@ There are two common setups:
 #### Option A — HACS Nordpool (simplest)
 If you use the **HACS Nordpool integration**, SVOTC can usually use it directly.
 
-✅ You only need the SVOTC package  
-➡️ Set `input_text.svotc_entity_price` to your HACS Nordpool sensor  
-(example: `sensor.nordpool_tibber`)
+✅ You only need the SVOTC package.  
+➡️ Set `input_text.svotc_entity_price` to your HACS Nordpool price sensor  
+(example: `sensor.nordpool_tibber`).
 
 #### Option B — Official Nordpool integration (requires an adapter package)
 If you use the **official Nordpool integration**, the attributes/structure do not match what SVOTC expects.
@@ -74,7 +73,7 @@ If you use the **official Nordpool integration**, the attributes/structure do no
 1) `svotc.yaml` (SVOTC core)
 2) `nordpool_svotc_adapter.yaml` (official Nordpool → SVOTC bridge)
 
-➡️ Follow the adapter guide in `nordpool-official/README.md` (or wherever you placed the adapter docs) and then set:
+➡️ Follow the adapter guide in `nordpool-official/README.md` (or wherever you placed the adapter docs), then set:
 
 - `input_text.svotc_entity_price` = `sensor.nordpool_offical` *(the adapter sensor)*
 
@@ -86,7 +85,7 @@ If you use the **official Nordpool integration**, the attributes/structure do no
 ## 2) Installation
 
 ### Step 1: Add the YAML file
-Place the file in your packages folder, e.g.:
+Place the file in your packages folder, for example:
 ```bash
 /config/packages/svotc.yaml
 ````
@@ -102,13 +101,14 @@ homeassistant:
 
 ### Step 3: Restart Home Assistant
 
-* Settings → System → Restart
+Settings → System → Restart
 
 ### Step 4: Verify it loaded
 
-* Settings → Devices & Services → **Helpers**
-* Search for **SVOTC**
-* You should see helpers (`input_*`) and sensors (`sensor.svotc_*`)
+Settings → Devices & Services → **Helpers**
+Search for **SVOTC**
+
+You should see helpers (`input_*`) and sensors (`sensor.svotc_*`).
 
 ---
 
@@ -132,7 +132,7 @@ homeassistant:
    * ✅ `input_text.svotc_reason_code` does **not** show `MISSING_INPUTS_FREEZE`
    * ✅ `sensor.svotc_virtual_outdoor_temperature` looks reasonable
 
-If something is off: see [Troubleshooting](#6-troubleshooting)
+If something is off: see [Troubleshooting](#6-troubleshooting).
 
 ---
 
@@ -140,12 +140,12 @@ If something is off: see [Troubleshooting](#6-troubleshooting)
 
 These helpers tell SVOTC which of *your* entities to use. You **must** set them.
 
-| Helper                                         | What                | Example                         |
-| ---------------------------------------------- | ------------------- | ------------------------------- |
-| `input_text.svotc_entity_indoor`               | Indoor temp sensor  | `sensor.inomhusmedel`           |
-| `input_text.svotc_entity_outdoor`              | Outdoor temp sensor | `sensor.temperatur_nu`          |
-| `input_text.svotc_entity_price`                | Price sensor        | `sensor.nordpool_tibber`        |
-| `input_text.svotc_notify_service` *(optional)* | notify service      | `notify.mobile_app_iphone13pro` |
+| Helper                                         | What                | Example                  |
+| ---------------------------------------------- | ------------------- | ------------------------ |
+| `input_text.svotc_entity_indoor`               | Indoor temp sensor  | `sensor.inomhusmedel`    |
+| `input_text.svotc_entity_outdoor`              | Outdoor temp sensor | `sensor.temperatur_nu`   |
+| `input_text.svotc_entity_price`                | Price sensor        | `sensor.nordpool_tibber` |
+| `input_text.svotc_notify_service` *(optional)* | Notify service      | `notify.mobile_app_...`  |
 
 ### How to change (recommended)
 
@@ -194,8 +194,7 @@ You normally build dashboards in the UI, but can paste YAML into a view.
 6. Paste YAML (see [5.4](#54-ready-made-dashboards-copypaste))
 7. Save
 
-> Tip: If you already have a dashboard and only want a new SVOTC tab,
-> paste only the **view** part (a block starting with `title:` / `type:` / `sections:`).
+> Tip: If you already have a dashboard and only want a new SVOTC tab, paste only the **view** part (a block starting with `title:` / `type:` / `sections:`).
 
 #### B) YAML mode (if you run `lovelace: yaml`)
 
@@ -269,22 +268,6 @@ sections:
 
 ---
 
-### 5.4 Ready-made dashboards (copy/paste)
-
-You already have two views: **SVOTC Control** and **SVOTC Debug**.
-
-> Note: The Control view uses `custom:mini-graph-card` → install via HACS (see 5.1).
-
-#### 5.4.1 SVOTC Control (view)
-
-*(This is your existing YAML view; you can keep it as-is. Only translate titles/names if you want. If you want, I can output a fully “English UI labels” version too.)*
-
-#### 5.4.2 SVOTC Debug (view)
-
-*(Same: keep YAML as-is or I can translate all card titles / entity names.)*
-
----
-
 ## 6) Troubleshooting
 
 ### 🔴 Nothing happens
@@ -307,19 +290,19 @@ Check in this order:
 ### 🔴 Price looks “dead”
 
 1. `binary_sensor.svotc_price_available` = **on**?
-
 2. `sensor.svotc_current_price` shows a reasonable value?
-
 3. Verify the price sensor attributes:
 
    * Developer Tools → States → your price sensor
    * must have `current_price`, `raw_today`, `raw_tomorrow`
 
+> Official Nordpool users: SVOTC must point to the **adapter sensor** (`sensor.nordpool_offical`), not the original Nordpool entity.
+
 4. If `sensor.svotc_p30` and `sensor.svotc_p80` are `none`:
 
    * SVOTC requires at least **20** prices from `raw_today + raw_tomorrow`
-   * common when tomorrow’s prices are not available yet
-   * fix: wait, or use **ComfortOnly** temporarily
+   * Common when tomorrow’s prices are not available yet
+   * Fix: wait, or use **ComfortOnly** temporarily
 
 ---
 
@@ -327,72 +310,81 @@ Check in this order:
 
 ### 🏗️ Layered architecture
 
-SVOTC follows a “layered control” design:
+SVOTC follows a **layered control** design:
 
 ```
-1) SENSING (validated inputs)
-   - sensor.svotc_src_indoor
-   - sensor.svotc_src_outdoor
-   - sensor.svotc_src_current_price
 
-2) RAW PRICE STATE (instant, no memory)
-   - sensor.svotc_raw_price_state
+1. SENSING (validated inputs)
 
-3) DWELL (raw → stable, anti-spikes)
-   - automation: SVOTC Price dwell
-   - output: input_text.svotc_last_price_state
+   * sensor.svotc_src_indoor
+   * sensor.svotc_src_outdoor
+   * sensor.svotc_src_current_price
 
-4) FORWARD LOOK (prebrake_strength 0..1)
-   - sensor.svotc_prebrake_strength
+2. RAW PRICE STATE (instant, no memory)
 
-5) BRAKE PHASE (memory; avoids “restarting” each minute)
-   - input_text.svotc_brake_phase
-   - automation: SVOTC Brake phase controller
+   * sensor.svotc_raw_price_state
 
-6) ENGINE (requested → ramp-limited applied)
-   - automation: SVOTC Engine
-   - outputs:
-     - input_number.svotc_requested_offset_c
-     - input_number.svotc_applied_offset_c
-   - final:
-     - sensor.svotc_virtual_outdoor_temperature
+3. DWELL (raw → stable, anti-spikes)
+
+   * automation: SVOTC Price dwell
+   * output: input_text.svotc_last_price_state
+
+4. FORWARD LOOK (prebrake_strength 0..1)
+
+   * sensor.svotc_prebrake_strength
+
+5. BRAKE PHASE (memory; avoids “restarting” each minute)
+
+   * input_text.svotc_brake_phase
+   * automation: SVOTC Brake phase controller
+
+6. ENGINE (requested → ramp-limited applied)
+
+   * automation: SVOTC Engine
+   * outputs:
+
+     * input_number.svotc_requested_offset_c
+     * input_number.svotc_applied_offset_c
+   * final output:
+
+     * sensor.svotc_virtual_outdoor_temperature
+
 ```
 
 ### 🧮 Offset calculation (Engine)
 
-**Comfort term (negative = more heat)**
+The engine calculates a **requested offset**, then applies **rate limiting** to produce the final **applied offset**.
 
-* when comfort guard is active:
+**Comfort term (negative = more heat)**  
+When comfort guard is active:
 
-  * `comfort_term = -(heat_aggressiveness * 0.4)`
-  * heat=5 → −2.0°C
+- `comfort_term = -(heat_aggressiveness * 0.4)`
+- Example: `heat_aggressiveness = 5` → `comfort_term = −2.0°C`
 
-**Price term (positive = less heat)**
+**Price term (positive = less heat)**  
+In **Smart** mode, when comfort guard is **not** active:
 
-* in Smart mode, when comfort guard is NOT active:
+- `price_term = brake_hold_offset * prebrake_strength`
+- Example: `hold_offset = 2.0` and `strength = 1.0` → `price_term = +2.0°C`
 
-  * `price_term = brake_hold_offset * prebrake_strength`
-  * hold=2.0 and strength=1.0 → +2.0°C
+**Requested offset**
 
-**Requested**
+- `requested = comfort_term + price_term`
 
-* `requested = comfort_term + price_term`
+**Applied offset (ramp-limited)**
 
-**Applied (ramp-limited)**
+- The change per step is limited by `svotc_max_delta_per_step_c`
 
-* limited by `svotc_max_delta_per_step_c`
+**Virtual outdoor temperature**
 
-**Virtual outdoor temp**
-
-* `virtual_outdoor = real_outdoor + applied`
+- `virtual_outdoor = real_outdoor + applied`
 
 ---
 
 ## 8) Recommended starting values (defaults)
 
 ### 8.1 Mode
-
-* `svotc_mode` = **Smart**
+- `svotc_mode` = **Smart**
 
 ### 8.2 Comfort guard
 
@@ -407,8 +399,8 @@ SVOTC follows a “layered control” design:
 
 | Parameter                    | Value | Meaning                |
 | ---------------------------- | ----: | ---------------------- |
-| `svotc_brake_aggressiveness` |     2 | prebrake window 60 min |
-| `svotc_brake_hold_offset_c`  |   2.0 | max brake +2.0°C       |
+| `svotc_brake_aggressiveness` |     2 | Prebrake window 60 min |
+| `svotc_brake_hold_offset_c`  |   2.0 | Max brake +2.0°C       |
 
 Aggressiveness → window:
 
@@ -441,8 +433,7 @@ Example:
 | rampdown |      45 |
 
 ### 8.6 Rate limiting
-
-* `svotc_max_delta_per_step_c` = **0.10** °C/min (smooth)
+- `svotc_max_delta_per_step_c` = **0.10 °C/min** (smooth)
 
 ---
 
@@ -465,7 +456,6 @@ Example:
 ## 10) FAQ
 
 ### Does SVOTC control the heat pump directly?
-
 No. SVOTC produces `sensor.svotc_virtual_outdoor_temperature`, which you map into your heat pump integration/setup.
 
 ### Requested vs Applied offset?
@@ -482,53 +472,54 @@ No. SVOTC produces `sensor.svotc_virtual_outdoor_temperature`, which you map int
 ### 📊 Visual timeline
 
 ```
+
 Time:     0 ─── 30 ───────── 90 ───── 135 ──→
 Phase:  idle | ramping_up | holding | ramping_down | idle
 Offset:  0 →→→→→ hold_offset →→ hold_offset →→→→→ 0
+
 ```
 
 Parameters:
+- rampup   = 30 min (0 → hold_offset)
+- hold     = 60 min
+- rampdown = 45 min (hold_offset → 0)
 
-* rampup   = 30 min (0 → hold_offset)
-* hold     = 60 min
-* rampdown = 45 min (hold_offset → 0)
-
-⚠️ This only runs while stable price state remains `brake`.
-If price leaves `brake`, phase is forced back to `idle`.
+⚠️ This only runs while the stable price state remains `brake`.  
+If price leaves `brake`, the phase is forced back to `idle`.
 
 ---
 
 ## 12) License / Disclaimer
 
-⚠️ Use at your own risk.
+⚠️ Use at your own risk.  
 SVOTC influences heating indirectly through a virtual outdoor temperature. Test and verify behavior in your environment before relying on it.
 
-**Safe-start recommendation**
+### Safe-start recommendation
 
 1. Start gentle:
+   - `brake_hold_offset_c` = 1.0°C
+   - `max_delta_per_step_c` = 0.10°C/min
+   - Comfort guard: activate 0.8 / deactivate 0.4
 
-   * `brake_hold_offset_c` = 1.0°C
-   * `max_delta_per_step_c` = 0.10°C/min
-   * comfort guard: activate 0.8 / deactivate 0.4
 2. Monitor the first week:
+   - `sensor.svotc_virtual_outdoor_temperature`
+   - `input_number.svotc_applied_offset_c`
+   - `sensor.svotc_src_indoor`
+   - `input_text.svotc_reason_code`
 
-   * `sensor.svotc_virtual_outdoor_temperature`
-   * `input_number.svotc_applied_offset_c`
-   * `sensor.svotc_src_indoor`
-   * `input_text.svotc_reason_code`
 3. Increase aggressiveness step-by-step:
-
-   * week 2: hold_offset 2.0
-   * week 3: brake_aggressiveness 3
-   * later: fine-tune guard/ramp
+   - Week 2: hold_offset 2.0
+   - Week 3: brake_aggressiveness 3
+   - Later: fine-tune guard/ramp
 
 ---
 
 ## Credits
 
 SVOTC – Stable Core Edition (2026-02)
-Designed for:
 
-* 🏠 Swedish houses with heat pumps
-* ⚡ Nordpool/Tibber spot price control
-* 🎚️ Smooth, predictable, explainable control
+Designed for:
+- 🏠 Swedish houses with heat pumps
+- ⚡ Nordpool/Tibber spot price control
+- 🎚️ Smooth, predictable, explainable control
+```
