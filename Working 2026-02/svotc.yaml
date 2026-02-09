@@ -1,7 +1,7 @@
 ###############################################################################
-# SVOTC – Stable Core Edition (2026-02)  ✅ FULL CODE 
+# SVOTC – Stable Core Edition (2026-02-09)  ✅ FULL CODE
 #
-# INNEHÅLL:
+# CONTENTS:
 #   1. UI / Controls (Helpers)
 #      1.1 USER SETTINGS (modify these)
 #          - Mode selection
@@ -34,6 +34,7 @@
 #      3.1 Price dwell (raw → stable)
 #      3.2 Brake phase controller
 #      3.3 Engine (requested → applied offset)
+#      3.4 Notify (diagnostics) - alert only if bad state persists
 #
 # Purpose: Stable + explainable SVOTC core with strict layering:
 #   1) Sensing (validated raw inputs)
@@ -43,13 +44,25 @@
 #   5) Brake phase memory (idle/ramping_up/holding/ramping_down)
 #   6) Engine (requested offset -> ramp-limited applied offset)
 #
+# INSTALL (REQUIRED):
+#  - Set input_text.svotc_entity_indoor  = your indoor temperature sensor entity_id
+#  - Set input_text.svotc_entity_outdoor = your outdoor temperature sensor entity_id
+#  - Set input_text.svotc_entity_price   = your Nordpool/Tibber price sensor entity_id
+#
+# INSTALL (OPTIONAL - NOTIFICATIONS):
+#  - Set input_text.svotc_notify_service = notify.mobile_app_<your_device>
+#    (leave empty → uses notify.notify)
+#
 # KEY FIXES IN THIS VERSION:
-# - Adds sensor.svotc_current_price as a clean mirror of svotc_src_current_price
-# - inputs_healthy no longer depends on price (price glitches won't nuke control)
-# - Engine "missing inputs" now FREEZES applied offset (no vertical jumps)
-# - No template this.state memory anywhere
-###############################################################################
-
+# - Removed hardcoded fallback sensor entities for indoor/outdoor; SVOTC now ONLY uses input_text.svotc_entity_* mapping
+#   (if mapping is empty/unavailable, src sensors become unavailable instead of silently using defaults)
+# - Added input_text.svotc_notify_service to avoid hardcoded phone notify service
+#   (empty/unavailable falls back to notify.notify)
+# - Added delayed diagnostics notifications (3 min bad / 2 min recovered) to avoid spam during restarts and brief glitches
+# - Kept inputs_healthy independent from price (price glitches won’t disable core control)
+# - Engine “missing inputs” behavior FREEZES applied offset (prevents vertical jumps) while setting requested=0 + reason code
+# - Added sensor.svotc_current_price as a clean mirror of svotc_src_current_price for dashboards/legacy references
+# - No template this.state memory anywhere (all memory lives in helpers)
 ###############################################################################
 # 1. UI / Controls (Helpers)
 ###############################################################################
@@ -126,7 +139,7 @@ input_number:
     name: "Dwell cheap → neutral (min)"
     min: 0
     max: 120
-    step: 5
+    step: 1
     mode: box
     # How long price must stay above P30 before switching from cheap to neutral
 
@@ -134,7 +147,7 @@ input_number:
     name: "Dwell neutral → brake (min)"
     min: 0
     max: 120
-    step: 5
+    step: 1
     mode: box
     # How long price must stay above P80 before switching from neutral to brake
 
@@ -142,7 +155,7 @@ input_number:
     name: "Dwell brake → neutral (min)"
     min: 0
     max: 120
-    step: 5
+    step: 1
     mode: box
     # How long price must stay below P80 before switching from brake to neutral
 
@@ -150,7 +163,7 @@ input_number:
     name: "Dwell neutral → cheap (min)"
     min: 0
     max: 120
-    step: 5
+    step: 1
     mode: box
     # How long price must stay below P30 before switching from neutral to cheap
 
@@ -159,7 +172,7 @@ input_number:
     name: "Brake ramp-up duration (min)"
     min: 1
     max: 180
-    step: 5
+    step: 1
     mode: box
     # Time to gradually increase offset from 0 to hold_offset
 
@@ -167,7 +180,7 @@ input_number:
     name: "Brake hold duration (min)"
     min: 1
     max: 120
-    step: 10
+    step: 1
     mode: box
     # Time to maintain maximum offset during expensive period
 
@@ -175,7 +188,7 @@ input_number:
     name: "Brake ramp-down duration (min)"
     min: 1
     max: 180
-    step: 5
+    step: 1
     mode: box
     # Time to gradually decrease offset from hold_offset to 0
 
@@ -217,23 +230,28 @@ input_number:
 input_text:
   # --- Entity Mapping (Configure your sensors) ---
   svotc_entity_indoor:
-    name: "Indoor temperature entity"   # <-- CHANGE TO YOUR SENSOR
-#    initial: "sensor.inomhusmedel"      # <-- CHANGE TO YOUR SENSOR, or remove
+    name: "Indoor temperature entity"   
+#    initial: "sensor.inomhusmedel"             # <-- CHANGE TO YOUR SENSOR IN GUI
     # Your indoor temperature sensor
 
   svotc_entity_outdoor:
-    name: "Outdoor temperature entity"  # <-- CHANGE TO YOUR SENSOR
-#    initial: "sensor.temperatur_nu"     # <-- CHANGE TO YOUR SENSOR, or remove
+    name: "Outdoor temperature entity"  
+#    initial: "sensor.temperatur_nu"            # <-- CHANGE TO YOUR SENSOR IN GUI
     # Your outdoor temperature sensor
 
   svotc_entity_price:
-    name: "Price entity (Nordpool)"     # <-- CHANGE TO YOUR SENSOR
-#    initial: "sensor.nordpool_tibber"   # <-- CHANGE TO YOUR SENSOR, or remove
+    name: "Price entity (Nordpool)"     
+#    initial: "sensor.nordpool_tibber"          # <-- CHANGE TO YOUR SENSOR IN GUI
     # Your electricity price sensor
     # Must provide attributes:
     #   current_price
     #   raw_today (list of {start, end, value})
     #   raw_tomorrow (list of {start, end, value})
+
+  svotc_notify_service:
+    name: "SVOTC Notify service"
+    initial: "notify.mobile_app_iphone13pro"   # <-- CHANGE TO YOUR PHONE NOTIFY SERVICE IN GUI
+    # # Your Phone etc.    # <-- CHANGE TO YOUR PHONE etc. 
 
   ###########################################################################
   # 1.4 INTERNAL STATE (Read-only - managed automatically by SVOTC)
@@ -294,6 +312,20 @@ template:
       # 2.1 Indoor temperature (validated)
       #     Range: 10-35°C, sanity checked
       #########################################################################
+    #   - name: "SVOTC Src Indoor"
+    #     unique_id: svotc_src_indoor
+    #     unit_of_measurement: "°C"
+    #     device_class: temperature
+    #     state_class: measurement
+    #     state: >
+    #       {% set ent = states('input_text.svotc_entity_indoor') %}
+    #       {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.inomhusmedel' %}
+    #       {% set v = states(ent) | float(none) %}
+    #       {{ v | round(2) if v is number and 10 <= v <= 35 else none }}
+    #     availability: >
+    #       {% set ent = states('input_text.svotc_entity_indoor') %}
+    #       {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.inomhusmedel' %}
+    #       {{ states(ent) | float(none) is number }}
       - name: "SVOTC Src Indoor"
         unique_id: svotc_src_indoor
         unit_of_measurement: "°C"
@@ -301,18 +333,38 @@ template:
         state_class: measurement
         state: >
           {% set ent = states('input_text.svotc_entity_indoor') %}
-          {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.inomhusmedel' %}
-          {% set v = states(ent) | float(none) %}
-          {{ v | round(2) if v is number and 10 <= v <= 35 else none }}
+          {% if ent in ['unknown','unavailable',''] %}
+            {{ none }}
+          {% else %}
+            {% set v = states(ent) | float(none) %}
+            {{ v | round(2) if v is number and 10 <= v <= 35 else none }}
+          {% endif %}
         availability: >
           {% set ent = states('input_text.svotc_entity_indoor') %}
-          {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.inomhusmedel' %}
-          {{ states(ent) | float(none) is number }}
+          {% if ent in ['unknown','unavailable',''] %}
+            false
+          {% else %}
+            {{ states(ent) | float(none) is number }}
+          {% endif %}
 
       #########################################################################
       # 2.2 Outdoor temperature (validated)
       #     Range: -50 to +50°C, sanity checked
       #########################################################################
+    #   - name: "SVOTC Src Outdoor"
+    #     unique_id: svotc_src_outdoor
+    #     unit_of_measurement: "°C"
+    #     device_class: temperature
+    #     state_class: measurement
+    #     state: >
+    #       {% set ent = states('input_text.svotc_entity_outdoor') %}
+    #       {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.temperatur_nu' %}
+    #       {% set v = states(ent) | float(none) %}
+    #       {{ v | round(2) if v is number and -50 <= v <= 50 else none }}
+    #     availability: >
+    #       {% set ent = states('input_text.svotc_entity_outdoor') %}
+    #       {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.temperatur_nu' %}
+    #       {{ states(ent) | float(none) is number }}
       - name: "SVOTC Src Outdoor"
         unique_id: svotc_src_outdoor
         unit_of_measurement: "°C"
@@ -320,14 +372,19 @@ template:
         state_class: measurement
         state: >
           {% set ent = states('input_text.svotc_entity_outdoor') %}
-          {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.temperatur_nu' %}
-          {% set v = states(ent) | float(none) %}
-          {{ v | round(2) if v is number and -50 <= v <= 50 else none }}
+          {% if ent in ['unknown','unavailable',''] %}
+            {{ none }}
+          {% else %}
+            {% set v = states(ent) | float(none) %}
+            {{ v | round(2) if v is number and -50 <= v <= 50 else none }}
+          {% endif %}
         availability: >
           {% set ent = states('input_text.svotc_entity_outdoor') %}
-          {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.temperatur_nu' %}
-          {{ states(ent) | float(none) is number }}
-
+          {% if ent in ['unknown','unavailable',''] %}
+            false
+          {% else %}
+            {{ states(ent) | float(none) is number }}
+          {% endif %}
       #########################################################################
       # 2.3 Current price (validated) -> "source of truth"
       #     Range: -1 to 20 SEK/kWh, sanity checked
@@ -367,57 +424,8 @@ template:
         device_class: temperature
         state: "{{ states('input_number.svotc_comfort_temperature') | float(21) | round(2) }}"
 
-    #   #########################################################################
-    #   # 2.5 Percentiles P30/P80 from raw_today + raw_tomorrow
-    #   #     NO memory fallback; outputs none when insufficient data (< 20 prices)
-    #   #########################################################################
-    #   - name: "SVOTC P30"
-    #     unique_id: svotc_p30
-    #     unit_of_measurement: "SEK/kWh"
-    #     state: >
-    #       {% set ent = states('input_text.svotc_entity_price') %}
-    #       {% if ent in ['unknown','unavailable','none',''] %}
-    #         {{ none }}
-    #       {% else %}
-    #         {% set today = state_attr(ent, 'raw_today') | default([], true) %}
-    #         {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
-    #         {% set prices = (today + tomorrow) | map(attribute='value') | select('number') | list %}
-    #         {% if prices | length >= 20 %}
-    #           {% set s = prices | sort %}
-    #           {% set idx = ((s | length - 1) * 0.30) | round(0, 'half_up') | int %}
-    #           {{ s[idx] | round(3) }}
-    #         {% else %}
-    #           {{ none }}
-    #         {% endif %}
-    #       {% endif %}
-    #     availability: >
-    #       {% set ent = states('input_text.svotc_entity_price') %}
-    #       {{ ent not in ['unknown','unavailable','none',''] }}
-
-    #   - name: "SVOTC P80"
-    #     unique_id: svotc_p80
-    #     unit_of_measurement: "SEK/kWh"
-    #     state: >
-    #       {% set ent = states('input_text.svotc_entity_price') %}
-    #       {% if ent in ['unknown','unavailable','none',''] %}
-    #         {{ none }}
-    #       {% else %}
-    #         {% set today = state_attr(ent, 'raw_today') | default([], true) %}
-    #         {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
-    #         {% set prices = (today + tomorrow) | map(attribute='value') | select('number') | list %}
-    #         {% if prices | length >= 20 %}
-    #           {% set s = prices | sort %}
-    #           {% set idx = ((s | length - 1) * 0.80) | round(0, 'half_up') | int %}
-    #           {{ s[idx] | round(3) }}
-    #         {% else %}
-    #           {{ none }}
-    #         {% endif %}
-    #       {% endif %}
-    #     availability: >
-    #       {% set ent = states('input_text.svotc_entity_price') %}
-    #       {{ ent not in ['unknown','unavailable','none',''] }}
       #########################################################################
-      # 2.5 Percentiles P30/P80 från raw_today (ignorerar raw_tomorrow)
+      # 2.5 Percentiles P30/P80 from raw_today + raw_tomorrow
       #     NO memory fallback; outputs none when insufficient data (< 20 prices)
       #########################################################################
       - name: "SVOTC P30"
@@ -428,9 +436,9 @@ template:
           {% if ent in ['unknown','unavailable','none',''] %}
             {{ none }}
           {% else %}
-            {% set today  = state_attr(ent, 'raw_today') | default([], true) %}
-            {# Endast dagens priser tas med, ingen morgondag #}
-            {% set prices = today | map(attribute='value') | select('number') | list %}
+            {% set today = state_attr(ent, 'raw_today') | default([], true) %}
+            {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
+            {% set prices = (today + tomorrow) | map(attribute='value') | select('number') | list %}
             {% if prices | length >= 20 %}
               {% set s = prices | sort %}
               {% set idx = ((s | length - 1) * 0.30) | round(0, 'half_up') | int %}
@@ -451,9 +459,9 @@ template:
           {% if ent in ['unknown','unavailable','none',''] %}
             {{ none }}
           {% else %}
-            {% set today  = state_attr(ent, 'raw_today') | default([], true) %}
-            {# Endast dagens priser tas med, ingen morgondag #}
-            {% set prices = today | map(attribute='value') | select('number') | list %}
+            {% set today = state_attr(ent, 'raw_today') | default([], true) %}
+            {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
+            {% set prices = (today + tomorrow) | map(attribute='value') | select('number') | list %}
             {% if prices | length >= 20 %}
               {% set s = prices | sort %}
               {% set idx = ((s | length - 1) * 0.80) | round(0, 'half_up') | int %}
@@ -465,6 +473,7 @@ template:
         availability: >
           {% set ent = states('input_text.svotc_entity_price') %}
           {{ ent not in ['unknown','unavailable','none',''] }}
+
       #########################################################################
       # 2.6 Raw price state (instant, NO dwell, NO memory)
       #     Thresholds: current_price vs P30/P80
@@ -489,54 +498,11 @@ template:
             {% endif %}
           {% endif %}
 
-    #   #########################################################################
-    #   # 2.7 Forward look: Minutes to next brake start
-    #   #     Scans raw_today + raw_tomorrow for next interval where price > P80
-    #   #     Output: 0 if currently in expensive period, otherwise minutes until next
-    #   #########################################################################
-    #   - name: "SVOTC Minutes to next brake start"
-    #     unique_id: svotc_minutes_to_next_brake_start
-    #     unit_of_measurement: "min"
-    #     state: >
-    #       {% set ent = states('input_text.svotc_entity_price') %}
-    #       {% set p80 = states('sensor.svotc_p80') | float(none) %}
-    #       {% if ent in ['unknown','unavailable','none',''] or p80 is not number %}
-    #         999
-    #       {% else %}
-    #         {% set today = state_attr(ent, 'raw_today') | default([], true) %}
-    #         {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
-    #         {% set combined = today + tomorrow %}
-    #         {% set now_ts = as_timestamp(now()) %}
-    #         {% set ns = namespace(best=none, in_expensive=false) %}
-    
-    #         {% for it in combined %}
-    #           {% set v = it.value | float(none) %}
-    #           {% set s = as_timestamp(it.start, default=none) if it.start is defined else none %}
-    #           {% set e = as_timestamp(it.end,   default=none) if it.end   is defined else none %}
-    #           {% if v is number and s is number and e is number and s <= now_ts < e and v > p80 %}
-    #             {% set ns.in_expensive = true %}
-    #           {% endif %}
-    #         {% endfor %}
-    
-    #         {% if ns.in_expensive %}
-    #           0
-    #         {% else %}
-    #           {% for it in combined %}
-    #             {% set v = it.value | float(none) %}
-    #             {% set s = as_timestamp(it.start, default=none) if it.start is defined else none %}
-    #             {% if v is number and s is number and s >= now_ts and v > p80 %}
-    #               {% set mins = (s - now_ts) / 60 %}
-    #               {% if ns.best is none or mins < ns.best %}
-    #                 {% set ns.best = mins %}
-    #               {% endif %}
-    #             {% endif %}
-    #           {% endfor %}
-    #           {{ ns.best | round(1) if ns.best is not none else 999 }}
-    #         {% endif %}
-    #       {% endif %}
-    #     availability: >
-    #       {% set ent = states('input_text.svotc_entity_price') %}
-    #       {{ ent not in ['unknown','unavailable','none',''] }}
+      #########################################################################
+      # 2.7 Forward look: Minutes to next brake start
+      #     Scans raw_today + raw_tomorrow for next interval where price > P80
+      #     Output: 0 if currently in expensive period, otherwise minutes until next
+      #########################################################################
       - name: "SVOTC Minutes to next brake start"
         unique_id: svotc_minutes_to_next_brake_start
         unit_of_measurement: "min"
@@ -546,13 +512,12 @@ template:
           {% if ent in ['unknown','unavailable','none',''] or p80 is not number %}
             999
           {% else %}
-            {# Endast raw_today (ingen morgondag) #}
             {% set today = state_attr(ent, 'raw_today') | default([], true) %}
-            {% set combined = today %}
+            {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
+            {% set combined = today + tomorrow %}
             {% set now_ts = as_timestamp(now()) %}
             {% set ns = namespace(best=none, in_expensive=false) %}
-
-            {# Är vi i en dyr timme just nu? #}
+    
             {% for it in combined %}
               {% set v = it.value | float(none) %}
               {% set s = as_timestamp(it.start, default=none) if it.start is defined else none %}
@@ -561,11 +526,10 @@ template:
                 {% set ns.in_expensive = true %}
               {% endif %}
             {% endfor %}
-
+    
             {% if ns.in_expensive %}
               0
             {% else %}
-              {# Hitta nästa start som blir dyr enligt p80 #}
               {% for it in combined %}
                 {% set v = it.value | float(none) %}
                 {% set s = as_timestamp(it.start, default=none) if it.start is defined else none %}
@@ -581,7 +545,8 @@ template:
           {% endif %}
         availability: >
           {% set ent = states('input_text.svotc_entity_price') %}
-          {{ ent not in ['unknown','unavailable','none',''] }}     
+          {{ ent not in ['unknown','unavailable','none',''] }}
+     
       #########################################################################
       # 2.8 Prebrake strength calculation
       #     2.8a: Maps brake aggressiveness (0-5) to prebrake window (0-120 min)
@@ -595,31 +560,17 @@ template:
           {% set mapper = {0:0, 1:30, 2:60, 3:90, 4:105, 5:120} %}
           {{ mapper.get(a, 0) }}
 
-    #   - name: "SVOTC Prebrake strength"
-    #     unique_id: svotc_prebrake_strength
-    #     state: >
-    #       {% set window = states('sensor.svotc_prebrake_window_min') | float(0) %}
-    #       {% set mins = states('sensor.svotc_minutes_to_next_brake_start') | float(999) %}
-    #       {% if window > 0 and mins <= window %}
-    #         {{ ((window - mins) / window) | round(3) | clamp(0, 1) }}
-    #       {% else %}
-    #         0
-    #       {% endif %}
       - name: "SVOTC Prebrake strength"
         unique_id: svotc_prebrake_strength
         state: >
-          {% set stable = states('input_text.svotc_last_price_state') %}
-          {% if stable == 'brake' %}
-            1.0
+          {% set window = states('sensor.svotc_prebrake_window_min') | float(0) %}
+          {% set mins = states('sensor.svotc_minutes_to_next_brake_start') | float(999) %}
+          {% if window > 0 and mins <= window %}
+            {{ ((window - mins) / window) | round(3) | clamp(0, 1) }}
           {% else %}
-            {% set window = states('sensor.svotc_prebrake_window_min') | float(0) %}
-            {% set mins = states('sensor.svotc_minutes_to_next_brake_start') | float(999) %}
-            {% if window > 0 and mins <= window %}
-              {{ ((window - mins) / window) | round(3) | clamp(0, 1) }}
-            {% else %}
-              0
-            {% endif %}
+            0
           {% endif %}
+
       #########################################################################
       # 2.9 Virtual outdoor temperature (final output)
       #     Real outdoor + applied offset → sent to heat pump
@@ -629,7 +580,6 @@ template:
         unique_id: svotc_virtual_outdoor_temperature
         unit_of_measurement: "°C"
         device_class: temperature
-        state_class: measurement
         state: >
           {% set out = states('sensor.svotc_src_outdoor') | float(none) %}
           {% set off = states('input_number.svotc_applied_offset_c') | float(0) %}
@@ -710,6 +660,7 @@ template:
 #   - 3.1: Price dwell (cheap ⇄ neutral ⇄ brake with hysteresis)
 #   - 3.2: Brake phases (idle → ramping_up → holding → ramping_down → idle)
 #   - 3.3: Engine (requested → ramp-limited → applied)
+#   - 3.4 Notify (diagnostics) - alert only if bad state persists
 ###############################################################################
 
 automation:
@@ -717,7 +668,7 @@ automation:
   # 3.1 Price dwell (raw → stable) [NON-NEGOTIABLE layer]
   #     Prevents rapid state changes by requiring dwell time before accepting
   #     new price state. Uses separate pending state and timestamp tracking.
-  #     Triggers: Every minute OR when raw price state changes
+  #     Triggers: Every 4 minutes OR when any input parameter changes OR when raw price state changes
   ###########################################################################
   - alias: "SVOTC Price dwell"
     id: svotc_price_dwell
@@ -864,7 +815,7 @@ automation:
   #     - Calculates price_term (positive = less heat during expensive)
   #     - Applies rate limiting (max_delta_per_step_c)
   #     - FREEZE mode when inputs unhealthy (no vertical jumps)
-  #     Triggers: Every minute OR when any input parameter changes
+  #     Triggers: Every 4 minutes OR when any input parameter changes
   ###########################################################################
   - alias: "SVOTC Engine"
     id: svotc_engine
@@ -940,7 +891,7 @@ automation:
         {% if mode == 'Off' %}
           OFF
         {% elif not healthy %}
-          MISSING_INPUTS_FREEZE
+          MISSING_INPUTS
         {% elif mode == 'PassThrough' %}
           PASS_THROUGH
         {% elif mode == 'ComfortOnly' %}
@@ -980,3 +931,91 @@ automation:
       - service: input_text.set_value
         target: { entity_id: input_text.svotc_reason_code }
         data: { value: "{{ reason }}" }
+ ###############################################################################
+ # 3.4 Notify (diagnostics) - alert only if bad state persists
+ ###############################################################################
+  - alias: "SVOTC Notify: missing inputs/price"
+    id: svotc_notify_missing_inputs_price_delayed
+    mode: single
+
+    trigger:
+      # BAD: inputs_healthy OFF for X minutes
+      - platform: state
+        entity_id: binary_sensor.svotc_inputs_healthy
+        to: "off"
+        for: { minutes: 3 }
+
+      # BAD: price_available OFF for X minutes
+      - platform: state
+        entity_id: binary_sensor.svotc_price_available
+        to: "off"
+        for: { minutes: 3 }
+
+      # OK: both ON for X minutes (avoid flapping)
+      - platform: template
+        for: { minutes: 2 }
+        value_template: >
+          {{ is_state('binary_sensor.svotc_inputs_healthy','on')
+             and is_state('binary_sensor.svotc_price_available','on') }}
+
+    action:
+      - variables:
+          # Notify service from helper (fallback if empty/unavailable)
+          notify_svc: >-
+            {% set s = states('input_text.svotc_notify_service') %}
+            {{ s if s not in ['unknown','unavailable',''] else 'notify.notify' }}
+
+          # Mapping (what user configured)
+          indoor_map: "{{ states('input_text.svotc_entity_indoor') }}"
+          outdoor_map: "{{ states('input_text.svotc_entity_outdoor') }}"
+          price_map: "{{ states('input_text.svotc_entity_price') }}"
+
+          # Validated sources (what SVOTC actually sees)
+          src_indoor: "{{ states('sensor.svotc_src_indoor') }}"
+          src_outdoor: "{{ states('sensor.svotc_src_outdoor') }}"
+          src_price: "{{ states('sensor.svotc_src_current_price') }}"
+
+          inputs_ok: "{{ is_state('binary_sensor.svotc_inputs_healthy', 'on') }}"
+          price_ok: "{{ is_state('binary_sensor.svotc_price_available', 'on') }}"
+
+          missing_list: >-
+            {% set miss = [] %}
+            {% if indoor_map in ['unknown','unavailable',''] %}{% set miss = miss + ['indoor mapping'] %}{% endif %}
+            {% if outdoor_map in ['unknown','unavailable',''] %}{% set miss = miss + ['outdoor mapping'] %}{% endif %}
+            {% if price_map in ['unknown','unavailable',''] %}{% set miss = miss + ['price mapping'] %}{% endif %}
+            {{ miss | join(', ') if miss | length > 0 else 'none' }}
+
+      - choose:
+          # BAD state
+          - conditions: "{{ not inputs_ok or not price_ok }}"
+            sequence:
+              - service: "{{ notify_svc }}"
+                data:
+                  title: "SVOTC: Missing data"
+                  message: >-
+                    (Has been bad for at least 3 minutes)
+
+                    Status:
+                      inputs_healthy={{ states('binary_sensor.svotc_inputs_healthy') }},
+                      price_available={{ states('binary_sensor.svotc_price_available') }}
+
+                    Missing mappings: {{ missing_list }}
+
+                    Mapping:
+                      indoor={{ indoor_map }},
+                      outdoor={{ outdoor_map }},
+                      price={{ price_map }}
+
+                    Sources:
+                      svotc_src_indoor={{ src_indoor }},
+                      svotc_src_outdoor={{ src_outdoor }},
+                      svotc_src_current_price={{ src_price }}
+
+          # Recovery / OK again
+          - conditions: "{{ inputs_ok and price_ok }}"
+            sequence:
+              - service: "{{ notify_svc }}"
+                data:
+                  title: "SVOTC: OK again"
+                  message: "(Has been OK for at least 2 minutes) Inputs + price data are healthy again."
+
