@@ -17,6 +17,7 @@ Instead of toggling the pump on/off or aggressively changing setpoints, SVOTC ad
 
 ## 📋 Table of contents
 1. [Requirements](#1-requirements)
+   - [Price sensor compatibility (HACS vs Official Nordpool)](#price-sensor-compatibility-hacs-vs-official-nordpool)
 2. [Installation](#2-installation)
 3. [First run (5-minute setup)](#3-first-run-5-minute-setup)
 4. [Entity mapping](#4-entity-mapping-most-important)
@@ -46,6 +47,39 @@ You need:
   - `raw_tomorrow` (list of `{start, end, value}`)
 
 > SVOTC reads the price sensor via **entity mapping** (`input_text`). No price sensor is hard-coded in this Stable Core version.
+
+### Price sensor compatibility (HACS vs Official Nordpool)
+
+SVOTC requires a price entity that exposes **SVOTC-compatible** attributes:
+
+- `current_price`
+- `raw_today` (list of `{start, end, value}`)
+- `raw_tomorrow` (list of `{start, end, value}`)
+
+> Note: `raw_tomorrow` may be empty until Nordpool publishes tomorrow’s prices (~13:00–14:00).
+
+There are two common setups:
+
+#### Option A — HACS Nordpool (simplest)
+If you use the **HACS Nordpool integration**, SVOTC can usually use it directly.
+
+✅ You only need the SVOTC package  
+➡️ Set `input_text.svotc_entity_price` to your HACS Nordpool sensor  
+(example: `sensor.nordpool_tibber`)
+
+#### Option B — Official Nordpool integration (requires an adapter package)
+If you use the **official Nordpool integration**, the attributes/structure do not match what SVOTC expects.
+
+✅ In this case you typically use **two packages**:
+1) `svotc.yaml` (SVOTC core)
+2) `nordpool_svotc_adapter.yaml` (official Nordpool → SVOTC bridge)
+
+➡️ Follow the adapter guide in `nordpool-official/README.md` (or wherever you placed the adapter docs) and then set:
+
+- `input_text.svotc_entity_price` = `sensor.nordpool_offical` *(the adapter sensor)*
+
+> In short: **HACS Nordpool = SVOTC only**  
+> **Official Nordpool = SVOTC + adapter package**
 
 ---
 
