@@ -1,0 +1,159 @@
+title: SVOTC Debug
+type: sections
+cards: []
+sections:
+  - type: grid
+    cards:
+      - type: entities
+        title: 🚦 Systemstatus
+        show_header_toggle: false
+        entities:
+          - entity: input_select.svotc_mode
+            name: Driftsläge
+          - entity: binary_sensor.svotc_inputs_healthy
+            name: Sensorer OK
+          - entity: binary_sensor.svotc_price_available
+            name: Prisdata OK
+          - entity: binary_sensor.svotc_comfort_guard_active
+            name: Komfortskydd
+          - entity: input_text.svotc_reason_code
+            name: Reason code
+      - type: entities
+        title: 🌡️ Temperaturer
+        show_header_toggle: false
+        entities:
+          - entity: sensor.svotc_src_indoor
+            name: Inomhus (källa)
+            secondary_info: last-changed
+          - entity: sensor.svotc_dynamic_target_temperature
+            name: Måltemperatur
+            secondary_info: last-changed
+          - entity: sensor.svotc_src_outdoor
+            name: Utomhus (källa)
+            secondary_info: last-changed
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: Virtuell ute (→VP)
+            secondary_info: last-changed
+          - entity: input_number.svotc_requested_offset_c
+            name: Requested offset (°C)
+            secondary_info: last-changed
+          - entity: input_number.svotc_applied_offset_c
+            name: Applied offset (°C)
+            secondary_info: last-changed
+      - type: entities
+        title: 💰 Pris & percentiler
+        show_header_toggle: false
+        entities:
+          - entity: sensor.svotc_src_current_price
+            name: Råpris (källa)
+            secondary_info: last-changed
+          - entity: sensor.svotc_current_price
+            name: Current price
+            secondary_info: last-changed
+          - entity: sensor.svotc_p30
+            name: P30 (billig)
+            secondary_info: last-changed
+          - entity: sensor.svotc_p80
+            name: P80 (dyr)
+            secondary_info: last-changed
+      - type: entities
+        title: 🔧 Entity mapping
+        show_header_toggle: false
+        entities:
+          - entity: input_text.svotc_entity_indoor
+            name: Indoor sensor entity
+          - entity: input_text.svotc_entity_outdoor
+            name: Outdoor sensor entity
+          - entity: input_text.svotc_entity_price
+            name: Price sensor entity
+      - type: history-graph
+        title: 📊 Temperaturhistorik (8h)
+        hours_to_show: 8
+        entities:
+          - entity: sensor.svotc_src_indoor
+            name: Inne
+          - entity: sensor.svotc_src_outdoor
+            name: Ute (verklig)
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: Virtuell ute
+          - entity: sensor.svotc_dynamic_target_temperature
+            name: Måltemp
+      - type: history-graph
+        title: 📈 Offset-historik (8h)
+        hours_to_show: 8
+        entities:
+          - entity: input_number.svotc_requested_offset_c
+            name: Requested
+          - entity: input_number.svotc_applied_offset_c
+            name: Applied
+  - type: grid
+    cards:
+      - type: entities
+        title: 🔄 Price state machine
+        show_header_toggle: false
+        entities:
+          - entity: sensor.svotc_raw_price_state
+            name: Raw state
+          - entity: input_text.svotc_pending_price_state
+            name: Pending state
+          - entity: input_text.svotc_last_price_state
+            name: Stable state
+          - entity: input_datetime.svotc_last_price_state_changed
+            name: Pending sedan
+      - type: entities
+        title: 🛑 Brake phase & look-ahead
+        show_header_toggle: false
+        entities:
+          - entity: input_text.svotc_brake_phase
+            name: Bromsfas
+          - entity: input_datetime.svotc_brake_phase_changed
+            name: Fas startade
+          - entity: sensor.svotc_minutes_to_next_brake_start
+            name: Min till dyr period
+          - entity: sensor.svotc_prebrake_window_min
+            name: Prebrake window (min)
+          - entity: sensor.svotc_prebrake_strength
+            name: Prebrake strength
+      - type: entities
+        title: 🛡️ / ⏱️ / ⚡ Tuning
+        show_header_toggle: false
+        entities:
+          - entity: input_number.svotc_comfort_guard_activate_below_c
+            name: Guard activate Δ (°C)
+          - entity: input_number.svotc_comfort_guard_deactivate_above_c
+            name: Guard deactivate Δ (°C)
+          - type: divider
+          - entity: input_number.svotc_price_dwell_cheap_to_neutral_min
+            name: Dwell Cheap → Neutral (min)
+          - entity: input_number.svotc_price_dwell_neutral_to_brake_min
+            name: Dwell Neutral → Brake (min)
+          - entity: input_number.svotc_price_dwell_brake_to_neutral_min
+            name: Dwell Brake → Neutral (min)
+          - entity: input_number.svotc_price_dwell_neutral_to_cheap_min
+            name: Dwell Neutral → Cheap (min)
+          - type: divider
+          - entity: input_number.svotc_brake_rampup_duration_min
+            name: Brake ramp-up (min)
+          - entity: input_number.svotc_brake_hold_duration_min
+            name: Brake hold (min)
+          - entity: input_number.svotc_brake_rampdown_duration_min
+            name: Brake ramp-down (min)
+          - type: divider
+          - entity: input_number.svotc_max_delta_per_step_c
+            name: Max Δ per min (°C)
+          - entity: input_number.svotc_brake_hold_offset_c
+            name: Brake hold offset (°C)
+          - entity: input_number.svotc_heat_aggressiveness
+            name: Heat aggressiveness
+          - entity: input_number.svotc_brake_aggressiveness
+            name: Brake aggressiveness
+      - type: history-graph
+        title: 💰 Prishistorik (24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.svotc_current_price
+            name: Pris
+          - entity: sensor.svotc_p30
+            name: P30
+          - entity: sensor.svotc_p80
+            name: P80
