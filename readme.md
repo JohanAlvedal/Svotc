@@ -56,6 +56,7 @@ You can switch to **Smart** mode later if you want more control.
 ---
 
 ## 1) Requirements
+
 You need:
 - ✅ Home Assistant (modern version recommended)
 - ✅ Indoor temperature sensor
@@ -81,17 +82,17 @@ Requires an adapter package that exposes SVOTC-compatible attributes.
 ## 2) Installation
 
 1. Place `svotc.yaml` in:
-```
 
+```text
 /config/packages/
-
 ````
 
 2. Enable packages (if not already):
+
 ```yaml
 homeassistant:
   packages: !include_dir_named packages
-````
+```
 
 3. Restart Home Assistant
 
@@ -143,14 +144,18 @@ A minimal dashboard example is included in the repo.
 
 ## 6) Troubleshooting
 
-**Nothing happens**
+### Nothing happens
+
+Check:
 
 * Mode ≠ Off
 * Inputs healthy = on
 * Entity mapping correct
 * Check `input_text.svotc_reason_code`
 
-**Price looks dead**
+### Price looks dead
+
+Check:
 
 * `binary_sensor.svotc_price_available` = on
 * Price sensor exposes required attributes
@@ -161,7 +166,7 @@ A minimal dashboard example is included in the repo.
 
 ### Layered architecture
 
-```
+```text
 Sensing → Raw price → Dwell → Forward look → Brake phase → Engine
 ```
 
@@ -176,7 +181,7 @@ All changes are **rate limited** and **stateful**.
 
 * `svotc_mode = Smart`
 
-### 8.2 Comfort guard (values)
+### 8.2 Comfort guard
 
 | Setting             | Value |
 | ------------------- | ----: |
@@ -216,26 +221,23 @@ SVOTC includes a **Comfort Guard** that protects indoor comfort when temperature
 Controlled by:
 
 * `input_boolean.svotc_comfort_guard_enabled`
-
-  * UI: **Prioritize comfort (blocks price braking)**
+  UI: **Prioritize comfort (blocks price braking)**
 
 When active:
 
 * Heating is boosted (negative offset)
 * Price braking is blocked
 
-**Mode behavior**
+#### Mode behavior
 
 * **Simple**
-  Designed to “just work”.
-  Comfort Guard should normally be ON.
+  Designed to “just work”. Comfort Guard should normally be **ON**.
 
 * **Smart + Guard ON**
   Balanced: saves money but protects comfort.
 
 * **Smart + Guard OFF**
-  Maximum savings.
-  Indoor temperature may drop significantly.
+  Maximum savings. Indoor temperature may drop significantly.
 
 * **ComfortOnly**
   Only comfort logic, no price braking.
@@ -243,16 +245,18 @@ When active:
 * **PassThrough / Off**
   Guard ignored.
 
+---
+
 ## Simple vs Smart – which mode should I use?
 
-| Mode   | Who is it for? | Behavior |
-|--------|----------------|----------|
-| Simple | Most users | Automatic, comfort-first, Ngenic-style behavior |
-| Smart  | Advanced users | Full control over aggressiveness and limits |
-| Smart + Guard ON | Normal daily use | Balanced savings with comfort protection |
-| Smart + Guard OFF | Testing / away | Maximum savings, indoor temp may drop |
-| ComfortOnly | Comfort testing | No price control, comfort only |
-| PassThrough | Debug / monitor | No control, SVOTC only observes |
+| Mode              | Who is it for?   | Behavior                                        |
+| ----------------- | ---------------- | ----------------------------------------------- |
+| Simple            | Most users       | Automatic, comfort-first, Ngenic-style behavior |
+| Smart             | Advanced users   | Full control over aggressiveness and limits     |
+| Smart + Guard ON  | Normal daily use | Balanced savings with comfort protection        |
+| Smart + Guard OFF | Testing / away   | Maximum savings, indoor temp may drop           |
+| ComfortOnly       | Comfort testing  | No price control, comfort only                  |
+| PassThrough       | Debug / monitor  | No control, SVOTC only observes                 |
 
 ---
 
@@ -277,14 +281,14 @@ When active:
 No. It outputs a virtual outdoor temperature.
 
 **Requested vs Applied offset?**
-Requested = logic wants
+Requested = what logic wants
 Applied = ramp-limited reality
 
 ---
 
 ## 11) Advanced: Brake phase timing
 
-```
+```text
 idle → ramping_up → holding → ramping_down → idle
 ```
 
@@ -301,6 +305,3 @@ Test carefully before relying on SVOTC for comfort or savings.
 
 SVOTC – Stable Core Edition (2026-02)
 Designed for smooth, explainable, price-aware heat pump control.
-
-```
-
