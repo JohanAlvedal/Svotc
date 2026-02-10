@@ -308,20 +308,6 @@ template:
       # 2.1 Indoor temperature (validated)
       #     Range: 10-35°C, sanity checked
       #########################################################################
-    #   - name: "SVOTC Src Indoor"
-    #     unique_id: svotc_src_indoor
-    #     unit_of_measurement: "°C"
-    #     device_class: temperature
-    #     state_class: measurement
-    #     state: >
-    #       {% set ent = states('input_text.svotc_entity_indoor') %}
-    #       {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.inomhusmedel' %}
-    #       {% set v = states(ent) | float(none) %}
-    #       {{ v | round(2) if v is number and 10 <= v <= 35 else none }}
-    #     availability: >
-    #       {% set ent = states('input_text.svotc_entity_indoor') %}
-    #       {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.inomhusmedel' %}
-    #       {{ states(ent) | float(none) is number }}
       - name: "SVOTC Src Indoor"
         unique_id: svotc_src_indoor
         unit_of_measurement: "°C"
@@ -347,20 +333,6 @@ template:
       # 2.2 Outdoor temperature (validated)
       #     Range: -50 to +50°C, sanity checked
       #########################################################################
-    #   - name: "SVOTC Src Outdoor"
-    #     unique_id: svotc_src_outdoor
-    #     unit_of_measurement: "°C"
-    #     device_class: temperature
-    #     state_class: measurement
-    #     state: >
-    #       {% set ent = states('input_text.svotc_entity_outdoor') %}
-    #       {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.temperatur_nu' %}
-    #       {% set v = states(ent) | float(none) %}
-    #       {{ v | round(2) if v is number and -50 <= v <= 50 else none }}
-    #     availability: >
-    #       {% set ent = states('input_text.svotc_entity_outdoor') %}
-    #       {% set ent = ent if ent not in ['unknown','unavailable',''] else 'sensor.temperatur_nu' %}
-    #       {{ states(ent) | float(none) is number }}
       - name: "SVOTC Src Outdoor"
         unique_id: svotc_src_outdoor
         unit_of_measurement: "°C"
@@ -595,25 +567,6 @@ template:
       #      Activates when indoor temp drops below (target - activate_below)
       #      Deactivates when indoor temp rises above (target - deactivate_above)
       #########################################################################
-    #   - name: "SVOTC Comfort guard active"
-    #     unique_id: svotc_comfort_guard_active
-    #     state: >
-    #       {% set indoor = states('sensor.svotc_src_indoor') | float(none) %}
-    #       {% set target = states('sensor.svotc_dynamic_target_temperature') | float(none) %}
-    #       {% set activate_below = states('input_number.svotc_comfort_guard_activate_below_c') | float(1.0) %}
-    #       {% set deactivate_above = states('input_number.svotc_comfort_guard_deactivate_above_c') | float(0.4) %}
-    #       {% set was_on = is_state('binary_sensor.svotc_comfort_guard_active','on') %}
-    #       {% if indoor is not number or target is not number %}
-    #         {{ was_on }}
-    #       {% else %}
-    #         {% set activate_threshold = target - activate_below %}
-    #         {% set deactivate_threshold = target - deactivate_above %}
-    #         {% if was_on %}
-    #           {{ indoor < deactivate_threshold }}
-    #         {% else %}
-    #           {{ indoor < activate_threshold }}
-    #         {% endif %}
-    #       {% endif %}
       - name: "SVOTC Comfort guard active"
         unique_id: svotc_comfort_guard_active
         state: >
@@ -683,13 +636,13 @@ template:
 #   - 3.4 Notify (diagnostics) - alert only if bad state persists
 ###############################################################################
 
-automation:
   ###########################################################################
   # 3.1 Price dwell (raw → stable) [NON-NEGOTIABLE layer]
   #     Prevents rapid state changes by requiring dwell time before accepting
   #     new price state. Uses separate pending state and timestamp tracking.
   #     Triggers: Every 4 minutes OR when any input parameter changes OR when raw price state changes
   ###########################################################################
+automation:
   - alias: "SVOTC Price dwell"
     id: svotc_price_dwell
     mode: single
@@ -837,120 +790,6 @@ automation:
   #     - FREEZE mode when inputs unhealthy (no vertical jumps)
   #     Triggers: Every 4 minutes OR when any input parameter changes
   ###########################################################################
-#   - alias: "SVOTC Engine"
-#     id: svotc_engine
-#     mode: single
-#     trigger:
-#       - platform: time_pattern
-#         minutes: "/4"
-#       - platform: state
-#         entity_id:
-#           - input_select.svotc_mode
-#           - input_text.svotc_last_price_state
-#           - input_text.svotc_brake_phase
-#           - sensor.svotc_prebrake_strength
-#           - binary_sensor.svotc_comfort_guard_active
-#           - input_number.svotc_brake_hold_offset_c
-#           - input_number.svotc_heat_aggressiveness
-#           - input_number.svotc_max_delta_per_step_c
-
-#     variables:
-#       mode: "{{ states('input_select.svotc_mode') }}"
-#       healthy: "{{ is_state('binary_sensor.svotc_inputs_healthy','on') }}"
-#       guard: "{{ is_state('binary_sensor.svotc_comfort_guard_active','on') }}"
-#       price_state: "{{ states('input_text.svotc_last_price_state') }}"
-#       phase: "{{ states('input_text.svotc_brake_phase') }}"
-#       pre: "{{ states('sensor.svotc_prebrake_strength') | float(0) }}"
-#       hold_offset: "{{ states('input_number.svotc_brake_hold_offset_c') | float(0) }}"
-#       heat_aggr: "{{ states('input_number.svotc_heat_aggressiveness') | int(0) }}"
-#       max_delta: "{{ states('input_number.svotc_max_delta_per_step_c') | float(0.2) }}"
-
-#       # Helper bounds (avoid set_value failures)
-#       req_min: "{{ state_attr('input_number.svotc_requested_offset_c','min') | float(-10) }}"
-#       req_max: "{{ state_attr('input_number.svotc_requested_offset_c','max') | float(10) }}"
-#       app_min: "{{ state_attr('input_number.svotc_applied_offset_c','min') | float(-10) }}"
-#       app_max: "{{ state_attr('input_number.svotc_applied_offset_c','max') | float(10) }}"
-
-#       # --- Comfort term (negative offset -> more heating) ---
-#       comfort_term: >
-#         {% if mode in ['Off','PassThrough'] %}
-#           0
-#         {% elif guard %}
-#           {{ -(heat_aggr * 0.4) }}   {# heat=5 -> -2.0°C #}
-#         {% else %}
-#           0
-#         {% endif %}
-
-#       # --- Price term (positive offset -> less heating) ---
-#       price_term: >
-#         {% if mode != 'Smart' %}
-#           0
-#         {% elif guard %}
-#           0
-#         {% else %}
-#           {{ hold_offset * pre }}
-#         {% endif %}
-
-#       requested_raw: "{{ (comfort_term + price_term) | float(0) }}"
-#       requested: "{{ requested_raw | clamp(req_min, req_max) | round(2) }}"
-
-#       prev_applied: "{{ states('input_number.svotc_applied_offset_c') | float(requested) }}"
-#       delta: "{{ requested - prev_applied }}"
-
-#       next_applied_raw: >
-#         {% if delta > max_delta %}
-#           {{ prev_applied + max_delta }}
-#         {% elif delta < -max_delta %}
-#           {{ prev_applied - max_delta }}
-#         {% else %}
-#           {{ requested }}
-#         {% endif %}
-#       next_applied: "{{ next_applied_raw | clamp(app_min, app_max) | round(2) }}"
-
-#       reason: >
-#         {% if mode == 'Off' %}
-#           OFF
-#         {% elif not healthy %}
-#           MISSING_INPUTS
-#         {% elif mode == 'PassThrough' %}
-#           PASS_THROUGH
-#         {% elif mode == 'ComfortOnly' %}
-#           COMFORT_ONLY
-#         {% elif guard and pre > 0 %}
-#           MCP_BLOCKS_BRAKE
-#         {% elif guard %}
-#           COMFORT_GUARD
-#         {% elif pre > 0 %}
-#           PRICE_BRAKE
-#         {% else %}
-#           NEUTRAL
-#         {% endif %}
-
-#     action:
-#       # If missing inputs in Smart/ComfortOnly: set requested=0 but FREEZE applied (no jumps)
-#       - choose:
-#           - conditions: "{{ not healthy and mode in ['Smart','ComfortOnly'] }}"
-#             sequence:
-#               - service: input_number.set_value
-#                 target: { entity_id: input_number.svotc_requested_offset_c }
-#                 data: { value: 0 }
-#               # DO NOT touch applied here (freeze)
-#               - service: input_text.set_value
-#                 target: { entity_id: input_text.svotc_reason_code }
-#                 data: { value: "MISSING_INPUTS_FREEZE" }
-#               - stop: true
-
-#       - service: input_number.set_value
-#         target: { entity_id: input_number.svotc_requested_offset_c }
-#         data: { value: "{{ requested }}" }
-
-#       - service: input_number.set_value
-#         target: { entity_id: input_number.svotc_applied_offset_c }
-#         data: { value: "{{ next_applied }}" }
-
-#       - service: input_text.set_value
-#         target: { entity_id: input_text.svotc_reason_code }
-#         data: { value: "{{ reason }}" }
   - alias: "SVOTC Engine"
     id: svotc_engine
     mode: single
@@ -1182,4 +1021,3 @@ automation:
                 data:
                   title: "SVOTC: OK again"
                   message: "(Has been OK for at least 2 minutes) Inputs + price data are healthy again."
-
