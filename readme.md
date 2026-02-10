@@ -19,7 +19,7 @@ Instead of toggling the pump on/off or aggressively changing setpoints, SVOTC ad
 
 If you just want it to work:
 
-1. Install SVOTC and restart Home Assistant
+1. Install SVOTC and restart Home Assistant (See 1 Requirements)
 2. Set entity mapping:
    - Indoor temperature
    - Outdoor temperature
