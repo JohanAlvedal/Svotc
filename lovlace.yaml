@@ -1,6 +1,52 @@
 title: SVOTC Styrsystem
 icon: ""
-badges: []
+badges:
+  - type: entity
+    entity: person.johan
+    show_entity_picture: true
+  - type: custom:mushroom-template-badge
+    content: Laddbox
+    icon: mdi:ev-plug-type2
+    color: green
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/laddbox
+  - type: entity
+    show_name: false
+    show_state: true
+    show_icon: true
+    tap_action:
+      action: navigate
+      navigation_path: /dashboard-data/7
+    entity: sensor.nordpool_tibber
+  - type: custom:mushroom-template-badge
+    content: Förbrukning
+    icon: mdi:power-plug
+    color: blue
+    tap_action:
+      action: navigate
+      navigation_path: /dashboard-data/8
+  - type: custom:mushroom-template-badge
+    icon: mdi:mushroom
+    color: red
+    content: Jul
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/jul
+  - type: custom:mushroom-template-badge
+    content: Tariff
+    icon: mdi:power-plug
+    color: blue
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/9
+  - type: custom:mushroom-template-badge
+    content: System
+    icon: mdi:server
+    color: green
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/system
 cards: []
 type: sections
 sections:
@@ -38,26 +84,22 @@ sections:
           - entity: input_number.svotc_brake_hold_offset_c
             name: Max bromsoffset (°C)
             icon: mdi:thermometer-minus
-      - type: horizontal-stack
+          - entity: input_boolean.svotc_comfort_guard_enabled
+      - type: vertical-stack
         cards:
           - type: entity
             entity: input_select.svotc_mode
             name: SVOTC Läge
-            icon: mdi:power
           - type: entity
             entity: binary_sensor.svotc_inputs_healthy
-            name: System OK
-            icon: mdi:heart-pulse
-      - type: horizontal-stack
+      - type: vertical-stack
         cards:
           - type: entity
-            entity: binary_sensor.svotc_comfort_guard_active
+            entity: input_boolean.svotc_comfort_guard_enabled
             name: Komfortskydd
-            icon: mdi:shield-home
           - type: entity
             entity: input_text.svotc_reason_code
             name: Strategi
-            icon: mdi:brain
       - type: custom:mini-graph-card
         name: 📈 Offset-utveckling (24h)
         hours_to_show: 24
@@ -72,7 +114,7 @@ sections:
         entities:
           - entity: input_number.svotc_requested_offset_c
             name: Begärd offset
-            color: "#f39c12"
+            color: "#3498db"
             show_state: true
           - entity: input_number.svotc_applied_offset_c
             name: Tillämpad offset
@@ -90,10 +132,6 @@ sections:
           legend: true
           icon: false
         entities:
-          - entity: sensor.svotc_src_indoor
-            name: Inomhus
-            color: "#e74c3c"
-            show_state: true
           - entity: sensor.svotc_src_outdoor
             name: Utomhus (verklig)
             color: "#3498db"
@@ -102,13 +140,10 @@ sections:
             name: Virtuell ute (→VP)
             color: "#9b59b6"
             show_state: true
-          - entity: sensor.svotc_dynamic_target_temperature
-            name: Måltemperatur
-            color: "#2ecc71"
-            show_line: true
-            show_points: false
+          - entity: sensor.pumpsteer
+            name: Pumpsteer
+            color: "#e67e22"
             show_state: true
-            line_width: 1
       - type: entities
         title: 🔬 Diagnostik
         state_color: true
