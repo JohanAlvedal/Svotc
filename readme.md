@@ -198,50 +198,52 @@ Det innebär att om logiken vill ändra temperaturen 2 grader, så sker det grad
 
 <a id="sv-8-2-komfortskydd"></a>
 
-### 8.2 Komfortskydd (Comfort guard)
+### 8.2 Comfort guard
 
-| Inställning          | Värde |
-| -------------------- | ----- |
-| Comfort temperature  | 21.0  |
-| Activate below (Δ)   | 0.8   |
-| Deactivate above (Δ) | 0.4   |
-| Heat aggressiveness  | 2     |
+| Setting             | Value |
+| ------------------- | ----: |
+| Comfort temperature |  21.0 |
+| Activate below      |   0.8 |
+| Deactivate above    |   0.3 |
+| Heat aggressiveness |     2 |
 
-<a id="sv-8-3-prisbroms"></a>
+<a id="en-8-3-price-braking"></a>
 
-### 8.3 Prisbroms (Price braking)
+### 8.3 Price braking
 
-| Inställning          | Värde |
-| -------------------- | ----- |
-| Brake aggressiveness | 2     |
-| Brake hold offset    | 2.0   |
+| Setting              | Value |
+| -------------------- | ----: |
+| Brake aggressiveness |     2 |
+| Brake hold offset    |   6.0 |
 
-<a id="sv-8-4-dwell"></a>
+<a id="en-8-4-dwell"></a>
 
-### 8.4 Dwell (Stabilitet/Tröghet)
+### 8.4 Dwell (stability)
 
-Typiska värden för att undvika att systemet reagerar på korta prisfluktuationer:
+Recommended for **15-minute prices** (keep dwell < 15 minutes):
 
-* Neutral → Broms: 30 min
-* Broms → Neutral: 15 min
+- cheap → neutral: **8 min**
+- neutral → brake: **8 min**
+- brake → neutral: **8 min**
+- neutral → cheap: **8 min**
 
-<a id="sv-8-5-varaktighet"></a>
+<a id="en-8-5-brake-phase-durations"></a>
 
-### 8.5 Varaktighet för bromsfaser
+### 8.5 Brake phase durations
 
-* Ramp-up: 30 min
-* Hold: 60 min
-* Ramp-down: 45 min
+- rampup: **20 min**
+- hold: **15 min**
+- rampdown: **25 min**
 
-<a id="sv-8-6-rate-limiting"></a>
+<a id="en-8-6-rate-limiting"></a>
 
-### 8.6 Hastighetsbegränsning (Rate limiting)
+### 8.6 Rate limiting
 
-* `svotc_max_delta_per_step_c = 0.10 °C/min`
+- `svotc_max_delta_per_step_c = 0.20 °C/min`
 
 ---
 
-<a id="sv-9-statuskoder"></a>
+<a id="en-9-reason-codes"></a>
 
 ## 9) Statuskoder (Reason codes)
 
