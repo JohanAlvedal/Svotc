@@ -73,10 +73,11 @@ Du behöver:
 - ✅ Home Assistant (modern version rekommenderas)
 - ✅ Inomhustemperatursensor
 - ✅ Utomhustemperatursensor
-- ✅ Elprissensor (Nordpool/Tibber) som tillhandahåller:
+- ✅ Elprissensor (Nordpool)som tillhandahåller:
   - `current_price`
   - `raw_today`
   - `raw_tomorrow`
+Koden är anpassad till HACS varianten av Nordpool men med den bifogade paketfilen som finns i 
 
 SVOTC läser prissensorn via **entitetsmappning** (`input_text`). Inga sensornamn är hårdkodade i logiken.
 
