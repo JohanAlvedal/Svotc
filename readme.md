@@ -1,6 +1,221 @@
 # SVOTC – Stable Core Edition (2026-02)
 **Smart Virtual Outdoor Temperature Control**
 
+[English version / Engelsk version](README.md)
+
+SVOTC styr din värmepump **indirekt** genom att skapa en *virtuell utomhustemperatur* som värmepumpen använder för sina värmekurvor.
+
+Istället för att slå på/av pumpen eller aggressivt ändra börvärden (setpoints), justerar SVOTC en **offset (°C)** som läggs till den verkliga utomhustemperaturen:
+
+- **Positiv offset** (+2°C) → ”varmare ute” → värmepumpen minskar framledningen (**prisbroms**)
+- **Negativ offset** (−1°C) → ”kallare ute” → värmepumpen ökar framledningen (**komfortskydd**)
+
+**Designmål**
+- 🎯 Stabil (inget fladdrigt beteende vid prisspikar)
+- 📊 Förklarbar (statuskoder visar *varför* beslut fattas)
+- 🏗️ Lagerbaserad arkitektur: sensorer → stabilisering → planering → ramp-begränsat utförande
+
+---
+
+## 🚀 Snabbstart
+
+Om du bara vill att det ska fungera:
+
+1. Installera SVOTC och starta om Home Assistant (Se sektion 1: Krav)
+2. Ställ in entitetsmappning i UI:
+   - Inomhustemperatur
+   - Utomhustemperatur
+   - Prissensor
+3. Ställ in:
+   - **Mode = Simple**
+   - **Prioritize comfort = PÅ**
+4. Klart ✔️
+
+SVOTC kommer nu att:
+- Skydda inomhuskomforten automatiskt.
+- Reducera uppvärmningen när elen är dyr.
+- Undvika plötsliga hopp som kan störa värmepumpens interna logik.
+
+Du kan byta till **Smart** mode senare om du vill ha mer finkornig kontroll.
+
+---
+
+## 📋 Innehållsförteckning
+1. [Krav](#1-krav)
+2. [Installation](#2-installation)
+3. [Första uppstarten](#3-första-uppstarten)
+4. [Entitetsmappning](#4-entitetsmappning)
+5. [Dashboards](#5-dashboards)
+6. [Felsökning](#6-felsökning)
+7. [Så fungerar det](#7-så-fungerar-det)
+8. [Rekommenderade startvärden](#8-rekommenderade-startvärden)
+9. [Statuskoder (Reason codes)](#9-statuskoder)
+10. [FAQ](#10-faq)
+11. [Avancerat: Brake phase timing](#11-avancerat)
+12. [Licens / Disclaimer](#12-licens)
+
+---
+
+## 1) Krav
+
+Du behöver:
+- ✅ Home Assistant (modern version rekommenderas)
+- ✅ Inomhustemperatursensor
+- ✅ Utomhustemperatursensor
+- ✅ Elprissensor (Nordpool/Tibber) som tillhandahåller:
+  - `current_price`
+  - `raw_today`
+  - `raw_tomorrow`
+
+SVOTC läser prissensorn via **entitetsmappning** (`input_text`). Inga sensornamn är hårdkodade i logiken.
+
+---
+
+## 2) Installation
+
+1. Placera `svotc.yaml` i mappen: `/config/packages/`
+2. Aktivera packages i din `configuration.yaml` (om ej redan aktivt):
+   ```yaml
+   homeassistant:
+     packages: !include_dir_named packages
+
+```
+
+3. Starta om Home Assistant.
+4. Verifiera att hjälpare och sensorer skapats:
+Inställningar → Enheter & tjänster → Hjälpare → sök på **SVOTC**.
+
+---
+
+## 3) Första uppstarten (5-minuters setup)
+
+1. Installera och starta om.
+2. Gå till **Hjälpare → SVOTC**.
+3. Ställ in entiteter för: Inne, Ute och Pris.
+4. Sätt **Mode = Smart**.
+5. Vänta ~2 minuter.
+6. Kontrollera:
+* `binary_sensor.svotc_inputs_healthy` = on
+* `input_text.svotc_reason_code` får ett värde (inte `MISSING_INPUTS_FREEZE`).
+
+
+
+---
+
+## 4) Entitetsmappning (Viktigast)
+
+| Hjälpare | Betydelse |
+| --- | --- |
+| `input_text.svotc_entity_indoor` | Inomhustemperatur |
+| `input_text.svotc_entity_outdoor` | Utomhustemperatur |
+| `input_text.svotc_entity_price` | Prissensor |
+| `input_text.svotc_notify_service` | (Valfritt) notifieringstjänst |
+
+---
+
+## 7) Så fungerar det
+
+### Lagerbaserad arkitektur
+
+```text
+Sensorer → Råpris → Dwell (tröghet) → Framåtblick → Bromsfas → Motor
+
+```
+
+SVOTC hoppar aldrig i värden. Alla ändringar är **hastighetsbegränsade** (rate limited) och tillståndsbaserade. Detta innebär att om logiken vill ändra temperaturen 2 grader, så sker det gradvis över t.ex. 20 minuter för att värmepumpen ska hänga med mjukt.
+
+---
+
+## 8) Rekommenderade startvärden (Defaults)
+
+### 8.1 Läge
+
+* `svotc_mode = Smart`
+
+### 8.2 Komfortskydd (Comfort guard)
+
+| Inställning | Värde |
+| --- | --- |
+| Comfort temperature | 21.0 |
+| Activate below (Δ) | 0.8 |
+| Deactivate above (Δ) | 0.4 |
+| Heat aggressiveness | 2 |
+
+### 8.3 Prisbroms (Price braking)
+
+| Inställning | Värde |
+| --- | --- |
+| Brake aggressiveness | 2 |
+| Brake hold offset | 2.0 |
+
+### 8.4 Dwell (Stabilitet/Tröghet)
+
+Typiska värden för att undvika att systemet reagerar på korta prisfluktuationer:
+
+* Neutral → Broms: 30 min
+* Broms → Neutral: 15 min
+
+### 8.5 Varaktighet för bromsfaser
+
+* Ramp-up: 30 min
+* Hold: 60 min
+* Ramp-down: 45 min
+
+### 8.6 Hastighetsbegränsning (Rate limiting)
+
+* `svotc_max_delta_per_step_c = 0.10 °C/min`
+
+---
+
+## 9) Statuskoder (Reason codes)
+
+| Kod | Betydelse |
+| --- | --- |
+| `OFF` | Systemet avstängt |
+| `PASS_THROUGH` | Ingen kontroll, SVOTC observerar bara |
+| `MISSING_INPUTS_FREEZE` | Sensorvärden saknas, offset fryst på 0 |
+| `COMFORT_GUARD` | Komfortskydd aktivt (värmer extra) |
+| `MCP_BLOCKS_BRAKE` | Det är dyrt, men komfortskyddet stoppar prisbromsen |
+| `PRICE_BRAKE` | Prisbroms aktiv |
+| `NEUTRAL` | Normal drift |
+
+---
+
+## 10) FAQ
+
+**Styr SVOTC värmepumpen direkt?**
+Nej. Den levererar en virtuell utomhustemperatur. Du måste själv konfigurera din värmepumpsintegration (t.ex. Nibe, Mitsubishi, Daikin) att läsa detta värde istället för den fysiska utegivaren.
+
+**Vad är skillnaden på Requested och Applied offset?**
+
+* **Requested:** Vad logiken *vill* göra just nu.
+* **Applied:** Det faktiska värdet som skickas till pumpen (efter att hastighetsbegränsningen gjort sitt).
+
+---
+
+## 11) Avancerat: Bromsfaser (Brake phase timing)
+
+Logiken för prisbroms följer en kurva för att minimera slitage:
+`idle → ramping_up → holding → ramping_down → idle`
+
+---
+
+## 12) Licens / Disclaimer
+
+Använd på egen risk. Kontrollera alltid din pumps manual för att säkerställa att extern styrning av utetemperatur är lämplig.
+
+---
+
+**Credits**
+SVOTC – Stable Core Edition (2026-02)
+Designad för mjuk, förklarbar och prismedveten värmepumpsstyrning.
+
+
+```
+
+# SVOTC – Stable Core Edition (2026-02)
+**Smart Virtual Outdoor Temperature Control**
+
 SVOTC controls your heat pump **indirectly** by creating a *virtual outdoor temperature* that your heat pump can use for its heating curves.
 
 Instead of toggling the pump on/off or aggressively changing setpoints, SVOTC adjusts an **offset (°C)** that is added to the real outdoor temperature:
