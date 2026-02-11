@@ -79,16 +79,7 @@ You need:
   - `current_price`
   - `raw_today`
   - `raw_tomorrow`
-
-SVOTC reads the price sensor via **entity mapping** (`input_text`).  
-No price sensor is hard-coded.
-
-### Official Nordpool integration (requires adapter package)
-
-If you use the **official Nordpool integration**, you must add an extra **package file** located in the `nordpool-official/` folder in the repo.  
-Follow the instructions in that folder — the package acts as an adapter so the SVOTC-required attributes (`current_price`, `raw_today`, `raw_tomorrow`) are exposed in a compatible format.
-
-
+  - 
 SVOTC reads the price sensor via **entity mapping** (`input_text`).
 No price sensor is hard-coded.
 
@@ -97,7 +88,7 @@ No price sensor is hard-coded.
 ### Price sensor compatibility (HACS vs Official Nordpool)
 
 **HACS Nordpool**
-Set `input_text.svotc_entity_price` to your Nordpool sensor (e.g. `sensor.nordpool_tibber`).
+Set `input_text.svotc_entity_price` to your Nordpool sensor (e.g. `sensor.nordpool`).
 
 **Official Nordpool**
 Requires an adapter package that exposes SVOTC-compatible attributes.
