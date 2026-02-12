@@ -427,8 +427,16 @@ template:
     # 2.5 Percentiles P30/P80 from raw_today + raw_tomorrow
     #     NO memory fallback; outputs none when insufficient data (< 20 prices)
     ############################################################################
+  - trigger:
+      - platform: time_pattern
+        minutes: "/15"
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id: input_text.svotc_entity_price
+    sensor:
       - name: "SVOTC P30"
-        unique_id: svotc_p30
+        unique_id: svotc_p30_calc
         unit_of_measurement: "SEK/kWh"
         state: >
           {% set ent = states('input_text.svotc_entity_price') %}
@@ -446,12 +454,17 @@ template:
               {{ none }}
             {% endif %}
           {% endif %}
-        availability: >
-          {% set ent = states('input_text.svotc_entity_price') %}
-          {{ ent not in ['unknown','unavailable','none',''] }}
 
+  - trigger:
+      - platform: time_pattern
+        minutes: "/15"
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id: input_text.svotc_entity_price
+    sensor:
       - name: "SVOTC P80"
-        unique_id: svotc_p80
+        unique_id: svotc_p80_calc
         unit_of_measurement: "SEK/kWh"
         state: >
           {% set ent = states('input_text.svotc_entity_price') %}
@@ -469,9 +482,55 @@ template:
               {{ none }}
             {% endif %}
           {% endif %}
-        availability: >
+
+  - trigger:
+      - platform: time_pattern
+        minutes: "/5"
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id:
+          - sensor.svotc_p80
+          - input_text.svotc_entity_price
+    sensor:
+      - name: "SVOTC Minutes to next brake start"
+        unique_id: svotc_minutes_to_next_brake_start_calc
+        unit_of_measurement: "min"
+        state: >
           {% set ent = states('input_text.svotc_entity_price') %}
-          {{ ent not in ['unknown','unavailable','none',''] }}
+          {% set p80 = states('sensor.svotc_p80') | float(none) %}
+          {% if ent in ['unknown','unavailable','none',''] or p80 is not number %}
+            999
+          {% else %}
+            {% set today = state_attr(ent, 'raw_today') | default([], true) %}
+            {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
+            {% set combined = today + tomorrow %}
+            {% set now_ts = as_timestamp(now()) %}
+            {% set ns = namespace(best=none, in_expensive=false) %}
+            {% for it in combined %}
+              {% set v = it.value | float(none) %}
+              {% set s = as_timestamp(it.start, default=none) if it.start is defined else none %}
+              {% set e = as_timestamp(it.end,   default=none) if it.end   is defined else none %}
+              {% if v is number and s is number and e is number and s <= now_ts < e and v > p80 %}
+                {% set ns.in_expensive = true %}
+              {% endif %}
+            {% endfor %}
+            {% if ns.in_expensive %}
+              0
+            {% else %}
+              {% for it in combined %}
+                {% set v = it.value | float(none) %}
+                {% set s = as_timestamp(it.start, default=none) if it.start is defined else none %}
+                {% if v is number and s is number and s >= now_ts and v > p80 %}
+                  {% set mins = (s - now_ts) / 60 %}
+                  {% if ns.best is none or mins < ns.best %}
+                    {% set ns.best = mins %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.best | round(1) if ns.best is not none else 999 }}
+            {% endif %}
+          {% endif %}
 
     ############################################################################
     # 2.6 Raw price state (instant, NO dwell, NO memory)
@@ -504,6 +563,16 @@ template:
     #     Scans raw_today + raw_tomorrow for next interval where price > P80
     #     Output: 0 if currently in expensive period, otherwise minutes until next
     ############################################################################
+  - trigger:
+      - platform: time_pattern
+        minutes: "/5"
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id:
+          - sensor.svotc_p80
+          - input_text.svotc_entity_price
+    sensor:
       - name: "SVOTC Minutes to next brake start"
         unique_id: svotc_minutes_to_next_brake_start
         unit_of_measurement: "min"
@@ -952,8 +1021,7 @@ automation:
       - choose:
           - conditions: "{{ since_last_s < 30 }}"
             sequence:
-              - stop: "Engine throttled (anti-storm)"
-
+              - stop: true
       # Record actual run timestamp (do this after throttle passes)
       - service: input_datetime.set_datetime
         target:
