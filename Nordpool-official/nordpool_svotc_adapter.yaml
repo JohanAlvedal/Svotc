@@ -1,3 +1,16 @@
+###############################################################################
+# Nordpool (Official) → "bridge sensor" med Tibber-påslag + moms
+#
+# - Hämtar idag + imorgon via nordpool.get_prices_for_date
+# - Skapar en sensor med:
+#   - state = aktuellt pris (SEK/kWh)
+#   - attribut: current_price, min, max, today, tomorrow, raw_today, raw_tomorrow
+# - Extra: Elpriskoefficient + några binärsensorer + price band-sensor
+###############################################################################
+
+###############################################################################
+# 1) UI / Helpers (påslag + moms)
+###############################################################################
 input_number:
   addon_ore_per_kwh:
     name: "Tibber markup (öre/kWh)"
@@ -17,7 +30,13 @@ input_number:
     mode: box
     icon: mdi:percent
 
+###############################################################################
+# 2) Template: hämta prislistor + bygg sensorer
+###############################################################################
 template:
+  # ---------------------------------------------------------------------------
+  # 2.1 Trigger: hämta prislistor (idag + imorgon)
+  # ---------------------------------------------------------------------------
   - trigger:
       - platform: time_pattern
         minutes: "/10"
@@ -45,10 +64,12 @@ template:
           currency: SEK
         response_variable: tomorrow_price
 
+    # -------------------------------------------------------------------------
+    # 2.2 Sensor: Nordpool (Official) – med moms + påslag
+    # -------------------------------------------------------------------------
     sensor:
       - name: "Nordpool (Official)"
         unique_id: nordpool_offical
-#        device_class: monetary
         unit_of_measurement: "SEK/kWh"
         state_class: measurement
         icon: mdi:flash
@@ -57,6 +78,7 @@ template:
           {% set entries = today_price.get('SE3', []) %}
           {{ entries | length > 0 }}
 
+        # State = aktuellt pris (SEK/kWh)
         state: >
           {% set addon_ore_per_kwh = states('input_number.addon_ore_per_kwh') | float(0) %}
           {% set vat_percent = states('input_number.vat_percent') | float(0) %}
@@ -76,14 +98,17 @@ template:
           {{ (ns.v | round(3)) if ns.v is not none else 'unavailable' }}
 
         attributes:
+          # --- Metadata ---
           unit: kWh
           currency: SEK
           country: Sweden
           region: SE3
 
+          # --- User settings mirrored ---
           addon_ore_per_kwh: "{{ states('input_number.addon_ore_per_kwh') | float(0) }}"
           vat_percent: "{{ states('input_number.vat_percent') | float(0) }}"
 
+          # --- Current price (robust: today + tomorrow list) ---
           current_price: >
             {% set addon_ore_per_kwh = states('input_number.addon_ore_per_kwh') | float(0) %}
             {% set vat_percent = states('input_number.vat_percent') | float(0) %}
@@ -102,12 +127,12 @@ template:
                 {% set ns.p = ((base + addon_sek) * vat_mult) | round(3) %}
               {% endif %}
             {% endfor %}
-
             {{ ns.p if ns.p is not none else 'unavailable' }}
 
           tomorrow_valid: >
             {{ (tomorrow_price.get('SE3', []) | length) > 0 }}
 
+          # --- Today min/max (SEK/kWh) ---
           min: >
             {% set addon_ore_per_kwh = states('input_number.addon_ore_per_kwh') | float(0) %}
             {% set vat_percent = states('input_number.vat_percent') | float(0) %}
@@ -130,6 +155,7 @@ template:
               {{ ((base_max + addon_sek) * vat_mult) | round(3) }}
             {% else %}unavailable{% endif %}
 
+          # --- Compact arrays (float list) ---
           today: >
             {% set addon_ore_per_kwh = states('input_number.addon_ore_per_kwh') | float(0) %}
             {% set vat_percent = states('input_number.vat_percent') | float(0) %}
@@ -160,6 +186,7 @@ template:
               {{ ns.vals }}
             {% endif %}
 
+          # --- Raw arrays (list of {start,end,value}) ---
           raw_today: >
             {% set addon_ore_per_kwh = states('input_number.addon_ore_per_kwh') | float(0) %}
             {% set vat_percent = states('input_number.vat_percent') | float(0) %}
@@ -200,15 +227,17 @@ template:
               {{ ns.r }}
             {% endif %}
 
-      # --- ELPRISKOEFFICIENT (BASERAD PÅ NYA SENSORN) ---
+      # -----------------------------------------------------------------------
+      # 2.3 Derived sensor: Elpriskoefficient (baserad på Nordpool-sensorn)
+      # -----------------------------------------------------------------------
       - name: "Elpriskoefficient"
         unique_id: elpriskoefficient
         unit_of_measurement: ""
         state: >
-          {% set elpris = states('nordpool_offical') | float(none) %}
-          {% set elpris_max = state_attr('nordpool_offical', 'max') | float(none) %}
-          {% set elpris_min = state_attr('nordpool_offical', 'min') | float(none) %}
-          
+          {% set elpris = states('sensor.nordpool_offical') | float(none) %}
+          {% set elpris_max = state_attr('sensor.nordpool_offical', 'max') | float(none) %}
+          {% set elpris_min = state_attr('sensor.nordpool_offical', 'min') | float(none) %}
+
           {% if elpris is none or elpris_max is none or elpris_min is none or elpris_max <= 0 %}
             {{ this.state | default(0) }}
           {% else %}
@@ -216,6 +245,9 @@ template:
             {{ (elpris / elpris_graens) | round(2) }}
           {% endif %}
 
+    # -------------------------------------------------------------------------
+    # 2.4 Binary sensors: villkor baserat på koefficient + temp
+    # -------------------------------------------------------------------------
     binary_sensor:
       - name: "Elpris OK"
         unique_id: elpris_ok
@@ -227,7 +259,7 @@ template:
       - name: "Kort peak nu"
         unique_id: kort_peak_nu
         state: >
-          {% set np = 'sensor.nordpool_official' %}
+          {% set np = 'sensor.nordpool_offical' %}
           {% set k_now = states('sensor.elpriskoefficient') | float(none) %}
           {% set entries = state_attr(np, 'today') or [] %}
 
@@ -236,13 +268,16 @@ template:
           {% else %}
             false
           {% endif %}
-          
-######################################
+
+###############################################################################
+# 3) Price band (min/max-normaliserad) + hysteresis
+###############################################################################
+template:
   - sensor:
       - name: "nordpool_price_band_dynamic"
         unique_id: nordpool_price_band_dynamic_minmax
         state: >-
-          {% set s = 'sensor.nordpool_official' %}
+          {% set s = 'sensor.nordpool_offical' %}
           {% set price = states(s) | replace(',', '.') | float(0) %}
           {% set pmin = (state_attr(s,'min') if state_attr(s,'min') is not none else state_attr(s,'Min')) | string | replace(',', '.') | float(price) %}
           {% set pmax = (state_attr(s,'max') if state_attr(s,'max') is not none else state_attr(s,'Max')) | string | replace(',', '.') | float(price) %}
@@ -283,16 +318,16 @@ template:
             {% endif %}
           {% endif %}
         attributes:
-          source_entity: sensor.nordpool_official
-          current_price: "{{ states('sensor.nordpool_official') | replace(',', '.') | float(0) }}"
+          source_entity: sensor.nordpool_offical
+          current_price: "{{ states('sensor.nordpool_offical') | replace(',', '.') | float(0) }}"
           today_min: >-
-            {% set v = state_attr('sensor.nordpool_official','min') if state_attr('sensor.nordpool_official','min') is not none else state_attr('sensor.nordpool_official','Min') %}
+            {% set v = state_attr('sensor.nordpool_offical','min') if state_attr('sensor.nordpool_offical','min') is not none else state_attr('sensor.nordpool_offical','Min') %}
             {{ (v | string | replace(',', '.') | float(0)) }}
           today_max: >-
-            {% set v = state_attr('sensor.nordpool_official','max') if state_attr('sensor.nordpool_official','max') is not none else state_attr('sensor.nordpool_official','Max') %}
+            {% set v = state_attr('sensor.nordpool_offical','max') if state_attr('sensor.nordpool_offical','max') is not none else state_attr('sensor.nordpool_offical','Max') %}
             {{ (v | string | replace(',', '.') | float(0)) }}
           normalized_0_1: >-
-            {% set s = 'sensor.nordpool_official' %}
+            {% set s = 'sensor.nordpool_offical' %}
             {% set price = states(s) | replace(',', '.') | float(0) %}
             {% set pmin = (state_attr(s,'min') if state_attr(s,'min') is not none else state_attr(s,'Min')) | string | replace(',', '.') | float(price) %}
             {% set pmax = (state_attr(s,'max') if state_attr(s,'max') is not none else state_attr(s,'Max')) | string | replace(',', '.') | float(price) %}
