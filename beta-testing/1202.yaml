@@ -921,7 +921,7 @@ automation:
       mins_to_brake: "{{ states('sensor.svotc_minutes_to_next_brake_start') | float(999) }}"
 
       # HARD-CODED SETTINGS
-      svotc_preboost_window_min: 120    # <—— Preboost time in minutes before brake
+      svotc_preboost_window_min: 120
       svotc_preboost_ramp_min: 15
 
       preboost_strength: >
