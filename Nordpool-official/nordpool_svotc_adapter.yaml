@@ -31,7 +31,7 @@ template:
     action:
       - action: nordpool.get_prices_for_date
         data:
-          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T    # <-- IMPORTANT: change this ID
+          config_entry: 01KHAXM5D239V0B77VNTCDJ3RG    # <-- IMPORTANT: change this ID
           date: "{{ now().date() }}"
           areas: SE3
           currency: SEK
@@ -39,7 +39,7 @@ template:
 
       - action: nordpool.get_prices_for_date
         data:
-          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T    # <-- IMPORTANT: change this ID (again)
+          config_entry: 01KHAXM5D239V0B77VNTCDJ3RG    # <-- IMPORTANT: change this ID (again)
           date: "{{ now().date() + timedelta(days=1) }}"
           areas: SE3
           currency: SEK
@@ -48,7 +48,7 @@ template:
     sensor:
       - name: "Nordpool (Official)"
         unique_id: nordpool_offical
-        device_class: monetary
+#        device_class: monetary
         unit_of_measurement: "SEK/kWh"
         state_class: measurement
         icon: mdi:flash
@@ -200,40 +200,110 @@ template:
               {{ ns.r }}
             {% endif %}
 
-    #   # --- ELPRISKOEFFICIENT (BASERAD PÅ NYA SENSORN) ---
-    #   - name: "Elpriskoefficient"
-    #     unique_id: elpriskoefficient_se3
-    #     unit_of_measurement: ""
-    #     state: >
-    #       {% set elpris = states('sensor.nordpool') | float(none) %}
-    #       {% set elpris_max = state_attr('sensor.nordpool', 'max') | float(none) %}
-    #       {% set elpris_min = state_attr('sensor.nordpool', 'min') | float(none) %}
+      # --- ELPRISKOEFFICIENT (BASERAD PÅ NYA SENSORN) ---
+      - name: "Elpriskoefficient"
+        unique_id: elpriskoefficient
+        unit_of_measurement: ""
+        state: >
+          {% set elpris = states('nordpool_offical') | float(none) %}
+          {% set elpris_max = state_attr('nordpool_offical', 'max') | float(none) %}
+          {% set elpris_min = state_attr('nordpool_offical', 'min') | float(none) %}
           
-    #       {% if elpris is none or elpris_max is none or elpris_min is none or elpris_max <= 0 %}
-    #         {{ this.state | default(0) }}
-    #       {% else %}
-    #         {% set elpris_graens = (elpris_max - elpris_min) * (1.3 * (elpris_max ** -0.7)) * (1 / (1 + elpris_min * 0.25)) + elpris_min %}
-    #         {{ (elpris / elpris_graens) | round(2) }}
-    #       {% endif %}
+          {% if elpris is none or elpris_max is none or elpris_min is none or elpris_max <= 0 %}
+            {{ this.state | default(0) }}
+          {% else %}
+            {% set elpris_graens = (elpris_max - elpris_min) * (1.3 * (elpris_max ** -0.7)) * (1 / (1 + elpris_min * 0.25)) + elpris_min %}
+            {{ (elpris / elpris_graens) | round(2) }}
+          {% endif %}
 
-    # binary_sensor:
-    #   - name: "Elpris OK"
-    #     unique_id: elpris_ok
-    #     state: >
-    #       {% set k = states('sensor.elpriskoefficient_se3') | float(none) %}
-    #       {% set t = states('sensor.ute_temperatur_met') | float(none) %}
-    #       {{ (k is not none) and (t is not none) and (k < 1) and (t < 3) }}
+    binary_sensor:
+      - name: "Elpris OK"
+        unique_id: elpris_ok
+        state: >
+          {% set k = states('sensor.elpriskoefficient') | float(none) %}
+          {% set t = states('sensor.temperatur_nu') | float(none) %}
+          {{ (k is not none) and (t is not none) and (k < 1) and (t < 3) }}
 
-    #   - name: "Kort peak nu"
-    #     unique_id: kort_peak_nu
-    #     state: >
-    #       {% set k_now = states('sensor.elpriskoefficient_se3') | float(none) %}
-    #       {% set entries = state_attr('sensor.nordpool', 'today') %}
-    #       {# Vi behöver kolla index för att veta föregående/nästa kvartal #}
-    #       {% if k_now is not none and entries | length > 2 %}
-    #         {# Logik för att hitta nuvarande index kan vara komplex vid kvartal, 
-    #           här förenklat: om k > 1 är det peak #}
-    #         {{ k_now >= 1.0 }}
-    #       {% else %}
-    #         false
-        #   {% endif %}
+      - name: "Kort peak nu"
+        unique_id: kort_peak_nu
+        state: >
+          {% set np = 'sensor.nordpool_official' %}
+          {% set k_now = states('sensor.elpriskoefficient') | float(none) %}
+          {% set entries = state_attr(np, 'today') or [] %}
+
+          {% if k_now is not none and (entries | length) > 2 %}
+            {{ k_now >= 1.0 }}
+          {% else %}
+            false
+          {% endif %}
+          
+######################################
+  - sensor:
+      - name: "nordpool_price_band_dynamic"
+        unique_id: nordpool_price_band_dynamic_minmax
+        state: >-
+          {% set s = 'sensor.nordpool_official' %}
+          {% set price = states(s) | replace(',', '.') | float(0) %}
+          {% set pmin = (state_attr(s,'min') if state_attr(s,'min') is not none else state_attr(s,'Min')) | string | replace(',', '.') | float(price) %}
+          {% set pmax = (state_attr(s,'max') if state_attr(s,'max') is not none else state_attr(s,'Max')) | string | replace(',', '.') | float(price) %}
+          {% set span = pmax - pmin %}
+          {% if span <= 0 %}
+            normal
+          {% else %}
+            {% set x = (price - pmin) / span %}
+
+            {% set t_vc = 0.15 %}
+            {% set t_c  = 0.35 %}
+            {% set t_e  = 0.65 %}
+            {% set t_ve = 0.85 %}
+
+            {# Hysteresis baserat på föregående state #}
+            {% set band_prev = this.state | default('normal') %}
+            {% set h = 0.02 %}
+            {% if band_prev == 'very_cheap' %}
+              {% set t_vc = t_vc + h %}
+            {% elif band_prev == 'cheap' %}
+              {% set t_vc = t_vc - h %}
+              {% set t_c  = t_c  + h %}
+            {% elif band_prev == 'normal' %}
+              {% set t_c  = t_c  - h %}
+              {% set t_e  = t_e  + h %}
+            {% elif band_prev == 'expensive' %}
+              {% set t_e  = t_e  - h %}
+              {% set t_ve = t_ve + h %}
+            {% elif band_prev == 'very_expensive' %}
+              {% set t_ve = t_ve - h %}
+            {% endif %}
+
+            {% if x <= t_vc %}very_cheap
+            {% elif x <= t_c %}cheap
+            {% elif x <  t_e %}normal
+            {% elif x <= t_ve %}expensive
+            {% else %}very_expensive
+            {% endif %}
+          {% endif %}
+        attributes:
+          source_entity: sensor.nordpool_official
+          current_price: "{{ states('sensor.nordpool_official') | replace(',', '.') | float(0) }}"
+          today_min: >-
+            {% set v = state_attr('sensor.nordpool_official','min') if state_attr('sensor.nordpool_official','min') is not none else state_attr('sensor.nordpool_official','Min') %}
+            {{ (v | string | replace(',', '.') | float(0)) }}
+          today_max: >-
+            {% set v = state_attr('sensor.nordpool_official','max') if state_attr('sensor.nordpool_official','max') is not none else state_attr('sensor.nordpool_official','Max') %}
+            {{ (v | string | replace(',', '.') | float(0)) }}
+          normalized_0_1: >-
+            {% set s = 'sensor.nordpool_official' %}
+            {% set price = states(s) | replace(',', '.') | float(0) %}
+            {% set pmin = (state_attr(s,'min') if state_attr(s,'min') is not none else state_attr(s,'Min')) | string | replace(',', '.') | float(price) %}
+            {% set pmax = (state_attr(s,'max') if state_attr(s,'max') is not none else state_attr(s,'Max')) | string | replace(',', '.') | float(price) %}
+            {% set span = pmax - pmin %}
+            {% if span <= 0 %}
+              0.5
+            {% else %}
+              {{ ((price - pmin) / span) | round(3) }}
+            {% endif %}
+          threshold_vc_max: 0.15
+          threshold_c_max: 0.35
+          threshold_e_min: 0.65
+          threshold_ve_min: 0.85
+          hysteresis: "±0.02 around active boundary"
