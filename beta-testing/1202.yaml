@@ -920,19 +920,26 @@ automation:
       # --- PREBOOST (gasa innan broms) ---
       mins_to_brake: "{{ states('sensor.svotc_minutes_to_next_brake_start') | float(999) }}"
 
+      # Läs prebrake-window från din sensor (samma som innan)
+      prebrake_window_min: "{{ states('sensor.svotc_prebrake_window_min') | float(0) }}"
+
       # HARD-CODED SETTINGS
       svotc_preboost_window_min: 120
       svotc_preboost_ramp_min: 15
 
+      # Preboost aktivt bara när: prebrake_window < mins_to_brake <= preboost_window
+      # Ramp in första r minuterna av preboost, ramp out sista r minuterna innan prebrake startar
       preboost_strength: >
-        {% set m = mins_to_brake | float(999) %}
-        {% set w = svotc_preboost_window_min | float(0) %}
-        {% set r = svotc_preboost_ramp_min | float(0) %}
-        {% if w <= 0 or m <= 0 or m > w %} 0
-        {% elif r <= 0 %} 1
+        {% set m  = mins_to_brake | float(999) %}
+        {% set w  = svotc_preboost_window_min | float(0) %}
+        {% set r  = svotc_preboost_ramp_min | float(0) %}
+        {% set pb = prebrake_window_min | float(0) %}
+        {% if w <= 0 or r < 0 %} 0
+        {% elif m > w or m <= pb %} 0
+        {% elif r == 0 %} 1
         {% else %}
-          {% set ramp_in = (w - m) / r %}
-          {% set ramp_out = m / r %}
+          {% set ramp_in  = (w - m) / r %}
+          {% set ramp_out = (m - pb) / r %}
           {{ min(1, max(0, min(ramp_in, ramp_out))) }}
         {% endif %}
 
@@ -953,9 +960,9 @@ automation:
         {% else %} 0 {% endif %}
 
       price_term: >
-        {% if mode not in ['Smart','Simple'] or guard or preboost_active %} 0
+        {% if mode not in ['Smart','Simple'] or guard %} 0
         {% else %} {{ hold_offset * pre }} {% endif %}
-
+        
       requested: "{{ (comfort_term + preboost_term + price_term) | clamp(req_min, req_max) | round(2) }}"
       prev_applied: "{{ states('input_number.svotc_applied_offset_c') | float(requested) }}"
       delta: "{{ requested - prev_applied }}"
@@ -969,13 +976,13 @@ automation:
         {% if mode == 'Off' %} OFF
         {% elif not healthy %} MISSING_INPUTS_FREEZE
         {% elif mode == 'PassThrough' %} PASS_THROUGH
-        {% elif preboost_active and mode in ['Smart','Simple'] and not guard %} PREBOOST
         {% elif guard and pre > 0 and mode in ['Smart','Simple'] %} MCP_BLOCKS_BRAKE
         {% elif guard %} COMFORT_GUARD
         {% elif pre > 0 and mode in ['Smart','Simple'] %} PRICE_BRAKE
+        {% elif preboost_active and mode in ['Smart','Simple'] and not guard %} PREBOOST
         {% elif mode == 'ComfortOnly' %} COMFORT_ONLY
         {% else %} NEUTRAL {% endif %}
-
+        
     action:
       # --- THROTTLE: block trigger-storms (only allow 1 run per 30 seconds) ---
       - choose:
