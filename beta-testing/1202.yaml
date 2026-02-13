@@ -868,6 +868,7 @@ automation:
     #     - Applies rate limiting (max_delta_per_step_c)
     #     - FREEZE mode when inputs unhealthy (no vertical jumps)
     #     - Triggers: Every 2 minutes OR when any input parameter changes
+    #     - Preheating before expensive period
     ############################################################################
   - alias: "SVOTC Engine"
     id: svotc_engine
@@ -884,6 +885,7 @@ automation:
           - input_number.svotc_brake_hold_offset_c
           - input_number.svotc_heat_aggressiveness
           - input_number.svotc_max_delta_per_step_c
+          - sensor.svotc_minutes_to_next_brake_start
 
     variables:
       # --- Anti-storm throttle ---
@@ -898,6 +900,7 @@ automation:
       mode: "{{ states('input_select.svotc_mode') }}"
       healthy: "{{ is_state('binary_sensor.svotc_inputs_healthy','on') }}"
       pre: "{{ states('sensor.svotc_prebrake_strength') | float(0) }}"
+
       guard: >
         {{ is_state('binary_sensor.svotc_comfort_guard_active','on')
         and is_state('input_boolean.svotc_comfort_guard_enabled','on') }}
@@ -914,6 +917,31 @@ automation:
         {{ 0.10 if mode == 'Simple'
         else (states('input_number.svotc_max_delta_per_step_c') | float(0.2)) }}
 
+      # --- PREBOOST (gasa innan broms) ---
+      mins_to_brake: "{{ states('sensor.svotc_minutes_to_next_brake_start') | float(999) }}"
+
+      # HARD-CODED SETTINGS
+      svotc_preboost_window_min: 120    # <—— Preboost time in minutes before brake
+      svotc_preboost_ramp_min: 15
+
+      preboost_strength: >
+        {% set m = mins_to_brake | float(999) %}
+        {% set w = svotc_preboost_window_min | float(0) %}
+        {% set r = svotc_preboost_ramp_min | float(0) %}
+        {% if w <= 0 or m <= 0 or m > w %} 0
+        {% elif r <= 0 %} 1
+        {% else %}
+          {% set ramp_in = (w - m) / r %}
+          {% set ramp_out = m / r %}
+          {{ min(1, max(0, min(ramp_in, ramp_out))) }}
+        {% endif %}
+
+      preboost_active: "{{ (preboost_strength | float(0)) > 0 }}"
+
+      preboost_term: >
+        {% if mode not in ['Smart','Simple'] or guard %} 0
+        {% else %} {{ -(heat_aggr * 0.4) * (preboost_strength | float(0)) }} {% endif %}
+
       req_min: "{{ state_attr('input_number.svotc_requested_offset_c','min') | float(-10) }}"
       req_max: "{{ state_attr('input_number.svotc_requested_offset_c','max') | float(10) }}"
       app_min: "{{ state_attr('input_number.svotc_applied_offset_c','min') | float(-10) }}"
@@ -925,10 +953,10 @@ automation:
         {% else %} 0 {% endif %}
 
       price_term: >
-        {% if mode not in ['Smart','Simple'] or guard %} 0
+        {% if mode not in ['Smart','Simple'] or guard or preboost_active %} 0
         {% else %} {{ hold_offset * pre }} {% endif %}
 
-      requested: "{{ (comfort_term + price_term) | clamp(req_min, req_max) | round(2) }}"
+      requested: "{{ (comfort_term + preboost_term + price_term) | clamp(req_min, req_max) | round(2) }}"
       prev_applied: "{{ states('input_number.svotc_applied_offset_c') | float(requested) }}"
       delta: "{{ requested - prev_applied }}"
 
@@ -941,6 +969,7 @@ automation:
         {% if mode == 'Off' %} OFF
         {% elif not healthy %} MISSING_INPUTS_FREEZE
         {% elif mode == 'PassThrough' %} PASS_THROUGH
+        {% elif preboost_active and mode in ['Smart','Simple'] and not guard %} PREBOOST
         {% elif guard and pre > 0 and mode in ['Smart','Simple'] %} MCP_BLOCKS_BRAKE
         {% elif guard %} COMFORT_GUARD
         {% elif pre > 0 and mode in ['Smart','Simple'] %} PRICE_BRAKE
