@@ -874,6 +874,8 @@ automation:
     id: svotc_engine
     mode: single
     trigger:
+      - platform: homeassistant
+        event: start
       - platform: time_pattern
         minutes: "/2"
       - platform: state
@@ -886,6 +888,9 @@ automation:
           - input_number.svotc_heat_aggressiveness
           - input_number.svotc_max_delta_per_step_c
           - sensor.svotc_minutes_to_next_brake_start
+          - sensor.svotc_p30
+          - sensor.svotc_p80
+          - binary_sensor.svotc_price_available
 
     variables:
       # --- Anti-storm throttle ---
@@ -949,6 +954,17 @@ automation:
         {% if mode not in ['Smart','Simple'] or guard %} 0
         {% else %} {{ -(heat_aggr * 0.4) * (preboost_strength | float(0)) }} {% endif %}
 
+      # --- PRICE WARMUP / FREEZE (prevent ramp-down on restart) ---
+      price_ok: "{{ is_state('binary_sensor.svotc_price_available','on') }}"
+      ttn: "{{ mins_to_brake | float(999) }}"
+      ttn_valid: "{{ ttn < 900 }}"   # sensor uses 999 as "unknown"
+      p30_valid: "{{ states('sensor.svotc_p30') not in ['unknown','unavailable','none',''] }}"
+      p80_valid: "{{ states('sensor.svotc_p80') not in ['unknown','unavailable','none',''] }}"
+      price_ready: "{{ price_ok and ttn_valid and p30_valid and p80_valid }}"
+
+      # Freeze only for price logic (NOT when comfort guard is active)
+      freeze_price: "{{ healthy and mode in ['Smart','Simple'] and (not guard) and (not price_ready) }}"
+
       req_min: "{{ state_attr('input_number.svotc_requested_offset_c','min') | float(-10) }}"
       req_max: "{{ state_attr('input_number.svotc_requested_offset_c','max') | float(10) }}"
       app_min: "{{ state_attr('input_number.svotc_applied_offset_c','min') | float(-10) }}"
@@ -959,36 +975,54 @@ automation:
         {% elif mode in ['Smart','Simple','ComfortOnly'] and guard %} {{ -(heat_aggr * 0.4) }}
         {% else %} 0 {% endif %}
 
+      # OBS: bromsning "som innan" -> price_term blockas INTE av preboost
       price_term: >
         {% if mode not in ['Smart','Simple'] or guard %} 0
         {% else %} {{ hold_offset * pre }} {% endif %}
-        
-      requested: "{{ (comfort_term + preboost_term + price_term) | clamp(req_min, req_max) | round(2) }}"
+
+      requested_calc: "{{ (comfort_term + preboost_term + price_term) | clamp(req_min, req_max) | round(2) }}"
+      prev_req: "{{ states('input_number.svotc_requested_offset_c') | float(0) }}"
+
+      requested: >
+        {% if freeze_price %}
+          {{ prev_req | round(2) }}
+        {% else %}
+          {{ requested_calc }}
+        {% endif %}
+
       prev_applied: "{{ states('input_number.svotc_applied_offset_c') | float(requested) }}"
       delta: "{{ requested - prev_applied }}"
 
       next_applied: >
-        {% if delta > max_delta %} {{ (prev_applied + max_delta) | clamp(app_min, app_max) | round(2) }}
-        {% elif delta < -max_delta %} {{ (prev_applied - max_delta) | clamp(app_min, app_max) | round(2) }}
-        {% else %} {{ requested | clamp(app_min, app_max) | round(2) }} {% endif %}
+        {% if freeze_price %}
+          {{ prev_applied | round(2) }}
+        {% elif delta > max_delta %}
+          {{ (prev_applied + max_delta) | clamp(app_min, app_max) | round(2) }}
+        {% elif delta < -max_delta %}
+          {{ (prev_applied - max_delta) | clamp(app_min, app_max) | round(2) }}
+        {% else %}
+          {{ requested | clamp(app_min, app_max) | round(2) }}
+        {% endif %}
 
       reason: >
         {% if mode == 'Off' %} OFF
         {% elif not healthy %} MISSING_INPUTS_FREEZE
         {% elif mode == 'PassThrough' %} PASS_THROUGH
+        {% elif freeze_price %} PRICE_DATA_WARMUP_FREEZE
+        {% elif preboost_active and mode in ['Smart','Simple'] and not guard %} PREBOOST
         {% elif guard and pre > 0 and mode in ['Smart','Simple'] %} MCP_BLOCKS_BRAKE
         {% elif guard %} COMFORT_GUARD
         {% elif pre > 0 and mode in ['Smart','Simple'] %} PRICE_BRAKE
-        {% elif preboost_active and mode in ['Smart','Simple'] and not guard %} PREBOOST
         {% elif mode == 'ComfortOnly' %} COMFORT_ONLY
         {% else %} NEUTRAL {% endif %}
-        
+
     action:
       # --- THROTTLE: block trigger-storms (only allow 1 run per 30 seconds) ---
       - choose:
           - conditions: "{{ since_last_s < 30 }}"
             sequence:
               - stop: true
+
       # Record actual run timestamp (do this after throttle passes)
       - service: input_datetime.set_datetime
         target:
