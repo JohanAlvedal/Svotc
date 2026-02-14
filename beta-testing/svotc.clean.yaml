@@ -826,3 +826,48 @@ automation:
               - service: "{{ notify_svc }}"
                 data:
                   title: "SVOTC: OK again
+  - alias: "SVOTC Startup initialization"
+    id: svotc_startup_init
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      - choose:
+          - conditions: >
+              {{ states('input_datetime.svotc_last_price_state_changed') in ['unknown','unavailable'] }}
+            sequence:
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.svotc_last_price_state_changed
+                data:
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - choose:
+          - conditions: >
+              {{ states('input_datetime.svotc_brake_phase_changed') in ['unknown','unavailable'] }}
+            sequence:
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.svotc_brake_phase_changed
+                data:
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - choose:
+          - conditions: >
+              {{ states('input_datetime.svotc_engine_last_run') in ['unknown','unavailable'] }}
+            sequence:
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.svotc_engine_last_run
+                data:
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - variables:
+          current_eff: "{{ states('input_number.svotc_learned_brake_efficiency') | float(1.0) }}"
+      - choose:
+          - conditions: "{{ current_eff < 0.5 or current_eff > 1.5 }}"
+            sequence:
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.svotc_learned_brake_efficiency
+                data:
+                  value: 1.0
+
