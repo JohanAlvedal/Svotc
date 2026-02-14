@@ -1,319 +1,136 @@
-title: SVOTC Styrsystem
-icon: ""
-badges: []
-cards: []
-type: sections
-sections:
-  - type: grid
+type: grid
+cards:
+  - type: entities
+    title: 🎛️ SVOTC Kontroller
+    state_color: true
+    show_header_toggle: false
+    entities:
+      - entity: input_select.svotc_mode
+        name: Driftsläge
+        icon: mdi:toggle-switch
+      - type: section
+        label: Komfortinställningar
+      - entity: input_number.svotc_comfort_temperature
+        name: Måltemperatur
+        icon: mdi:target
+      - entity: input_number.svotc_comfort_guard_activate_below_c
+        name: Skydd vid (under mål)
+        icon: mdi:shield-alert
+      - entity: input_number.svotc_comfort_guard_deactivate_above_c
+        name: Skydd vid (över mål)
+        icon: mdi:shield-check
+      - type: section
+        label: Prisoptimering
+      - entity: input_number.svotc_brake_aggressiveness
+        name: Broms (0-5)
+        icon: mdi:speedometer-slow
+      - entity: input_number.svotc_heat_aggressiveness
+        name: Värme (0-5)
+        icon: mdi:fire
+      - entity: input_number.svotc_brake_hold_offset_c
+        name: Max bromsoffset (°C)
+        icon: mdi:thermometer-minus
+      - entity: input_boolean.svotc_comfort_guard_enabled
+  - type: custom:mini-graph-card
+    name: 📈 Offset-utveckling (24h)
+    hours_to_show: 24
+    points_per_hour: 4
+    line_width: 3
+    font_size: 75
+    animate: true
+    show:
+      labels: true
+      legend: true
+      icon: false
+    entities:
+      - entity: input_number.svotc_requested_offset_c
+        name: Begärd offset
+        color: "#f39c12"
+        show_state: true
+      - entity: input_number.svotc_applied_offset_c
+        name: Tillämpad offset
+        color: "#e67e22"
+        show_state: true
+  - type: custom:mini-graph-card
+    name: 🌡️ Temperaturöversikt (24h)
+    hours_to_show: 24
+    points_per_hour: 4
+    line_width: 2
+    font_size: 75
+    animate: true
+    show:
+      labels: true
+      legend: true
+      icon: false
+    entities:
+      - entity: sensor.svotc_src_outdoor
+        name: Utomhus (verklig)
+        color: "#3498db"
+        show_state: true
+      - entity: sensor.svotc_virtual_outdoor_temperature
+        name: Virtuell ute (→VP)
+        color: "#9b59b6"
+        show_state: true
+  - type: custom:mini-graph-card
+    name: 💵 Elpris (24h)
+    hours_to_show: 24
+    points_per_hour: 4
+    line_width: 2
+    font_size: 75
+    animate: true
+    show:
+      labels: true
+      legend: true
+      icon: false
+    entities:
+      - entity: sensor.nordpool_official
+        name: Elpris
+        color: "#3498db"
+        show_state: true
+  - type: horizontal-stack
     cards:
-      - type: entities
-        title: 🎛️ SVOTC Kontroller
-        state_color: true
-        show_header_toggle: false
-        entities:
-          - entity: input_select.svotc_mode
-            name: Driftsläge
-            icon: mdi:toggle-switch
-          - type: divider
-          - type: section
-            label: Komfortinställningar
-          - entity: input_number.svotc_comfort_temperature
-            name: Måltemperatur
-            icon: mdi:target
-          - entity: input_number.svotc_comfort_guard_activate_below_c
-            name: Skydd vid (under mål)
-            icon: mdi:shield-alert
-          - entity: input_number.svotc_comfort_guard_deactivate_above_c
-            name: Skydd vid (över mål)
-            icon: mdi:shield-check
-          - type: divider
-          - type: section
-            label: Prisoptimering
-          - entity: input_number.svotc_brake_aggressiveness
-            name: Broms (0-5)
-            icon: mdi:speedometer-slow
-          - entity: input_number.svotc_heat_aggressiveness
-            name: Värme (0-5)
-            icon: mdi:fire
-          - entity: input_number.svotc_brake_hold_offset_c
-            name: Max bromsoffset (°C)
-            icon: mdi:thermometer-minus
-          - entity: input_boolean.svotc_comfort_guard_enabled
-      - type: vertical-stack
-        cards:
-          - type: entity
-            entity: input_select.svotc_mode
-            name: SVOTC Läge
-          - type: entity
-            entity: binary_sensor.svotc_inputs_healthy
-      - type: vertical-stack
-        cards:
-          - type: entity
-            entity: input_boolean.svotc_comfort_guard_enabled
-            name: Komfortskydd
-          - type: entity
-            entity: input_text.svotc_reason_code
-            name: Strategi
-      - type: custom:mini-graph-card
-        name: 📈 Offset-utveckling (24h)
-        hours_to_show: 24
-        points_per_hour: 4
-        line_width: 3
-        font_size: 75
-        animate: true
-        show:
-          labels: true
-          legend: true
-          icon: false
-        entities:
-          - entity: input_number.svotc_requested_offset_c
-            name: Begärd offset
-            color: "#3498db"
-            show_state: true
-          - entity: input_number.svotc_applied_offset_c
-            name: Tillämpad offset
-            color: "#e67e22"
-            show_state: true
-      - type: custom:mini-graph-card
-        name: 🌡️ Temperaturöversikt (24h)
-        hours_to_show: 24
-        points_per_hour: 4
-        line_width: 2
-        font_size: 75
-        animate: true
-        show:
-          labels: true
-          legend: true
-          icon: false
-        entities:
-          - entity: sensor.svotc_src_outdoor
-            name: Utomhus (verklig)
-            color: "#3498db"
-            show_state: true
-          - entity: sensor.svotc_virtual_outdoor_temperature
-            name: Virtuell ute (→VP)
-            color: "#9b59b6"
-            show_state: true
-          - entity: sensor.pumpsteer
-            name: Pumpsteer
-            color: "#e67e22"
-            show_state: true
-      - type: entities
-        title: 🔬 Diagnostik
-        state_color: true
-        show_header_toggle: false
-        entities:
-          - type: section
-            label: Systemhälsa
-          - entity: binary_sensor.svotc_inputs_healthy
-            name: Temperatursensorer OK
-            icon: mdi:thermometer-check
-          - entity: binary_sensor.svotc_price_available
-            name: Prisdata tillgänglig
-            icon: mdi:cash-check
-          - type: divider
-          - type: section
-            label: Timing
-          - entity: sensor.svotc_minutes_to_next_brake_start
-            name: Minuter till nästa dyr period
-            icon: mdi:timer-outline
-          - entity: sensor.svotc_prebrake_window_min
-            name: Förbromsfönster (min)
-            icon: mdi:window-open
-          - type: divider
-          - type: section
-            label: Prisstatus (flöde)
-          - entity: sensor.svotc_raw_price_state
-            name: Råprisstatus (direkt)
-            icon: mdi:flash
-          - entity: input_text.svotc_pending_price_state
-            name: Pending status (väntar)
-            icon: mdi:timer-sand
-          - entity: input_text.svotc_last_price_state
-            name: Stabil status (aktiv)
-            icon: mdi:lock-check
-          - type: divider
-          - type: section
-            label: Tidsstämplar
-          - entity: input_datetime.svotc_last_price_state_changed
-            name: Pending sedan
-            icon: mdi:clock-start
-          - entity: input_datetime.svotc_brake_phase_changed
-            name: Bromsfas startade
-            icon: mdi:clock-start
-      - type: markdown
-        title: 📋 System Status
-        content: >
-          ### SVOTC Statusöversikt
-
-
-          **Driftsläge:** `{{ states('input_select.svotc_mode') }}`
-
-          **Aktuell Strategi:** `{{ states('input_text.svotc_reason_code') }}`
-
-
-          ---
-
-          #### Temperaturer
-
-          - 🏠 Inne: **{{ states('sensor.svotc_src_indoor') }}°C** (mål: {{
-          states('sensor.svotc_dynamic_target_temperature') }}°C)
-
-          - 🌡️ Ute (verklig): **{{ states('sensor.svotc_src_outdoor') }}°C**
-
-          - 🎯 Ute (virtuell → VP): **{{
-          states('sensor.svotc_virtual_outdoor_temperature') }}°C**
-
-          - 📊 Offset tillämpad: **{{
-          states('input_number.svotc_applied_offset_c') }}°C**
-
-
-          ---
-
-          #### Prisstatus
-
-          - 💵 Pris nu: **{{ states('sensor.svotc_current_price') }} SEK/kWh**
-
-          - 📉 P30 (billig): **{{ states('sensor.svotc_p30') }} SEK/kWh**
-
-          - 📈 P80 (dyr): **{{ states('sensor.svotc_p80') }} SEK/kWh**
-
-          - 🚦 Status: **{{ states('input_text.svotc_last_price_state') }}**
-
-          - ⏱️ Nästa dyr period om: **{{
-          states('sensor.svotc_minutes_to_next_brake_start') }} min**
-
-
-          ---
-
-          #### Kontrollstatus
-
-          - 🛡️ Komfortskydd: **{% if
-          is_state('binary_sensor.svotc_comfort_guard_active', 'on') %}🟢
-          AKTIVT{% else %}⚪ Inaktivt{% endif %}**
-
-          - 🔄 Bromsfas: **{{ states('input_text.svotc_brake_phase') }}**
-
-          - 💪 Förbromsstyrka: **{{ (states('sensor.svotc_prebrake_strength') |
-          float * 100) | round(0) }}%**
-
-
-          ---
-
-          #### Systemhälsa
-
-          - ✅ Sensorer: **{% if is_state('binary_sensor.svotc_inputs_healthy',
-          'on') %}OK{% else %}⚠️ PROBLEM{% endif %}**
-
-          - 💰 Prisdata: **{% if is_state('binary_sensor.svotc_price_available',
-          'on') %}OK{% else %}⚠️ SAKNAS{% endif %}**
-
-
-          ---
-
-          *Senast uppdaterad: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}*
-  - type: grid
+      - type: entity
+        entity: input_select.svotc_mode
+        name: SVOTC Läge
+        icon: mdi:power
+      - type: entity
+        entity: binary_sensor.svotc_inputs_healthy
+        name: System OK
+        icon: mdi:heart-pulse
+  - type: horizontal-stack
     cards:
-      - type: entities
-        title: 📊 Aktuell Status
-        state_color: true
-        show_header_toggle: false
-        entities:
-          - type: section
-            label: Temperaturer
-          - entity: sensor.svotc_src_indoor
-            name: Inomhus
-            icon: mdi:home-thermometer
-          - entity: sensor.svotc_dynamic_target_temperature
-            name: Måltemperatur
-            icon: mdi:target
-          - entity: sensor.svotc_src_outdoor
-            name: Utomhus (verklig)
-            icon: mdi:thermometer
-          - entity: sensor.svotc_virtual_outdoor_temperature
-            name: Utomhus (virtuell → VP)
-            icon: mdi:thermometer-chevron-up
-            secondary_info: last-changed
-          - type: divider
-          - type: section
-            label: Prisstyrning
-          - entity: sensor.svotc_current_price
-            name: Elpris nu
-            icon: mdi:currency-usd
-          - entity: sensor.svotc_p30
-            name: P30 (billig under)
-            icon: mdi:arrow-down-bold-circle
-          - entity: sensor.svotc_p80
-            name: P80 (dyr över)
-            icon: mdi:arrow-up-bold-circle
-          - entity: input_text.svotc_last_price_state
-            name: Prisstatus (stabil)
-            icon: mdi:state-machine
-          - entity: input_text.svotc_brake_phase
-            name: Bromsfas
-            icon: mdi:timeline-clock
-          - type: divider
-          - type: section
-            label: Offset & Kontroll
-          - entity: input_number.svotc_requested_offset_c
-            name: Begärd offset
-            icon: mdi:delta
-          - entity: input_number.svotc_applied_offset_c
-            name: Tillämpad offset
-            icon: mdi:slope-uphill
-          - entity: sensor.svotc_prebrake_strength
-            name: Förbromsstyrka (0-1)
-            icon: mdi:speedometer
-      - type: entities
-        title: 🔧 Entitetskonfiguration
-        state_color: true
-        show_header_toggle: false
-        entities:
-          - entity: input_text.svotc_entity_indoor
-            name: Inomhustemperatur-sensor
-            icon: mdi:home-thermometer-outline
-          - entity: input_text.svotc_entity_outdoor
-            name: Utomhustemperatur-sensor
-            icon: mdi:thermometer
-          - entity: input_text.svotc_entity_price
-            name: Prisentitet (Nordpool)
-            icon: mdi:currency-usd
-          - entity: input_text.svotc_notify_service
-      - type: entities
-        title: ⚙️ Avancerade Inställningar
-        state_color: true
-        show_header_toggle: false
-        entities:
-          - type: section
-            label: Dwell Times (Pristösklar)
-          - entity: input_number.svotc_price_dwell_cheap_to_neutral_min
-            name: Billig → Neutral (min)
-            icon: mdi:arrow-right-bold
-          - entity: input_number.svotc_price_dwell_neutral_to_brake_min
-            name: Neutral → Broms (min)
-            icon: mdi:arrow-right-bold
-          - entity: input_number.svotc_price_dwell_brake_to_neutral_min
-            name: Broms → Neutral (min)
-            icon: mdi:arrow-left-bold
-          - entity: input_number.svotc_price_dwell_neutral_to_cheap_min
-            name: Neutral → Billig (min)
-            icon: mdi:arrow-left-bold
-          - type: divider
-          - type: section
-            label: Bromsfaser (Duration)
-          - entity: input_number.svotc_brake_rampup_duration_min
-            name: Ramp-up tid (min)
-            icon: mdi:slope-uphill
-          - entity: input_number.svotc_brake_hold_duration_min
-            name: Hold tid (min)
-            icon: mdi:minus-circle
-          - entity: input_number.svotc_brake_rampdown_duration_min
-            name: Ramp-down tid (min)
-            icon: mdi:slope-downhill
-          - type: divider
-          - type: section
-            label: Rate Limiting
-          - entity: input_number.svotc_max_delta_per_step_c
-            name: Max förändring per minut (°C)
-            icon: mdi:speedometer
-max_columns: 4
+      - type: entity
+        entity: binary_sensor.svotc_comfort_guard_active
+        name: Komfortskydd
+        icon: mdi:shield-home
+      - type: entity
+        entity: input_text.svotc_reason_code
+        name: Strategi
+        icon: mdi:brain
+  - type: entities
+    title: 🔬 Diagnostik
+    state_color: true
+    show_header_toggle: false
+    entities:
+      - type: section
+        label: Systemhälsa
+      - entity: binary_sensor.svotc_inputs_healthy
+        name: Temperatursensorer OK
+        icon: mdi:thermometer-check
+      - entity: binary_sensor.svotc_price_available
+        name: Prisdata tillgänglig
+        icon: mdi:cash-check
+      - type: section
+        label: Timing
+      - entity: sensor.svotc_minutes_to_next_brake_start
+        name: Minuter till nästa dyr period
+        icon: mdi:timer-outline
+      - entity: sensor.svotc_prebrake_window_min
+        name: Förbromsfönster (min)
+        icon: mdi:window-open
+      - type: section
+        label: Prisstatus (flöde)
+      - entity: sensor.svotc_raw_price_state
+        name: Råprisstatus (direkt)
+        icon: mdi:flash
+column_span: 1
