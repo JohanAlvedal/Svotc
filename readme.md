@@ -692,25 +692,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
-
-**Kontakt:**
-- **GitHub Issues:** För buggar och feature requests
-- **Community Forum:** [Home Assistant Community](https://community.home-assistant.io/)
-- **Discord:** Länk kommer snart
-
----
-
-## ❤️ Tack
-
-SVOTC är utvecklat av **Johan Ä**, med assistans av AI-driven kodgenerering och systemdesign.
-
-**Special thanks till:**
-- Home Assistant community för feedback och testing
-- Nordpool för stabilt API
-- Alla som bidragit med buggrapporter och förbättringar
-
-**Bidrag, förbättringar och pull requests är varmt välkomna!**
-
 ---
 
 ## 📚 Ytterligare resurser
@@ -736,6 +717,5 @@ SVOTC är utvecklat av **Johan Ä**, med assistans av AI-driven kodgenerering oc
 ---
 
 **Version:** 2.0.0 (2026-02-14)  
-**Senast uppdaterad:** 2026-02-14  
-**Författare:** Johan Ä  
+**Senast uppdaterad:** 2026-02-14
 **Licens:** MIT
