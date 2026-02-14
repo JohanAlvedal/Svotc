@@ -336,7 +336,7 @@ input_text:
 
   svotc_notify_service:
     name: "SVOTC Notify service"
-    initial: ""
+ #   initial: ""
     # OPTIONAL: Set to your notification service
     # Example: notify.mobile_app_iphone13pro
     # Leave empty to use notify.notify
