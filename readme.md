@@ -454,7 +454,7 @@ Hitta ikoner på: https://pictogrammers.com/library/mdi/
 
 ## 🧠 Lärande
 
-SVOTC har en inbyggd **självlärande algoritm** som anpassar systemets beteende baserat på verkliga resultat.
+SVOTC har en inbyggd **självlärande algoritm** som anpassar systemets beteende.
 
 ### Hur det fungerar
 
@@ -532,46 +532,6 @@ Inputs + price data är stabila igen.
 ```
 
 ---
-
-## 📊 Resultat & Prestanda
-
-Baserat på tester i flera hem (vintern 2025-2026):
-
-| Hustyp | Besparing | Komfortpåverkan | Payback tid* |
-|--------|-----------|-----------------|--------------|
-| Lätt hus (100m²) | 15-20% | Minimal (<0.3°C) | 2-3 månader |
-| Normal villa (150m²) | 12-18% | Ingen märkbar | 3-4 månader |
-| Tung villa (200m²) | 8-15% | Ingen märkbar | 4-6 månader |
-
-*Räknat på initial setup-tid (~4 timmar) och elprisdifferens vinter.
-
-### Faktorer som påverkar besparing
-
-**Högre besparing vid:**
-- ✅ Hög prisvolatilitet (stora skillnader mellan billiga/dyra timmar)
-- ✅ Bra isolering (långsam värmeavgivning)
-- ✅ Moderna värmepumpar med bra COP
-- ✅ Flexibel komforttolerans (0.5–1°C margin)
-
-**Lägre besparing vid:**
-- ❌ Stabila elpriser (liten skillnad mellan timmar)
-- ❌ Dålig isolering (snabb värmeavgivning)
-- ❌ Gamla/ineffektiva värmepumpar
-- ❌ Tight komforttolerans (0.2°C margin)
-
-### Verkliga exempel
-
-**Villa Göteborg, 145m², välisolerad:**
-- Före SVOTC: 850 kWh/månad (dec 2025)
-- Efter SVOTC: 720 kWh/månad (jan 2026)
-- Besparing: **15.3%** (130 kWh)
-- Kostnadsbesparing: ~400 SEK/månad vid genomsnittspris 3 SEK/kWh
-
-**Radhus Stockholm, 110m², normal isolering:**
-- Före SVOTC: 620 kWh/månad
-- Efter SVOTC: 545 kWh/månad
-- Besparing: **12.1%** (75 kWh)
-- Kostnadsbesparing: ~225 SEK/månad
 
 ---
 
@@ -691,8 +651,6 @@ Detta repo innehåller:
 | `svotc.clean.yaml` | ~25 KB | **Rekommenderad för drift** | Inga kommentarer, lättläst |
 | `svotc.min.yaml` | ~15 KB | Minimal footprint | Minifierad, för avancerade användare |
 | `README.md` | Detta dokument | Dokumentation | - |
-| `CHANGELOG.md` | ~5 KB | Versionshistorik | Alla ändringar sedan v1.0 |
-| `EXAMPLES.md` | ~10 KB | Integrationsmönster | Nibe, Modbus, MQTT exempel |
 
 ### Vilken fil ska jag använda?
 
@@ -704,63 +662,6 @@ Detta repo innehåller:
 | Behöver integrationssexempel | `EXAMPLES.md` |
 
 ---
-
-## 🔄 Versionshantering
-
-SVOTC följer [Semantic Versioning](https://semver.org/):
-
-- **MAJOR** (1.x.x) — Breaking changes, kräver omkonfiguration
-- **MINOR** (x.1.x) — Nya features, bakåtkompatibelt
-- **PATCH** (x.x.1) — Buggfixar, bakåtkompatibelt
-
-**Nuvarande version:** 2.0.0 (Stable Core Edition + Adaptive Learning)
-
-Se `CHANGELOG.md` för detaljerad historik.
-
----
-
-## 🛠 Utveckling & Testing
-
-### Lokal testmiljö
-
-Om du vill bidra eller testa ändringar:
-
-1. Kör Home Assistant i dev-mode
-2. Använd `svotc.annotated.yaml` som bas
-3. Aktivera debug-logging:
-```yaml
-logger:
-  default: info
-  logs:
-    homeassistant.components.automation.svotc_engine: debug
-```
-
-### Testscenarios
-
-SVOTC innehåller automatiska tester (separat repo: `svotc-tests`):
-- Unit tests för templates
-- Integration tests med mock Nordpool data
-- Regression tests för edge cases
-
----
-
-## 🚀 Roadmap
-
-### Planerade features (v2.1+)
-
-- [ ] **Multi-day optimization** — lookahead 48h för global optimum
-- [ ] **Weather forecast integration** — väderanpassad prebrake
-- [ ] **Zone control** — separata offset för flera värmezoner
-- [ ] **Grafisk konfigurationswizard** — guided setup i UI
-- [ ] **Export/Import av konfiguration** — dela inställningar mellan installationer
-- [ ] **Advanced analytics dashboard** — kostnadsspårning och trender
-
-### Under utredning
-
-- Integration med **Energi Dashboard** för kostnadsspårning
-- Support för **flex-tariffer** (rörligt nätavgift)
-- **Multi-tariff zones** (olika priser i olika rum)
-- **ML-baserad prediktiv styrning** (LSTM för lastprediktion)
 
 Förslag och feature requests välkomnas i GitHub Issues!
 
