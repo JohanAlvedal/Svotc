@@ -1,4 +1,4 @@
-# SVOTC — Stable Virtual Outdoor Temperature Control
+# SVOTC — Smart Virtual Outdoor Temperature Control
 ### Stable Core Edition + Adaptive Learning (2026)
 
 SVOTC är ett avancerat, självlärande styrsystem för värmepumpar i Home Assistant.  
@@ -17,7 +17,7 @@ Systemet är byggt för att vara:
 - ✅ **Enkelt att felsöka** — omfattande diagnostik och reason codes
 - ✅ **Helt autonomt** — kräver minimal inblandning efter setup
 
-Detta är *Stable Core Edition* — en robust grund som kan köras i alla typer av hem.
+Detta är *Smart Core Edition* — en robust grund som kan köras i alla typer av hem.
 
 ---
 
