@@ -188,6 +188,64 @@ sensor.svotc_virtual_outdoor_temperature
 
 Detta är den temperatur din värmepump ska använda istället för verklig utomhustemperatur.
 
+### Integrationsmetoder
+
+#### 1. **Nibe Uplink** (rekommenderat för Nibe)
+
+```yaml
+automation:
+  - alias: "Update Nibe virtual outdoor temp"
+    trigger:
+      - platform: state
+        entity_id: sensor.svotc_virtual_outdoor_temperature
+    condition:
+      - condition: template
+        value_template: "{{ trigger.to_state.state not in ['unknown', 'unavailable'] }}"
+    action:
+      - service: nibe.set_parameter
+        data:
+          parameter: outdoor_temp_bt1
+          value: "{{ states('sensor.svotc_virtual_outdoor_temperature') | float }}"
+```
+
+#### 2. **Modbus** (direkt integration)
+
+```yaml
+automation:
+  - alias: "Update heatpump via Modbus"
+    trigger:
+      - platform: state
+        entity_id: sensor.svotc_virtual_outdoor_temperature
+    action:
+      - service: modbus.write_register
+        data:
+          hub: heatpump
+          address: 123  # Din register-adress
+          value: "{{ (states('sensor.svotc_virtual_outdoor_temperature') | float * 10) | int }}"
+```
+
+#### 3. **MQTT** (ESPHome/Tasmota gateway)
+
+```yaml
+automation:
+  - alias: "Publish virtual temp to MQTT"
+    trigger:
+      - platform: state
+        entity_id: sensor.svotc_virtual_outdoor_temperature
+    action:
+      - service: mqtt.publish
+        data:
+          topic: "heatpump/outdoor_temp"
+          payload: "{{ states('sensor.svotc_virtual_outdoor_temperature') }}"
+```
+
+#### 4. **Manuell värmekurva-justering**
+
+Om din värmepump inte stöder offset, kan du istället:
+- Läsa `input_number.svotc_applied_offset_c`
+- Mappa det till en värmekurva-justering
+- Exempel: +3°C offset → sänk värmekurvan med 2 grader
+
 ---
 
 ## 📊 Viktiga sensorer
@@ -231,64 +289,224 @@ Detta är den temperatur din värmepump ska använda istället för verklig utom
 
 ## 📈 Rekommenderad Dashboard
 
-### Entities Card
+SVOTC levereras med **färdiga kort** som du kan kopiera in i din dashboard.
 
-Skapa ett nytt kort med:
+### Metod 1: Lägg till i befintlig dashboard (Enklast)
 
-**Status:**
-- `sensor.svotc_virtual_outdoor_temperature` (huvudutput)
-- `input_text.svotc_reason_code` (nuvarande strategi)
-- `binary_sensor.svotc_comfort_guard_active`
-- `binary_sensor.svotc_inputs_healthy`
+Detta är det **rekommenderade sättet** - lägg till SVOTC-kort i din befintliga dashboard.
 
-**Kontroller:**
-- `input_select.svotc_mode`
-- `input_number.svotc_comfort_temperature`
-- `input_boolean.svotc_comfort_guard_enabled`
+#### Steg 1: Öppna din dashboard i edit-läge
 
-**Avancerat:**
-- `sensor.svotc_prebrake_strength` (gauge: 0-100%)
-- `input_number.svotc_applied_offset_c`
-- `input_number.svotc_learned_brake_efficiency`
-- `sensor.svotc_minutes_to_next_brake_start`
+1. Gå till din **Hemskärm** (eller valfri dashboard)
+2. Klicka på **pennikonen** (Edit Dashboard) uppe till höger
 
-### Grafer (ApexCharts / History Graph)
+#### Steg 2: Lägg till ett nytt kort
 
-**Graf 1: Temperatur & Komfort**
+1. Klicka på **"+ ADD CARD"** där du vill ha kortet
+2. Scrolla ner i kortlistan
+3. Klicka på **"MANUAL"** längst ner (eller välj ett befintligt kort först)
+4. Du ser nu en kod-editor med YAML
+
+#### Steg 3: Klistra in kortets YAML
+
+1. **Radera** det som står i editorn
+2. Öppna filen **`SVOTC_Cards.yaml`** från repot
+3. **Kopiera** det kort du vill ha (t.ex. "Kontrollpanel")
+4. **Klistra in** i editorn
+5. Klicka **"SAVE"**
+
+#### Steg 4: Upprepa för fler kort
+
+Lägg till fler kort genom att upprepa steg 2-3 för varje kort du vill ha.
+
+**Klart!** Dina SVOTC-kort är nu tillagda. 🎉
+
+---
+
+### Metod 2: Skapa en dedikerad SVOTC-dashboard (Sections)
+
+Om du vill ha en **egen dashboard för SVOTC** med Sections-layout:
+
+#### Steg 1: Skapa en ny dashboard
+
+1. Gå till **Settings → Dashboards**
+2. Klicka på **"+ ADD DASHBOARD"** (nere till höger)
+3. Välj **"New dashboard"**
+4. Namn: **"SVOTC Control"**
+5. Typ: Välj **"Sections (experimental)"** om tillgänglig, annars standard
+6. Klicka **"CREATE"**
+
+#### Steg 2: Lägg till en Section
+
+1. På den nya dashboarden, klicka **"EDIT DASHBOARD"**
+2. Klicka **"+ ADD SECTION"**
+3. Välj **"Grid"**
+
+#### Steg 3: Lägg till kort i sectionen
+
+1. I den nya grid-sectionen, klicka **"+ ADD CARD"**
+2. Scrolla ner och välj **"MANUAL"** (eller sök efter korttyp)
+3. I YAML-editorn som öppnas:
+   - **Radera** befintligt innehåll
+   - **Klistra in** ett kort från `SVOTC_Cards.yaml`
+   - Klicka **"SAVE"**
+4. Upprepa för varje kort du vill ha
+
+#### Steg 4: Lägg till badges (valfritt)
+
+1. I edit-läge, klicka på **"MANAGE BADGES"** (om tillgängligt)
+2. Lägg till relevanta entiteter som badges:
+   - `sensor.svotc_virtual_outdoor_temperature`
+   - `input_text.svotc_reason_code`
+   - `binary_sensor.svotc_inputs_healthy`
+
+**Klart!** Du har nu en dedikerad SVOTC-dashboard. 🎉
+
+---
+
+### Tillgängliga kort i SVOTC_Cards.yaml
+
+#### 🎛️ Kontrollpanel (`entities`)
+**Innehåll:**
+- Driftsläge (Smart/Simple/ComfortOnly/etc.)
+- Komfortinställningar (mål, guard-trösklar)
+- Prisoptimering (brake/heat aggressiveness)
+- Thermal mass factor
+- Comfort guard on/off
+
+**Användning:** Primära kontroller för daglig användning.
+
+---
+
+#### 📊 Offset-graf (`mini-graph-card`) ⭐ Rekommenderad
+**Innehåll:**
+- Requested offset (orange)
+- Applied offset (röd)
+- 24h historik
+
+**Användning:** Se hur systemet justerar offset över tid.
+
+---
+
+#### 🌡️ Temperaturgraf (`mini-graph-card`)
+**Innehåll:**
+- Outdoor verklig (blå)
+- Virtual outdoor → VP (lila)
+- 24h historik
+
+**Användning:** Se skillnaden mellan verklig och virtuell utetemperatur.
+
+---
+
+#### 💵 Prisgraf (`mini-graph-card`)
+**Innehåll:**
+- Nordpool-pris
+- 24h historik
+
+**Användning:** Övervaka elpriset och förstå när systemet bromsar.
+
+---
+
+#### 🔬 Diagnostik (`entities`)
+**Innehåll:**
+- Systemhälsa (sensors OK, price available)
+- Timing (minuter till nästa brake, prebrake window)
+- Prisstatus (raw → pending → stable)
+- Brake phase
+
+**Användning:** Felsökning och förståelse av systemets interna tillstånd.
+
+---
+
+#### 📋 System Status (`markdown`) ⭐ Kraftfull
+**Innehåll:**
+- Live systemöversikt med dynamiska beräkningar
+- Temperaturstatus med offset-detaljer
+- Prisstyrning med prebrake-indikator
+- Komfortskydd med trösklar
+- Bromsfas med progress
+- Expanderbara diagnostikdetaljer
+- Strategi-förklaring
+
+**Användning:** En enda överblick över ALLT systemet gör.
+
+**OBS:** Detta kort kräver mycket utrymme - rekommenderas i egen sektion.
+
+---
+
+#### 🎯 Snabbstatus (`horizontal-stack` med entities)
+**Innehåll:**
+- SVOTC Mode + System OK (rad 1)
+- Comfort Guard + Reason Code (rad 2)
+
+**Användning:** Kompakt statusöversikt.
+
+---
+
+### Beroenden (custom cards)
+
+Graferna använder **mini-graph-card** från HACS:
+
+#### Installera mini-graph-card (Rekommenderat):
+
+1. Öppna **HACS** → **Frontend**
+2. Sök efter **"mini-graph-card"**
+3. Klicka **"Download"**
+4. Starta om Home Assistant
+
+**Alternativ utan custom cards:**
+- Skippa grafkorten
+- Eller ersätt med standard `history-graph`:
+  ```yaml
+  type: history-graph
+  entities:
+    - entity: input_number.svotc_applied_offset_c
+  hours_to_show: 24
+  ```
+
+---
+
+### Rekommenderad layout
+
+För bästa översikt, använd denna ordning:
+
+**Sektion 1 (Grid):**
+1. 🎯 Snabbstatus (överst för snabb överblick)
+2. 🎛️ Kontrollpanel (primära inställningar)
+3. 📊 Offset-graf (viktigaste grafen)
+4. 🌡️ Temperaturgraf
+5. 💵 Prisgraf
+
+**Sektion 2 (Grid, valfri):**
+1. 📋 System Status (markdown) - hel bredd
+2. 🔬 Diagnostik (för nördarna)
+
+---
+
+### Snabbtips
+
+#### Redigera ett befintligt kort:
+1. Håll nere på kortet (mobil) eller klicka tre prickar (desktop)
+2. Välj **"Edit"**
+3. Klicka **"SHOW CODE EDITOR"** (nere till höger)
+4. Gör dina ändringar
+5. Spara
+
+#### Ta bort delar du inte behöver:
+Öppna kortet i YAML-läge och ta bort rader. Exempel:
 ```yaml
-type: custom:apexcharts-card
-series:
-  - entity: sensor.svotc_src_indoor
-    name: Inomhus
-  - entity: sensor.svotc_dynamic_target_temperature
-    name: Mål
-    stroke_width: 2
-    type: line
-    curve: stepline
+entities:
+  - entity: input_number.svotc_comfort_temperature
+  # - entity: input_number.svotc_brake_aggressiveness  ← Ta bort denna rad om du inte vill ändra den
 ```
 
-**Graf 2: Offset & Prebrake**
+#### Ändra ikonerna:
 ```yaml
-type: custom:apexcharts-card
-series:
-  - entity: input_number.svotc_applied_offset_c
-    name: Applied Offset
-  - entity: sensor.svotc_prebrake_strength
-    name: Prebrake
-    yaxis_id: percentage
+- entity: input_select.svotc_mode
+  icon: mdi:power  # ← Ändra till valfri MDI-ikon
 ```
 
-**Graf 3: Pris & Percentiler**
-```yaml
-type: custom:apexcharts-card
-series:
-  - entity: sensor.svotc_current_price
-    name: Nuvarande pris
-  - entity: sensor.svotc_p30
-    name: P30 (billig gräns)
-  - entity: sensor.svotc_p80
-    name: P80 (dyr gräns)
-```
+Hitta ikoner på: https://pictogrammers.com/library/mdi/
 
 ---
 
