@@ -520,9 +520,9 @@ template:
           {% set thermal = states('input_number.svotc_thermal_mass_factor') | float(1.0) %}
           
           {# Base window from aggressiveness #}
-          {% set base_mapper = {0:0, 1:30, 2:60, 3:90, 4:105, 5:120} %}
+          {% set base_mapper = {0:0, 1:15, 2:30, 3:45, 4:60, 5:75} %}
           {% set base = base_mapper.get(a, 0) %}
-          
+
           {# Adjust for outdoor temp: colder = longer prebrake needed #}
           {% set temp_factor = 1.0 %}
           {% if outdoor < -10 %}
