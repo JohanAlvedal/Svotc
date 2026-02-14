@@ -1,4 +1,4 @@
-title: SVOTC Debug
+title: SVOTC data
 type: sections
 cards: []
 sections:
@@ -18,78 +18,74 @@ sections:
             name: Komfortskydd
           - entity: input_text.svotc_reason_code
             name: Reason code
+        state_color: true
       - type: entities
-        title: 🌡️ Temperaturer
-        show_header_toggle: false
-        entities:
-          - entity: sensor.svotc_src_indoor
-            name: Inomhus (källa)
-            secondary_info: last-changed
-          - entity: sensor.svotc_dynamic_target_temperature
-            name: Måltemperatur
-            secondary_info: last-changed
-          - entity: sensor.svotc_src_outdoor
-            name: Utomhus (källa)
-            secondary_info: last-changed
-          - entity: sensor.svotc_virtual_outdoor_temperature
-            name: Virtuell ute (→VP)
-            secondary_info: last-changed
-          - entity: input_number.svotc_requested_offset_c
-            name: Requested offset (°C)
-            secondary_info: last-changed
-          - entity: input_number.svotc_applied_offset_c
-            name: Applied offset (°C)
-            secondary_info: last-changed
-      - type: entities
-        title: 💰 Pris & percentiler
-        show_header_toggle: false
-        entities:
-          - entity: sensor.svotc_src_current_price
-            name: Råpris (källa)
-            secondary_info: last-changed
-          - entity: sensor.svotc_current_price
-            name: Current price
-            secondary_info: last-changed
-          - entity: sensor.svotc_p30
-            name: P30 (billig)
-            secondary_info: last-changed
-          - entity: sensor.svotc_p80
-            name: P80 (dyr)
-            secondary_info: last-changed
-      - type: entities
-        title: 🔧 Entity mapping
+        title: 🔧 Entitetskonfiguration
+        state_color: true
         show_header_toggle: false
         entities:
           - entity: input_text.svotc_entity_indoor
-            name: Indoor sensor entity
+            name: Inomhustemperatur-sensor
+            icon: mdi:home-thermometer-outline
           - entity: input_text.svotc_entity_outdoor
-            name: Outdoor sensor entity
+            name: Utomhustemperatur-sensor
+            icon: mdi:thermometer
           - entity: input_text.svotc_entity_price
-            name: Price sensor entity
-      - type: history-graph
-        title: 📊 Temperaturhistorik (8h)
-        hours_to_show: 8
+            name: Prisentitet (Nordpool)
+            icon: mdi:currency-usd
+          - entity: input_text.svotc_notify_service
+      - type: entities
+        title: 📊 Aktuell Status
+        state_color: true
+        show_header_toggle: false
         entities:
+          - type: section
+            label: Temperaturer
           - entity: sensor.svotc_src_indoor
-            name: Inne
-          - entity: sensor.svotc_src_outdoor
-            name: Ute (verklig)
-          - entity: sensor.svotc_virtual_outdoor_temperature
-            name: Virtuell ute
+            name: Inomhus
+            icon: mdi:home-thermometer
           - entity: sensor.svotc_dynamic_target_temperature
-            name: Måltemp
-      - type: history-graph
-        title: 📈 Offset-historik (8h)
-        hours_to_show: 8
-        entities:
-          - entity: input_number.svotc_requested_offset_c
-            name: Requested
-          - entity: input_number.svotc_applied_offset_c
-            name: Applied
+            name: Måltemperatur
+            icon: mdi:target
+          - entity: sensor.svotc_src_outdoor
+            name: Utomhus (verklig)
+            icon: mdi:thermometer
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: Utomhus (virtuell → VP)
+            icon: mdi:thermometer-chevron-up
+            secondary_info: last-changed
+          - type: section
+            label: Prisstyrning
+          - entity: sensor.svotc_current_price
+            name: Elpris nu
+            icon: mdi:currency-usd
+          - entity: sensor.svotc_p30
+            name: P30 (billig under)
+            icon: mdi:arrow-down-bold-circle
+          - entity: sensor.svotc_p80
+            name: P80 (dyr över)
+            icon: mdi:arrow-up-bold-circle
+          - type: divider
+          - entity: sensor.svotc_prebrake_strength
+            name: Förbromsstyrka (0-1)
+            icon: mdi:speedometer
+      - type: vertical-stack
+        cards:
+          - type: entities
+            title: 🛑 Brake phase & look-ahead
+            show_header_toggle: false
+            state_color: true
+            entities:
+              - entity: sensor.svotc_minutes_to_next_brake_start
+                name: Min till dyr period
+              - entity: sensor.svotc_prebrake_window_min
+                name: Prebrake window (min)
+              - entity: sensor.svotc_prebrake_strength
+                name: Prebrake strength
   - type: grid
     cards:
       - type: entities
-        title: 🔄 Price state machine
+        title: 🔄 Price state machine (Dont change)
         show_header_toggle: false
         entities:
           - entity: sensor.svotc_raw_price_state
@@ -100,20 +96,7 @@ sections:
             name: Stable state
           - entity: input_datetime.svotc_last_price_state_changed
             name: Pending sedan
-      - type: entities
-        title: 🛑 Brake phase & look-ahead
-        show_header_toggle: false
-        entities:
-          - entity: input_text.svotc_brake_phase
-            name: Bromsfas
-          - entity: input_datetime.svotc_brake_phase_changed
-            name: Fas startade
-          - entity: sensor.svotc_minutes_to_next_brake_start
-            name: Min till dyr period
-          - entity: sensor.svotc_prebrake_window_min
-            name: Prebrake window (min)
-          - entity: sensor.svotc_prebrake_strength
-            name: Prebrake strength
+        state_color: true
       - type: entities
         title: 🛡️ / ⏱️ / ⚡ Tuning
         show_header_toggle: false
@@ -147,13 +130,67 @@ sections:
             name: Heat aggressiveness
           - entity: input_number.svotc_brake_aggressiveness
             name: Brake aggressiveness
-      - type: history-graph
-        title: 💰 Prishistorik (24h)
-        hours_to_show: 24
-        entities:
-          - entity: sensor.svotc_current_price
-            name: Pris
-          - entity: sensor.svotc_p30
-            name: P30
-          - entity: sensor.svotc_p80
-            name: P80
+            label: Bromsfaser (Duration)
+          - entity: input_number.svotc_brake_rampup_duration_min
+            name: Ramp-up tid (min)
+            icon: mdi:slope-uphill
+          - entity: input_number.svotc_brake_hold_duration_min
+            name: Hold tid (min)
+            icon: mdi:minus-circle
+          - entity: input_number.svotc_brake_rampdown_duration_min
+            name: Ramp-down tid (min)
+            icon: mdi:slope-downhill
+          - type: divider
+          - type: section
+            label: Rate Limiting
+          - entity: input_number.svotc_max_delta_per_step_c
+            name: Max förändring per minut (°C)
+            icon: mdi:speedometer
+badges:
+  - type: entity
+    entity: person.johan
+    show_entity_picture: true
+  - type: custom:mushroom-template-badge
+    content: Laddbox
+    icon: mdi:ev-plug-type2
+    color: green
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/laddbox
+  - type: entity
+    show_name: false
+    show_state: true
+    show_icon: true
+    tap_action:
+      action: navigate
+      navigation_path: /dashboard-data/7
+    entity: sensor.nordpool_official
+  - type: custom:mushroom-template-badge
+    content: Förbrukning
+    icon: mdi:power-plug
+    color: blue
+    tap_action:
+      action: navigate
+      navigation_path: /dashboard-data/8
+  - type: custom:mushroom-template-badge
+    icon: mdi:mushroom
+    color: red
+    content: Jul
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/jul
+  - type: custom:mushroom-template-badge
+    content: Tariff
+    icon: mdi:power-plug
+    color: blue
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/9
+  - type: custom:mushroom-template-badge
+    content: System
+    icon: mdi:server
+    color: green
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/system
+max_columns: 4
