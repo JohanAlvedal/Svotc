@@ -1,0 +1,1112 @@
+###############################################################################
+# SVOTC – Stable Core Edition + Adaptive Learning (2026-02-13)
+# Author: Johan Ä
+# Enhancements: Claude-assisted refinements
+#
+# This is the ANNOTATED VERSION:
+# - Full comments
+# - Architecture explanations
+# - Recommended defaults
+# - Developer notes
+#
+# PURPOSE:
+#   This file implements a fully autonomous, self-learning heating optimizer
+#   for Home Assistant. It balances:
+#     - Comfort (indoor temperature)
+#     - Electricity price (15-min Nordpool)
+#     - Thermal mass of the house
+#     - Prebrake logic (anticipatory cooling)
+#     - Learning (auto-tunes brake efficiency)
+#
+#   The system is structured as:
+#     1) Validated sensors
+#     2) Raw price state (instant)
+#     3) Dwell machine (raw → stable)
+#     4) Forward look (minutes to next expensive period)
+#     5) Brake phase machine
+#     6) Engine (requested → ramp-limited applied offset)
+#     7) Learning (comfort violations → brake efficiency)
+#     8) Diagnostics + notifications
+#
+###############################################################################
+# SECTION 1 — UI / CONTROLS (HELPERS)
+# These are the only settings the user should modify.
+###############################################################################
+
+###############################################################################
+# 1.1 USER SETTINGS
+# These control how SVOTC behaves.
+# All values persist across restarts.
+###############################################################################
+
+input_select:
+  svotc_mode:
+    name: "SVOTC Mode"
+    options:
+      - "Off"          # System disabled, no offset applied
+      - "Smart"        # Full automatic control (comfort + price)
+      - "Simple"       # Ngenic-style preset (simplified logic)
+      - "PassThrough"  # No offset, just monitoring
+      - "ComfortOnly"  # Only comfort guard, no price control
+    initial: "Smart"
+
+input_number:
+
+  ###########################################################################
+  # COMFORT SETTINGS
+  # These define the comfort target and hysteresis thresholds.
+  ###########################################################################
+
+  svotc_comfort_temperature:
+    name: "Comfort temperature"
+    min: 15
+    max: 25
+    step: 0.1
+    initial: 21.0
+    mode: box
+    # This is the indoor temperature target.
+
+  svotc_comfort_guard_activate_below_c:
+    name: "Comfort guard activate (below target)"
+    min: 0.2
+    max: 3.0
+    step: 0.1
+    initial: 0.8
+    mode: box
+    # Comfort guard activates when indoor < target - this value.
+
+  svotc_comfort_guard_deactivate_above_c:
+    name: "Comfort guard deactivate (above target)"
+    min: 0.1
+    max: 2.0
+    step: 0.1
+    initial: 0.3
+    mode: box
+    # Comfort guard deactivates when indoor > target - this value.
+
+  ###########################################################################
+  # PRICE CONTROL SETTINGS
+  ###########################################################################
+
+  svotc_brake_aggressiveness:
+    name: "Brake aggressiveness"
+    min: 0
+    max: 5
+    step: 1
+    initial: 2
+    mode: slider
+    # Maps to prebrake window:
+    #   0 = 0 min
+    #   1 = 30 min
+    #   2 = 60 min (recommended default)
+    #   3 = 90 min
+    #   4 = 105 min
+    #   5 = 120 min
+
+  svotc_heat_aggressiveness:
+    name: "Heat aggressiveness"
+    min: 0
+    max: 5
+    step: 1
+    initial: 2
+    mode: slider
+    # Controls how much extra heat is added when comfort guard is active.
+
+  svotc_brake_hold_offset_c:
+    name: "Brake hold offset (°C)"
+    min: 0
+    max: 20
+    step: 0.5
+    initial: 6.0
+    mode: box
+    # Maximum offset during expensive periods.
+    # Positive offset = less heat.
+
+  ###########################################################################
+  # THERMAL MASS (NEW)
+  # This adjusts how early prebrake should start depending on house inertia.
+  ###########################################################################
+
+  svotc_thermal_mass_factor:
+    name: "Thermal mass factor (house warmup speed)"
+    min: 0.5
+    max: 2.0
+    step: 0.1
+    initial: 1.0
+    mode: slider
+    # 0.5 = light house (quick heat/cool)
+    # 1.0 = normal house
+    # 2.0 = heavy house (slow heat/cool)
+    # This multiplies the prebrake window.
+
+  ###########################################################################
+  # DWELL TIMES (PRICE STATE TRANSITIONS)
+  # These prevent rapid switching between cheap/neutral/brake.
+  ###########################################################################
+
+  svotc_price_dwell_cheap_to_neutral_min:
+    name: "Dwell cheap → neutral (min)"
+    min: 0
+    max: 120
+    step: 1
+    initial: 8
+
+  svotc_price_dwell_neutral_to_brake_min:
+    name: "Dwell neutral → brake (min)"
+    min: 0
+    max: 120
+    step: 1
+    initial: 8
+
+  svotc_price_dwell_brake_to_neutral_min:
+    name: "Dwell brake → neutral (min)"
+    min: 0
+    max: 120
+    step: 1
+    initial: 8
+
+  svotc_price_dwell_neutral_to_cheap_min:
+    name: "Dwell neutral → cheap (min)"
+    min: 0
+    max: 120
+    step: 1
+    initial: 8
+
+  ###########################################################################
+  # BRAKE PHASE DURATIONS
+  ###########################################################################
+
+  svotc_brake_rampup_duration_min:
+    name: "Brake ramp-up duration (min)"
+    min: 1
+    max: 180
+    step: 1
+    initial: 20
+
+  svotc_brake_hold_duration_min:
+    name: "Brake hold duration (min)"
+    min: 1
+    max: 120
+    step: 1
+    initial: 15
+
+  svotc_brake_rampdown_duration_min:
+    name: "Brake ramp-down duration (min)"
+    min: 1
+    max: 180
+    step: 1
+    initial: 25
+
+  ###########################################################################
+  # RATE LIMITING
+  # Prevents sudden jumps in applied offset.
+  ###########################################################################
+
+  svotc_max_delta_per_step_c:
+    name: "Max delta per step"
+    min: 0.05
+    max: 1.0
+    step: 0.01
+    initial: 0.20
+    mode: box
+###############################################################################
+# SECTION 2 — SENSING & PLANNING
+#
+# Detta är hjärtat i SVOTC:s datainsamling.
+# Här skapas:
+#   - Validerade temperaturer
+#   - Validerat pris
+#   - Percentiler (P30/P80)
+#   - Raw price state (instant)
+#   - Forward look (minuter till nästa dyrperiod)
+#   - Prebrake window + strength
+#   - Virtual outdoor temperature (slutoutput till värmepump)
+#
+# ALLA dessa sensorer är rena funktioner utan minne.
+# Ingen state lagras här — allt är deterministiskt.
+###############################################################################
+
+template:
+
+  ###########################################################################
+  # A) CONTINUOUS TEMPLATE SENSORS
+  # Dessa uppdateras automatiskt när deras inputs ändras.
+  ###########################################################################
+  - sensor:
+
+      #######################################################################
+      # 2.1 Indoor temperature (validated)
+      # - Hämtar entitet från input_text
+      # - Sanity check: 10–35°C
+      # - Returnerar none om ogiltigt
+      #######################################################################
+      - name: "SVOTC Src Indoor"
+        unique_id: svotc_src_indoor
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: >
+          {% set ent = states('input_text.svotc_entity_indoor') %}
+          {% if ent in ['unknown','unavailable',''] %}
+            {{ none }}
+          {% else %}
+            {% set v = states(ent) | float(none) %}
+            {{ v | round(2) if v is number and 10 <= v <= 35 else none }}
+          {% endif %}
+        availability: >
+          {% set ent = states('input_text.svotc_entity_indoor') %}
+          {{ ent not in ['unknown','unavailable',''] and (states(ent) | float(none) is number) }}
+
+      #######################################################################
+      # 2.2 Outdoor temperature (validated)
+      # - Sanity check: -50 till +50°C
+      #######################################################################
+      - name: "SVOTC Src Outdoor"
+        unique_id: svotc_src_outdoor
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: >
+          {% set ent = states('input_text.svotc_entity_outdoor') %}
+          {% if ent in ['unknown','unavailable',''] %}
+            {{ none }}
+          {% else %}
+            {% set v = states(ent) | float(none) %}
+            {{ v | round(2) if v is number and -50 <= v <= 50 else none }}
+          {% endif %}
+        availability: >
+          {% set ent = states('input_text.svotc_entity_outdoor') %}
+          {{ ent not in ['unknown','unavailable',''] and (states(ent) | float(none) is number) }}
+
+      #######################################################################
+      # 2.3 Current price (validated)
+      # - Hämtar current_price från Nordpool‑entiteten
+      # - Sanity check: -1 till 20 SEK/kWh
+      #######################################################################
+      - name: "SVOTC Src Current Price"
+        unique_id: svotc_src_current_price
+        unit_of_measurement: "SEK/kWh"
+        state_class: measurement
+        state: >
+          {% set ent = states('input_text.svotc_entity_price') %}
+          {% if ent in ['unknown','unavailable','none',''] %}
+            {{ none }}
+          {% else %}
+            {% set p = state_attr(ent, 'current_price') %}
+            {{ p | round(3) if p is number and -1 <= p <= 20 else none }}
+          {% endif %}
+        availability: >
+          {% set ent = states('input_text.svotc_entity_price') %}
+          {{ ent not in ['unknown','unavailable','none',''] and state_attr(ent, 'current_price') is number }}
+
+      #######################################################################
+      # 2.3b Mirror (för dashboards)
+      #######################################################################
+      - name: "SVOTC Current price"
+        unique_id: svotc_current_price
+        unit_of_measurement: "SEK/kWh"
+        state_class: measurement
+        state: "{{ states('sensor.svotc_src_current_price') }}"
+        availability: "{{ states('sensor.svotc_src_current_price') not in ['unknown','unavailable','none',''] }}"
+
+      #######################################################################
+      # 2.4 Dynamic target temperature
+      # - Direkt kopplad till comfort_temperature
+      #######################################################################
+      - name: "SVOTC Dynamic target temperature"
+        unique_id: svotc_dynamic_target_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: "{{ states('input_number.svotc_comfort_temperature') | float(21) | round(2) }}"
+
+      #######################################################################
+      # 2.6 Raw price state (instant)
+      # - Ingen dwell, ingen hysteres
+      # - Jämför current_price mot P30/P80
+      # - Output: cheap | neutral | brake | off
+      #######################################################################
+      - name: "SVOTC Raw price state"
+        unique_id: svotc_raw_price_state
+        state: >
+          {% set mode = states('input_select.svotc_mode') %}
+          {% if mode in ['Off','PassThrough','ComfortOnly'] %}
+            off
+          {% else %}
+            {% set p = states('sensor.svotc_src_current_price') | float(none) %}
+            {% set p30 = states('sensor.svotc_p30') | float(none) %}
+            {% set p80 = states('sensor.svotc_p80') | float(none) %}
+            {% if p is not number or p30 is not number or p80 is not number %}
+              neutral
+            {% elif p > p80 %}
+              brake
+            {% elif p < p30 %}
+              cheap
+            {% else %}
+              neutral
+            {% endif %}
+          {% endif %}
+
+      #######################################################################
+      # 2.8 Adaptive prebrake window (NEW)
+      # - Baserat på:
+      #     aggressiveness → base window
+      #     outdoor temp → temp_factor
+      #     thermal mass → multiplicerare
+      #######################################################################
+      - name: "SVOTC Prebrake window (min)"
+        unique_id: svotc_prebrake_window_min
+        unit_of_measurement: "min"
+        state_class: measurement
+        state: >
+          {% set mode = states('input_select.svotc_mode') %}
+          {% set a = 2 if mode == 'Simple' else (states('input_number.svotc_brake_aggressiveness') | int(0)) %}
+          {% set outdoor = states('sensor.svotc_src_outdoor') | float(0) %}
+          {% set thermal = states('input_number.svotc_thermal_mass_factor') | float(1.0) %}
+
+          {% set base_mapper = {0:0, 1:30, 2:60, 3:90, 4:105, 5:120} %}
+          {% set base = base_mapper.get(a, 0) %}
+
+          {% set temp_factor = 1.0 %}
+          {% if outdoor < -10 %}
+            {% set temp_factor = 1.3 %}
+          {% elif outdoor < 0 %}
+            {% set temp_factor = 1.15 %}
+          {% elif outdoor > 10 %}
+            {% set temp_factor = 0.85 %}
+          {% endif %}
+
+          {{ (base * thermal * temp_factor) | round(0) | int }}
+
+      #######################################################################
+      # 2.8b Prebrake strength
+      # - Linear ramp: (window - minutes_to_next_brake) / window
+      # - 0 → no prebrake
+      # - 1 → full brake
+      #######################################################################
+      - name: "SVOTC Prebrake strength"
+        unique_id: svotc_prebrake_strength
+        state_class: measurement
+        state: >
+          {% set window = states('sensor.svotc_prebrake_window_min') | float(0) %}
+          {% set mins = states('sensor.svotc_minutes_to_next_brake_start') | float(999) %}
+          {% if window > 0 and mins <= window %}
+            {{ ((window - mins) / window) | round(3) | clamp(0, 1) }}
+          {% else %}
+            0
+          {% endif %}
+
+      #######################################################################
+      # 2.9 Virtual outdoor temperature
+      # - Detta är SVOTC:s slutoutput till värmepumpen
+      # - outdoor + applied_offset
+      #######################################################################
+      - name: "SVOTC Virtual outdoor temperature"
+        unique_id: svotc_virtual_outdoor_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: >
+          {% set out = states('sensor.svotc_src_outdoor') | float(none) %}
+          {% set off = states('input_number.svotc_applied_offset_c') | float(0) %}
+          {% if out is number %}
+            {{ (out + off) | clamp(-50, 50) | round(2) }}
+          {% else %}
+            {{ none }}
+          {% endif %}
+###############################################################################
+# SECTION 3 — AUTOMATIONS (STATE MACHINES & CONTROL LOOPS)
+#
+# Här sker all "intelligens":
+#   - Raw price → dwell → stable price
+#   - Stable price → brake phase
+#   - Brake phase + comfort guard + prebrake → engine
+#   - Engine → requested offset → ramp-limited applied offset
+#
+# Detta är en strikt lagerarkitektur:
+#
+#   Raw Price
+#      ↓
+#   Dwell Machine (3.1)
+#      ↓
+#   Stable Price
+#      ↓
+#   Brake Phase Machine (3.2)
+#      ↓
+#   Engine (3.3)
+#      ↓
+#   Applied Offset → Virtual Outdoor Temperature
+#
+###############################################################################
+
+automation:
+
+  ############################################################################
+  # 3.1 PRICE DWELL (raw → stable)
+  #
+  # Syfte:
+  #   - Förhindra att prisstatus hoppar mellan cheap/neutral/brake
+  #   - Införa dwell-tider (minsta tid i en riktning)
+  #
+  # Mekanism:
+  #   - raw_price_state ändras → pending_price_state uppdateras
+  #   - timestamp sparas
+  #   - dwell-tid räknas
+  #   - när dwell uppfyllts → stable_price_state = pending
+  #
+  # Triggers:
+  #   - Varje minut
+  #   - När raw_price_state ändras
+  #
+  ############################################################################
+  - alias: "SVOTC Price dwell"
+    id: svotc_price_dwell
+    mode: single
+
+    trigger:
+      - platform: time_pattern
+        minutes: "/1"
+      - platform: state
+        entity_id: sensor.svotc_raw_price_state
+
+    action:
+      - variables:
+          raw: "{{ states('sensor.svotc_raw_price_state') }}"
+          stable: "{{ states('input_text.svotc_last_price_state') }}"
+          pending: "{{ states('input_text.svotc_pending_price_state') }}"
+
+      ########################################################################
+      # 1) RAW ändrats → uppdatera pending + timestamp
+      ########################################################################
+      - choose:
+          - conditions: "{{ raw != pending }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.svotc_pending_price_state
+                data:
+                  value: "{{ raw }}"
+
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.svotc_last_price_state_changed
+                data:
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+      ########################################################################
+      # 2) Räkna dwell-tid
+      ########################################################################
+      - variables:
+          ts: "{{ as_timestamp(states('input_datetime.svotc_last_price_state_changed'), default=none) }}"
+          elapsed_min: >
+            {% if ts is number %}
+              {{ (as_timestamp(now()) - ts) / 60 }}
+            {% else %}
+              999
+            {% endif %}
+
+          dwell_needed_min: >
+            {% if stable == 'cheap' and pending == 'neutral' %}
+              {{ states('input_number.svotc_price_dwell_cheap_to_neutral_min') | float(0) }}
+
+            {% elif stable == 'neutral' and pending == 'brake' %}
+              {{ states('input_number.svotc_price_dwell_neutral_to_brake_min') | float(0) }}
+
+            {% elif stable == 'brake' and pending == 'neutral' %}
+              {{ states('input_number.svotc_price_dwell_brake_to_neutral_min') | float(0) }}
+
+            {% elif stable == 'neutral' and pending == 'cheap' %}
+              {{ states('input_number.svotc_price_dwell_neutral_to_cheap_min') | float(0) }}
+
+            {% else %}
+              0
+            {% endif %}
+
+      ########################################################################
+      # 3) Om dwell uppfyllt → stable = pending
+      ########################################################################
+      - choose:
+          - conditions: "{{ elapsed_min >= dwell_needed_min }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.svotc_last_price_state
+                data:
+                  value: "{{ pending }}"
+
+  ############################################################################
+  # 3.2 BRAKE PHASE CONTROLLER
+  #
+  # Syfte:
+  #   - Hantera fasminne:
+  #       idle → ramping_up → holding → ramping_down → idle
+  #
+  #   - Faslogiken används av engine för att bestämma hur offset ska ändras.
+  #
+  # Triggers:
+  #   - Varje minut
+  #   - När stable_price_state ändras
+  #
+  ############################################################################
+  - alias: "SVOTC Brake phase controller"
+    id: svotc_brake_phase_controller
+    mode: single
+
+    trigger:
+      - platform: time_pattern
+        minutes: "/1"
+      - platform: state
+        entity_id: input_text.svotc_last_price_state
+
+    action:
+      - variables:
+          stable: "{{ states('input_text.svotc_last_price_state') }}"
+          phase: "{{ states('input_text.svotc_brake_phase') }}"
+          ts: "{{ as_timestamp(states('input_datetime.svotc_brake_phase_changed'), default=0) }}"
+          elapsed_min: "{{ (as_timestamp(now()) - ts) / 60 }}"
+
+          dur_up: "{{ states('input_number.svotc_brake_rampup_duration_min') | float(20) }}"
+          dur_hold: "{{ states('input_number.svotc_brake_hold_duration_min') | float(15) }}"
+          dur_down: "{{ states('input_number.svotc_brake_rampdown_duration_min') | float(25) }}"
+
+      ########################################################################
+      # Faslogik:
+      #
+      # stable = brake:
+      #   idle → ramping_up → holding → ramping_down → idle
+      #
+      # stable != brake:
+      #   alltid → idle
+      ########################################################################
+
+      - choose:
+
+          ####################################################################
+          # 1) Om stable != brake → återgå till idle
+          ####################################################################
+          - conditions: "{{ stable != 'brake' }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.svotc_brake_phase
+                data:
+                  value: "idle"
+
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.svotc_brake_phase_changed
+                data:
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+          ####################################################################
+          # 2) stable == brake → kör fascykeln
+          ####################################################################
+          - conditions: "{{ stable == 'brake' }}"
+            sequence:
+
+              - choose:
+
+                  # idle → ramping_up
+                  - conditions: "{{ phase == 'idle' }}"
+                    sequence:
+                      - service: input_text.set_value
+                        target:
+                          entity_id: input_text.svotc_brake_phase
+                        data:
+                          value: "ramping_up"
+                      - service: input_datetime.set_datetime
+                        target:
+                          entity_id: input_datetime.svotc_brake_phase_changed
+                        data:
+                          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+                  # ramping_up → holding
+                  - conditions: "{{ phase == 'ramping_up' and elapsed_min >= dur_up }}"
+                    sequence:
+                      - service: input_text.set_value
+                        target:
+                          entity_id: input_text.svotc_brake_phase
+                        data:
+                          value: "holding"
+                      - service: input_datetime.set_datetime
+                        target:
+                          entity_id: input_datetime.svotc_brake_phase_changed
+                        data:
+                          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+                  # holding → ramping_down
+                  - conditions: "{{ phase == 'holding' and elapsed_min >= dur_hold }}"
+                    sequence:
+                      - service: input_text.set_value
+                        target:
+                          entity_id: input_text.svotc_brake_phase
+                        data:
+                          value: "ramping_down"
+                      - service: input_datetime.set_datetime
+                        target:
+                          entity_id: input_datetime.svotc_brake_phase_changed
+                        data:
+                          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+                  # ramping_down → idle
+                  - conditions: "{{ phase == 'ramping_down' and elapsed_min >= dur_down }}"
+                    sequence:
+                      - service: input_text.set_value
+                        target:
+                          entity_id: input_text.svotc_brake_phase
+                        data:
+                          value: "idle"
+                      - service: input_datetime.set_datetime
+                        target:
+                          entity_id: input_datetime.svotc_brake_phase_changed
+                        data:
+                          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+###############################################################################
+# 3.3 ENGINE — THE CORE CONTROL LOOP
+#
+# Detta är SVOTC:s hjärna.
+#
+# Engine kör varannan minut och när viktiga inputs ändras.
+#
+# Den gör:
+#   1. Läser alla inputs (comfort guard, prebrake, learned efficiency, etc.)
+#   2. Beräknar:
+#        comfort_term  (negativ = mer värme)
+#        price_term     (positiv = mindre värme)
+#   3. Kombinerar dem → requested offset
+#   4. Tillämpa freeze-logik om prisdata saknas
+#   5. Rate-limit (max delta per minut)
+#   6. Sätter applied offset
+#   7. Uppdaterar reason code
+#
+# Detta är den mest kritiska delen av hela systemet.
+###############################################################################
+
+  - alias: "SVOTC Engine"
+    id: svotc_engine
+    mode: single
+
+    trigger:
+      - platform: homeassistant
+        event: start
+      - platform: time_pattern
+        minutes: "/2"
+      - platform: state
+        entity_id:
+          - input_select.svotc_mode
+          - sensor.svotc_prebrake_strength
+          - binary_sensor.svotc_comfort_guard_active
+          - input_boolean.svotc_comfort_guard_enabled
+          - input_number.svotc_brake_hold_offset_c
+          - input_number.svotc_heat_aggressiveness
+          - input_number.svotc_max_delta_per_step_c
+          - input_number.svotc_learned_brake_efficiency
+          - binary_sensor.svotc_price_available
+
+    ###########################################################################
+    # ENGINE VARIABLES
+    ###########################################################################
+    variables:
+
+      # Anti-storm throttle
+      last_run_ts: "{{ as_timestamp(states('input_datetime.svotc_engine_last_run'), default=0) }}"
+      now_ts: "{{ as_timestamp(now()) }}"
+      since_last_s: "{{ now_ts - last_run_ts }}"
+
+      # Cached reads
+      mode: "{{ states('input_select.svotc_mode') }}"
+      healthy: "{{ is_state('binary_sensor.svotc_inputs_healthy','on') }}"
+      pre: "{{ states('sensor.svotc_prebrake_strength') | float(0) }}"
+
+      # Comfort guard active?
+      guard: >
+        {{ is_state('binary_sensor.svotc_comfort_guard_active','on')
+           and is_state('input_boolean.svotc_comfort_guard_enabled','on') }}
+
+      # Learned brake efficiency applied to hold offset
+      hold_offset: >
+        {% set base = 3.0 if mode == 'Simple'
+           else (states('input_number.svotc_brake_hold_offset_c') | float(0)) %}
+        {% set eff = states('input_number.svotc_learned_brake_efficiency') | float(1.0) %}
+        {{ (base * eff) | round(2) }}
+
+      heat_aggr: >
+        {{ 2 if mode == 'Simple'
+           else (states('input_number.svotc_heat_aggressiveness') | int(0)) }}
+
+      max_delta: >
+        {{ 0.10 if mode == 'Simple'
+           else (states('input_number.svotc_max_delta_per_step_c') | float(0.2)) }}
+
+      # Price readiness checks
+      price_ok: "{{ is_state('binary_sensor.svotc_price_available','on') }}"
+      ttn: "{{ states('sensor.svotc_minutes_to_next_brake_start') | float(999) }}"
+      ttn_valid: "{{ ttn < 900 }}"
+      p30_valid: "{{ states('sensor.svotc_p30') not in ['unknown','unavailable','none',''] }}"
+      p80_valid: "{{ states('sensor.svotc_p80') not in ['unknown','unavailable','none',''] }}"
+      price_ready: "{{ price_ok and ttn_valid and p30_valid and p80_valid }}"
+
+      # Freeze only price logic (comfort guard always overrides)
+      freeze_price: "{{ healthy and mode in ['Smart','Simple'] and (not guard) and (not price_ready) }}"
+
+      # Limits
+      req_min: "{{ state_attr('input_number.svotc_requested_offset_c','min') | float(-10) }}"
+      req_max: "{{ state_attr('input_number.svotc_requested_offset_c','max') | float(10) }}"
+      app_min: "{{ state_attr('input_number.svotc_applied_offset_c','min') | float(-10) }}"
+      app_max: "{{ state_attr('input_number.svotc_applied_offset_c','max') | float(10) }}"
+
+      #########################################################################
+      # TERMS
+      #########################################################################
+
+      # Comfort term (negative = more heat)
+      comfort_term: >
+        {% if mode in ['Off','PassThrough'] %} 0
+        {% elif mode in ['Smart','Simple','ComfortOnly'] and guard %}
+          {{ -(heat_aggr * 0.4) }}
+        {% else %} 0 {% endif %}
+
+      # Price term (positive = less heat)
+      price_term: >
+        {% if mode not in ['Smart','Simple'] or guard %} 0
+        {% else %} {{ hold_offset * pre }} {% endif %}
+
+      # Requested offset before freeze
+      requested_calc: "{{ (comfort_term + price_term) | clamp(req_min, req_max) | round(2) }}"
+      prev_req: "{{ states('input_number.svotc_requested_offset_c') | float(0) }}"
+
+      # Freeze logic
+      requested: >
+        {% if freeze_price %}
+          {{ prev_req | round(2) }}
+        {% else %}
+          {{ requested_calc }}
+        {% endif %}
+
+      # Rate limiting
+      prev_applied: "{{ states('input_number.svotc_applied_offset_c') | float(requested) }}"
+      delta: "{{ requested - prev_applied }}"
+
+      next_applied: >
+        {% if freeze_price %}
+          {{ prev_applied | round(2) }}
+        {% elif delta > max_delta %}
+          {{ (prev_applied + max_delta) | clamp(app_min, app_max) | round(2) }}
+        {% elif delta < -max_delta %}
+          {{ (prev_applied - max_delta) | clamp(app_min, app_max) | round(2) }}
+        {% else %}
+          {{ requested | clamp(app_min, app_max) | round(2) }}
+        {% endif %}
+
+      #########################################################################
+      # REASON CODE
+      #########################################################################
+      reason: >
+        {% if mode == 'Off' %} OFF
+        {% elif not healthy %} MISSING_INPUTS_FREEZE
+        {% elif mode == 'PassThrough' %} PASS_THROUGH
+        {% elif freeze_price %} PRICE_DATA_WARMUP_FREEZE
+        {% elif guard and pre > 0 and mode in ['Smart','Simple'] %} MCP_BLOCKS_BRAKE
+        {% elif guard %} COMFORT_GUARD
+        {% elif pre > 0 and mode in ['Smart','Simple'] %} PRICE_BRAKE
+        {% elif mode == 'ComfortOnly' %} COMFORT_ONLY
+        {% else %} NEUTRAL {% endif %}
+
+    ###########################################################################
+    # ENGINE ACTIONS
+    ###########################################################################
+    action:
+
+      # Throttle: block if run < 30s ago
+      - choose:
+          - conditions: "{{ since_last_s < 30 }}"
+            sequence:
+              - stop: true
+
+      # Update last run timestamp
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.svotc_engine_last_run
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+      # If inputs unhealthy → freeze everything
+      - choose:
+          - conditions: "{{ not healthy and mode in ['Smart','Simple','ComfortOnly'] }}"
+            sequence:
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.svotc_requested_offset_c
+                data:
+                  value: 0
+
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.svotc_reason_code
+                data:
+                  value: "MISSING_INPUTS_FREEZE"
+
+              - stop: "Inputs not healthy"
+
+      # Write requested offset
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.svotc_requested_offset_c
+        data:
+          value: "{{ requested }}"
+
+      # Write applied offset (rate-limited)
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.svotc_applied_offset_c
+        data:
+          value: "{{ next_applied }}"
+
+      # Write reason code
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.svotc_reason_code
+        data:
+          value: "{{ reason }}"
+###############################################################################
+# 3.3b LEARNING — COMFORT VIOLATION COUNTER
+#
+# Varje gång comfort guard aktiveras → increment counter.
+# Detta används av daglig autojustering.
+###############################################################################
+
+  - alias: "SVOTC Learning: comfort violation counter"
+    id: svotc_learning_comfort_violations
+    mode: single
+
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.svotc_comfort_guard_active
+        to: "on"
+
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.svotc_comfort_violations_24h
+        data:
+          value: >
+            {{ states('input_number.svotc_comfort_violations_24h') | float(0) + 1 }}
+###############################################################################
+# 3.3c LEARNING — DAILY ADAPTATION
+#
+# Körs vid midnatt:
+#   - Läs antal komfortavvikelser
+#   - Justera brake_efficiency:
+#       >5  → minska aggressivitet
+#       <2  → öka aggressivitet
+#       2–5 → behåll
+#   - Reset counter
+###############################################################################
+
+  - alias: "SVOTC Learning: reset daily counter"
+    id: svotc_learning_reset_daily
+    mode: single
+
+    trigger:
+      - platform: time
+        at: "00:00:00"
+
+    action:
+      - variables:
+          violations: "{{ states('input_number.svotc_comfort_violations_24h') | float(0) }}"
+          current_eff: "{{ states('input_number.svotc_learned_brake_efficiency') | float(1.0) }}"
+
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.svotc_learned_brake_efficiency
+        data:
+          value: >
+            {% if violations > 5 %}
+              {{ (current_eff - 0.05) | clamp(0.5, 1.5) | round(2) }}
+            {% elif violations < 2 %}
+              {{ (current_eff + 0.02) | clamp(0.5, 1.5) | round(2) }}
+            {% else %}
+              {{ current_eff }}
+            {% endif %}
+
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.svotc_comfort_violations_24h
+        data:
+          value: 0
+###############################################################################
+# 3.4 NOTIFY — DIAGNOSTICS
+#
+# Skickar notifieringar när:
+#   - inputs_healthy OFF i 3 min
+#   - price_available OFF i 3 min
+#   - comfort guard OFF i 5 min
+#   - återhämtning till OK-läge
+###############################################################################
+
+  - alias: "SVOTC Notify: missing inputs/price"
+    id: svotc_notify_missing_inputs_price_delayed
+    mode: single
+
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.svotc_inputs_healthy
+        to: "off"
+        for: { minutes: 3 }
+
+      - platform: state
+        entity_id: binary_sensor.svotc_price_available
+        to: "off"
+        for: { minutes: 3 }
+
+      - platform: template
+        for: { minutes: 2 }
+        value_template: >
+          {{ is_state('binary_sensor.svotc_inputs_healthy','on')
+             and is_state('binary_sensor.svotc_price_available','on') }}
+
+      - platform: state
+        entity_id: input_boolean.svotc_comfort_guard_enabled
+        to: "off"
+        for: { minutes: 5 }
+
+    action:
+      - variables:
+          notify_svc: >-
+            {% set s = states('input_text.svotc_notify_service') %}
+            {{ s if s not in ['unknown','unavailable',''] else 'notify.notify' }}
+
+          indoor_map: "{{ states('input_text.svotc_entity_indoor') }}"
+          outdoor_map: "{{ states('input_text.svotc_entity_outdoor') }}"
+          price_map: "{{ states('input_text.svotc_entity_price') }}"
+
+          src_indoor: "{{ states('sensor.svotc_src_indoor') }}"
+          src_outdoor: "{{ states('sensor.svotc_src_outdoor') }}"
+          src_price: "{{ states('sensor.svotc_src_current_price') }}"
+
+          inputs_ok: "{{ is_state('binary_sensor.svotc_inputs_healthy','on') }}"
+          price_ok: "{{ is_state('binary_sensor.svotc_price_available','on') }}"
+          guard_enabled: "{{ is_state('input_boolean.svotc_comfort_guard_enabled','on') }}"
+
+          missing_list: >-
+            {% set miss = [] %}
+            {% if indoor_map in ['unknown','unavailable',''] %}{% set miss = miss + ['indoor mapping'] %}{% endif %}
+            {% if outdoor_map in ['unknown','unavailable',''] %}{% set miss = miss + ['outdoor mapping'] %}{% endif %}
+            {% if price_map in ['unknown','unavailable',''] %}{% set miss = miss + ['price mapping'] %}{% endif %}
+            {{ miss | join(', ') if miss | length > 0 else 'none' }}
+
+      - choose:
+
+          # Comfort guard OFF
+          - conditions: "{{ trigger.entity_id == 'input_boolean.svotc_comfort_guard_enabled' and not guard_enabled }}"
+            sequence:
+              - service: "{{ notify_svc }}"
+                data:
+                  title: "SVOTC: Comfort Guard is OFF"
+                  message: >-
+                    Comfort Guard har varit avstängt i minst 5 minuter.
+                    Systemet prioriterar nu prisbesparing framför komfort.
+
+          # BAD state
+          - conditions: "{{ not inputs_ok or not price_ok }}"
+            sequence:
+              - service: "{{ notify_svc }}"
+                data:
+                  title: "SVOTC: Missing data"
+                  message: >-
+                    Inputs eller prisdata saknas sedan minst 3 minuter.
+
+                    Missing mappings: {{ missing_list }}
+
+                    Sources:
+                      indoor={{ src_indoor }}
+                      outdoor={{ src_outdoor }}
+                      price={{ src_price }}
+
+          # Recovery
+          - conditions: "{{ inputs_ok and price_ok }}"
+            sequence:
+              - service: "{{ notify_svc }}"
+                data:
+                  title: "SVOTC: OK again"
+                  message: "Inputs + price data är stabila igen."
+###############################################################################
+# 3.5 STARTUP INITIALIZATION
+#
+# Syfte:
+#   - Säkerställa att alla timestamps är giltiga
+#   - Säkerställa att learned_brake_efficiency är inom intervallet
+#   - Förhindra template-fel vid HA-omstart
+###############################################################################
+
+  - alias: "SVOTC Startup initialization"
+    id: svotc_startup_init
+    mode: single
+
+    trigger:
+      - platform: homeassistant
+        event: start
+
+    action:
+
+      # Init timestamps
+      - choose:
+          - conditions: "{{ states('input_datetime.svotc_last_price_state_changed') in ['unknown','unavailable'] }}"
+            sequence:
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.svotc_last_price_state_changed
+                data:
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+      - choose:
+          - conditions: "{{ states('input_datetime.svotc_brake_phase_changed') in ['unknown','unavailable'] }}"
+            sequence:
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.svotc_brake_phase_changed
+                data:
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+      - choose:
+          - conditions: "{{ states('input_datetime.svotc_engine_last_run') in ['unknown','unavailable'] }}"
+            sequence:
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.svotc_engine_last_run
+                data:
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+      # Validate learned efficiency
+      - variables:
+          current_eff: "{{ states('input_number.svotc_learned_brake_efficiency') | float(1.0) }}"
+
+      - choose:
+          - conditions: "{{ current_eff < 0.5 or current_eff > 1.5 }}"
+            sequence:
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.svotc_learned_brake_efficiency
+                data:
+                  value: 1.0
+
+###############################################################################
+# END OF FILE (ANNOTATED VERSION)
+###############################################################################
+###############################################################################
+# END OF FILE — SVOTC Stable Core Edition + Adaptive Learning
+#
+# Detta är den ANNOTERADE versionen av SVOTC.
+# Den är avsedd för:
+#   - utvecklare
+#   - felsökning
+#   - dokumentation
+#   - community‑delning
+#
+# För drift rekommenderas:
+#   - svotc.clean.yaml  (ren version)
+#   - svotc.min.yaml    (minifierad version)
+#
+# Tack för att du använder SVOTC.
+# / Johan Ä
+###############################################################################
