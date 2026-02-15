@@ -1,16 +1,19 @@
-# Nordpool-paket för SVOTC
+# SVOTC Bonus - Nordpool Prissensorer
 
-> 🇬🇧 **English:** For instructions in English, see [README.md](./README.md).
+> 🇬🇧 **English:** For instructions in English, see [README_BONUS.md](./README_BONUS.md).
 
 ---
 
-# Nordpool-paket för SVOTC
-
 ## 🎯 Vad är detta?
 
-Ett enkelt paket som gör den **officiella Nordpool-integrationen** kompatibel med SVOTC.
+Ett omfattande Nordpool-prispaket som ger dig:
 
-SVOTC förväntar sig specifika attribut som `current_price`, `raw_today` och `raw_tomorrow`. Den officiella Nordpool-integrationen visar inte dessa attribut direkt, så den här filen skapar en ny sensor som tillhandahåller dem.
+1. **SVOTC-kompatibel prissensor** med alla avgifter inkluderade
+2. **Priskoefficient** (dynamisk relativ prisnivå)
+3. **Priszoner** (5 zoner: very_cheap → very_expensive)
+4. **Hjälpsensorer** (pris OK, toppdetektion)
+
+Perfekt för avancerade automationer och SVOTC-integration.
 
 ---
 
@@ -18,215 +21,529 @@ SVOTC förväntar sig specifika attribut som `current_price`, `raw_today` och `r
 
 Du måste ha **Nordpool-integrationen** installerad och fungerande i Home Assistant.
 
-**Verifiera:**
-
-1. Gå till **Inställningar → Enheter och tjänster**
-2. Sök efter ”Nordpool”
-3. Bekräfta att priser uppdateras
+**Kontrollera:**
+1. Gå till **Inställningar → Enheter & tjänster**
+2. Sök efter "Nordpool"
+3. Bekräfta att priserna uppdateras
 
 ---
 
 ## 📥 Installation (3 steg)
 
-### Steg 1: Hitta ditt `config_entry`-ID
+### Steg 1: Hitta ditt `config_entry` ID
 
 **Enklaste metoden:**
-
 1. Gå till **Utvecklarverktyg → Tillstånd**
 2. Sök efter din Nordpool-sensor (t.ex. `sensor.nordpool`)
 3. Klicka på sensorn
 4. Kopiera **config_entry** från attributen
 
 **Alternativ via URL:**
-
-1. Gå till **Inställningar → Enheter och tjänster → Nordpool → Klicka på integrationen**
-2. URL:en i webbläsaren innehåller ditt `config_entry`:
-`.../config/integrations/integration/01KGFMFDG6SDFKHQFKK5QKCJ5T`
-(Kopiera den alfanumeriska strängen i slutet)
+```
+Inställningar → Enheter & tjänster → Nordpool → Klicka på integrationen
+URL:en innehåller config_entry:
+.../config/integrations/integration/01KGFMFDG6SDFKHQFKK5QKCJ5T
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^
+                                    Kopiera denna del
+```
 
 ---
 
 ### Steg 2: Anpassa filen
 
-Öppna `nordpool_svotc_adapter.yaml` och ändra på **TVÅ STÄLLEN**:
+Öppna `svotc_bonus_nordpool_sensors.yaml` och ändra på **TVÅ STÄLLEN**:
 
 ⚠️ **VIKTIGT: Du måste ändra `config_entry` på BÅDA ställena i filen!**
 
 ```yaml
-# FÖRSTA STÄLLET (runt rad ~20):
+# FÖRSTA STÄLLET (runt rad 94):
 action:
   - action: nordpool.get_prices_for_date
     data:
-      config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T  # ← ÄNDRA TILL DITT ID
+      config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T  # ← ÄNDRA TILL DITT
       date: "{{ now().date() }}"
       areas: SE3  # ← ÄNDRA TILL DITT ELOMRÅDE
       currency: SEK
-    # ...
+    response_variable: today_price
 
-# ANDRA STÄLLET (runt rad ~27):
+# ANDRA STÄLLET (runt rad 102):
   - action: nordpool.get_prices_for_date
     data:
-      config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T  # ← ÄNDRA TILL DITT ID (igen!)
-      date: "{{ now().date() + timedelta(days=1) }}"
+      config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T  # ← ÄNDRA TILL DITT (igen!)
+      date: "{{ (now() + timedelta(days=1)).date() }}"
       areas: SE3  # ← ÄNDRA TILL DITT ELOMRÅDE (igen!)
       currency: SEK
-    # ...
-
+    response_variable: tomorrow_price
 ```
 
 **Sammanfattning av ändringar:**
 
-| Vad | Var | Exempel |
-| --- | --- | --- |
+| Vad            | Var             | Exempel                              |
+| -------------- | --------------- | ------------------------------------ |
 | `config_entry` | **Båda ställen** | `01KGFMFDG6SDFKHQFKK5QKCJ5T` → DITT |
-| `areas` | **Båda ställen** | `SE3` → Ditt område |
+| `areas`        | **Båda ställen** | `SE3` → Ditt område                   |
 
-**Elområden i Sverige:**
-
+**Elområden (Sverige):**
 * **SE1** – Norra Sverige (Luleå)
 * **SE2** – Norra Mellansverige (Sundsvall)
 * **SE3** – Södra Mellansverige (Stockholm)
 * **SE4** – Södra Sverige (Malmö)
 
-**💡 Tips:** Använd "Sök och ersätt" (Ctrl+F) i din textredigerare:
-
-* **Sök:** `01KGFMFDG6SDFKHQFKK5QKCJ5T`
-* **Ersätt med:** `DITT_CONFIG_ENTRY_HÄR`
-* **Ersätt alla:** 2 träffar bör ersättas.
+**💡 Tips:** Använd Sök & Ersätt (Ctrl+F) i din editor:
+```
+Sök:        01KGFMFDG6SDFKHQFKK5QKCJ5T
+Ersätt:     DITT_CONFIG_ENTRY_HÄR
+Ersätt alla: 2 träffar bör ersättas
+```
 
 ---
 
 ### Steg 3: Installera filen
 
-1. Placera filen här: `/config/packages/nordpool_svotc_adapter.yaml`
-2. **Starta om Home Assistant.**
+```bash
+# Placera filen här:
+/config/packages/svotc_bonus_nordpool_sensors.yaml
+
+# Starta om Home Assistant
+```
 
 ---
 
-## ⚙️ Konfiguration
+## ⚙️ Konfiguration - Ange dina avtalsvillkor
 
-Efter omstart skapas två nya hjälpare (helpers):
+Efter omstart, konfigurera ditt elavtal i hjälparna:
 
-| Hjälpare | Beskrivning | Exempel |
-| --- | --- | --- |
-| `Tibber markup (öre/kWh)` | Påslag från leverantör | 4.0 öre/kWh |
-| `VAT (%)` | Moms (standard 25%) | 25% |
+### Elhandel
+| Hjälpare                                     | Beskrivning              | Typiskt värde |
+| -------------------------------------------- | ------------------------ | ------------- |
+| `Elhandel påslag (SEK/kWh)`                  | Leverantörspåslag        | 0.035-0.050   |
+| `Elhandel elcertifikat (SEK/kWh)`            | Elcertifikat             | 0.005-0.015   |
+| `Elhandel moms (%)`                          | Moms på elhandel         | 25            |
+| `Elhandel månadsavgift (SEK/månad)` (oanvänd)| Månadsavgift (bara info) | 0-50          |
 
-**Ställ in dessa i gränssnittet:**
+### Nät
+| Hjälpare                           | Beskrivning             | Typiskt värde |
+| ---------------------------------- | ----------------------- | ------------- |
+| `Nät elöverföring (SEK/kWh)`       | Nätavgift               | 0.30-0.50     |
+| `Nät energiskatt (SEK/kWh)`        | Energiskatt             | 0.42          |
+| `Nät moms (%)`                     | Moms på nät             | 25            |
 
-1. Gå till **Inställningar → Enheter och tjänster → Hjälpare**
-2. Sök efter ”Tibber markup” och ange ditt påslag (ofta 3–5 öre/kWh).
-3. Sök efter ”VAT” och ange 25.
+**Ange dessa värden i gränssnittet:**
+1. Gå till **Inställningar → Enheter & tjänster → Hjälpare**
+2. Sök efter varje hjälpare
+3. Ange dina värden från ditt avtal
+
+**Exempel svenskt avtal (2026):**
+```
+Elhandel påslag:         0.040 SEK/kWh  (4.0 öre/kWh)
+Elhandel elcertifikat:   0.010 SEK/kWh  (1.0 öre/kWh)
+Elhandel moms:           25%
+Nät elöverföring:        0.45 SEK/kWh
+Nät energiskatt:         0.42 SEK/kWh
+Nät moms:                25%
+```
 
 ---
 
 ## 🔗 Koppla till SVOTC
 
-Den nya sensorn heter: `sensor.nordpool_offical`
+Huvudprissensorn är: `sensor.elpris_total_inkl_avgifter_moms`
 
 **I SVOTC entity mapping:**
-
 1. Öppna **Hjälpare**
 2. Sök: `svotc_entity_price`
-3. Sätt värdet till: `sensor.nordpool_offical`
+3. Sätt värde till: `sensor.elpris_total_inkl_avgifter_moms`
 
 **Eller via YAML:**
-
 ```yaml
 input_text:
   svotc_entity_price:
-    initial: "sensor.nordpool_offical"
-
+    initial: "sensor.elpris_total_inkl_avgifter_moms"
 ```
 
 ---
 
-## 📊 Vad sensorn innehåller
+## 📊 Vilka sensorer skapas
 
-`sensor.nordpool_offical` exponerar dessa attribut (som krävs av SVOTC):
+### 1. Prissensorer
 
-| Attribut | Beskrivning |
-| --- | --- |
-| `current_price` | Aktuellt pris inkl. påslag + moms |
-| `raw_today` | Lista över dagens priser: `[{start, end, value}, ...]` |
-| `raw_tomorrow` | Lista över morgondagens priser (tom före ~13:00) |
-| `min` | Lägsta pris idag |
-| `max` | Högsta pris idag |
-| `today` | Array med 24 priser |
-| `tomorrow` | Array med 24 priser (tom före ~13:00) |
+#### `sensor.elpris_spot_exkl_moms`
+Rent spotpris (inga avgifter, ingen moms)
+- Användbart för jämförelser och grafer
+
+#### `sensor.elpris_total_inkl_avgifter_moms` ⭐
+**Totalpris inklusive ALLA avgifter** (använd denna för SVOTC!)
+- Spotpris + elhandelspåslag + certifikat + nätavgifter + energiskatt + moms
+- **SVOTC-kompatibla attribut:**
+  - `current_price` - Nuvarande totalpris
+  - `raw_today` - Lista med 24 timpriser (start/end/value)
+  - `raw_tomorrow` - Lista med morgondagens priser (tom före ~13:00)
+  - `min` / `max` - Lägsta/högsta pris idag
+  - Alla dina avtalsdetaljer som attribut
+
+### 2. Analyssensorer
+
+#### `sensor.elpriskoefficient`
+Dynamisk prisnivå relativt dagens spann
+- **< 1.0** = Billigt (under tröskelvärde)
+- **> 1.0** = Dyrt (över tröskelvärde)
+- Använder smart formel som anpassar sig efter både min/max-nivåer
+- Perfekt för automationer: "kör bara när koefficient < 0.8"
+
+#### `sensor.nordpool_price_band`
+5 priszoner med hysteres (förhindrar fladdring)
+- `very_cheap` (0-15% av dagligt spann)
+- `cheap` (15-35%)
+- `normal` (35-65%)
+- `expensive` (65-85%)
+- `very_expensive` (85-100%)
+- Inkluderar 2% hysteres för stabila övergångar
+
+### 3. Hjälpsensorer (Binära)
+
+#### `binary_sensor.elpris_ok`
+Sant när priset är billigt OCH temperaturen är mild
+- Koefficient < 1.0 OCH utetemp < 3°C
+- Användbart för villkorlig uppvärmning/laddning
+
+#### `binary_sensor.kort_peak_nu`
+Sant under korta pristoppar
+- Koefficient >= 1.0
+- Användbart för att pausa icke-kritiska laster
 
 ---
 
-## 🧮 Prisberäkning
+## 🧮 Exempel på prisberäkning
 
-**Exempel:**
+```python
+# Exempel spotpris från Nordpool
+Spotpris                = 0.50 SEK/kWh
 
-* Nordpool spotpris = 0,50 SEK/kWh
-* Tibber påslag = 4,0 öre/kWh (= 0,04 SEK/kWh)
-* Moms = 25%
+# Ditt elhandelsavtal
++ Elhandel påslag       = 0.04 SEK/kWh
++ Elcertifikat          = 0.01 SEK/kWh
+= Delsumma elhandel     = 0.55 SEK/kWh
+× Elhandel moms (25%)   = 0.6875 SEK/kWh
 
-**Beräkning:**
+# Ditt nätavtal
+Nätavgift               = 0.45 SEK/kWh
++ Energiskatt           = 0.42 SEK/kWh
+= Delsumma nät          = 0.87 SEK/kWh
+× Nät moms (25%)        = 1.0875 SEK/kWh
 
-1. Pris med påslag =  SEK/kWh
-2. Slutpris =  SEK/kWh
+# Slutligt totalpris
+Elhandel (med moms)     = 0.6875 SEK/kWh
++ Nät (med moms)        = 1.0875 SEK/kWh
+= TOTALT                = 1.775 SEK/kWh  ← Detta ser SVOTC
+```
 
 ---
 
 ## ⏱️ Uppdateringar
 
-Sensorn uppdateras automatiskt:
-
+Alla sensorer uppdateras automatiskt:
 * ✅ Var 10:e minut (backup)
-* ✅ När du ändrar påslag eller moms (omedelbart)
-* ✅ Vid start av Home Assistant
+* ✅ När du ändrar någon avtalsparameter (omedelbart)
+* ✅ Vid Home Assistant-omstart
+* ✅ Morgondagens priser dyker upp ~13:00 varje dag
 
 ---
 
 ## ❓ Felsökning
 
-### Sensorn blir `unavailable` (ej tillgänglig)
+### Sensorn blir `unavailable`
 
 Kontrollera i denna ordning:
 
-1. **Nordpool-integrationen fungerar:** Gå till Inställningar → Enheter och tjänster → Nordpool. Bekräfta att den är laddad och uppdateras.
-2. **`config_entry` är korrekt på BÅDA ställena:** Sök i filen efter "config_entry"; du ska hitta 2 identiska rader.
-3. **`areas` är korrekt:** Se till att SE1/SE2/SE3/SE4 är rätt på båda ställena.
-4. **Testa manuellt:** Gå till **Utvecklarverktyg → Tjänster**, anropa `nordpool.get_prices_for_date` med ditt entry-ID och område. Om det misslyckas där ligger felet i integrationen eller ID:t.
+1. ✅ **Nordpool-integrationen fungerar**
+   ```
+   Inställningar → Enheter & tjänster → Nordpool
+   Bekräfta att den är laddad och uppdaterar
+   ```
 
-### Priserna är felaktiga
+2. ✅ **`config_entry` är korrekt på BÅDA ställena**
+   ```yaml
+   # Sök i filen efter "config_entry"
+   # Bör hitta 2 identiska ID:n
+   ```
 
-* Kontrollera att `Tibber markup` är i **öre/kWh**, inte SEK/kWh.
-* Kontrollera att `VAT` är **25** (inte 0,25).
+3. ✅ **`areas` är korrekt (SE1/SE2/SE3/SE4) på BÅDA ställena**
+
+4. ✅ **Testa manuellt:**
+   ```yaml
+   # Utvecklarverktyg → Tjänster
+   service: nordpool.get_prices_for_date
+   data:
+     config_entry: DITT_CONFIG_ENTRY_HÄR
+     date: "{{ now().date() }}"
+     areas: SE3
+     currency: SEK
+   ```
+
+### Priserna verkar felaktiga
+
+Kontrollera:
+1. ✅ Alla avtalsvärden är i **SEK/kWh** (inte öre/kWh)
+2. ✅ Moms-procent är heltal (25, inte 0.25)
+3. ✅ Jämför med din faktiska elräkning
+
+**Prisverifiering:**
+```
+Öppna sensor.elpris_total_inkl_avgifter_moms attribut
+Kolla: elhandel_paslag, nat_overforing, etc.
+Verifiera att dessa stämmer med ditt avtal
+```
 
 ### Morgondagens priser saknas
 
-**Detta är normalt före kl. 13:00–14:00.** Nordpool publicerar morgondagens priser runt kl. 13:00 varje dag.
+**Detta är normalt före ~13:00.**
+
+Nordpool publicerar morgondagens priser runt 13:00 CET varje dag.
+
+Kontrollera:
+```yaml
+# Utvecklarverktyg → Tillstånd → sensor.elpris_total_inkl_avgifter_moms
+attributes:
+  tomorrow_valid: false  # ← normalt före ~13:00
+  raw_tomorrow: []       # ← tom före priserna publiceras
+```
+
+### Priskoefficienten alltid 0
+
+Kontrollera:
+```yaml
+# Utvecklarverktyg → Tillstånd
+sensor.elpris_total_inkl_avgifter_moms
+  attributes:
+    min: [bör ha värde]
+    max: [bör ha värde]
+
+# Om min/max saknas → kolla avtalsinställningar
+```
+
+### Priszonen fastnar i ett läge
+
+Sensorn har 2% hysteres by design för att förhindra fladdring.
+
+Vänta 10 minuter på nästa uppdatering, eller kontrollera:
+```yaml
+# Utvecklarverktyg → Tillstånd → sensor.nordpool_price_band
+attributes:
+  normalized_0_1: [bör vara mellan 0.0 och 1.0]
+  current_price: [bör uppdatera]
+```
+
+---
+
+## 🔍 Verifiera att det fungerar
+
+### Test 1: Alla sensorer finns
+```yaml
+# Utvecklarverktyg → Tillstånd
+# Sök och verifiera att dessa finns:
+sensor.elpris_spot_exkl_moms
+sensor.elpris_total_inkl_avgifter_moms  ← Huvudsensor
+sensor.elpriskoefficient
+sensor.nordpool_price_band
+binary_sensor.elpris_ok
+binary_sensor.kort_peak_nu
+```
+
+### Test 2: Huvudsensorn har korrekta attribut
+```yaml
+# Utvecklarverktyg → Tillstånd → sensor.elpris_total_inkl_avgifter_moms
+# Verifiera:
+state: [nummer i SEK/kWh]
+attributes:
+  current_price: [samma som state]
+  raw_today: [{start: ..., end: ..., value: ...}, ...]  # 24 poster
+  raw_tomorrow: [...]  # 24 poster efter ~13:00
+  min: [nummer]
+  max: [nummer]
+  elhandel_paslag: [ditt värde]
+  nat_overforing: [ditt värde]
+```
+
+### Test 3: SVOTC-integration fungerar
+```yaml
+# Utvecklarverktyg → Tillstånd
+# Sök: sensor.svotc_src_current_price
+# Bör matcha sensor.elpris_total_inkl_avgifter_moms
+```
+
+### Test 4: Analyssensorer fungerar
+```yaml
+# Kolla koefficient
+sensor.elpriskoefficient: [nummer, typiskt 0.5-2.0]
+
+# Kolla priszon
+sensor.nordpool_price_band: [en av: very_cheap, cheap, normal, expensive, very_expensive]
+```
 
 ---
 
 ## 📋 Snabb checklista
 
-**Innan installation:**
+Före installation:
+* [ ] Nordpool-integration installerad och fungerar
+* [ ] Hittat mitt `config_entry` ID
+* [ ] Vet mitt elområde (SE1/SE2/SE3/SE4)
+* [ ] Har mina avtalsvillkor redo
 
-* [ ] Nordpool-integrationen är installerad och fungerar.
-* [ ] Jag har hittat mitt `config_entry`-ID.
-* [ ] Jag vet mitt elområde (SE1–SE4).
+Under installation:
+* [ ] Ändrat `config_entry` på **BÅDA** ställena
+* [ ] Ändrat `areas` på **BÅDA** ställena
+* [ ] Placerat fil i `/config/packages/`
+* [ ] Startat om Home Assistant
 
-**Under installation:**
-
-* [ ] Ändrat `config_entry` på **FÖRSTA** och **ANDRA** stället.
-* [ ] Ändrat `areas` på **FÖRSTA** och **ANDRA** stället.
-* [ ] Placerat filen i `/config/packages/`.
-* [ ] Startat om Home Assistant.
-
-**Efter installation:**
-
-* [ ] `sensor.nordpool_offical` finns under Tillstånd.
-* [ ] Sensorn visar ett pris (inte `unavailable`).
-* [ ] Attributen `current_price` och `raw_today` (24 poster) finns.
-* [ ] Ställt in påslag och moms.
-* [ ] Kopplat till SVOTC via `svotc_entity_price`.
+Efter installation:
+* [ ] Alla sensorer finns och visar värden
+* [ ] Konfigurerat alla avtalshjälpare (elhandel + nät)
+* [ ] Verifierat att totalpriset stämmer
+* [ ] Kopplat till SVOTC via `svotc_entity_price`
+* [ ] Priskoefficient och zoner fungerar
 
 ---
 
-Behöver du hjälp med att justera något i själva YAML-koden också?
+## ✅ Klart!
+
+Nu har du:
+* ✅ Komplett prisberäkning med alla avgifter
+* ✅ SVOTC-kompatibel prissensor
+* ✅ Smart priskoefficient för automationer
+* ✅ 5-zons prissystem
+* ✅ Hjälpsensorer för avancerad styrning
+* ✅ Automatiska uppdateringar
+
+**Nästa steg:** Konfigurera SVOTC och skapa prisbaserade automationer!
+
+---
+
+## 📝 Vanliga frågor
+
+### Vad är skillnaden mellan detta och den enkla adaptern?
+
+**Enkel adapter:**
+- Bara gör Nordpool kompatibel med SVOTC
+- Basic påslag + moms
+
+**Detta bonuspaket:**
+- Komplett avgiftsberäkning (elhandel + nät + skatter)
+- Priskoefficient (smart relativ prissättning)
+- Priszoner (5 zoner)
+- Hjälpsensorer
+- Redo för avancerade automationer
+
+### Kan jag använda detta utan SVOTC?
+
+Ja! Sensorerna fungerar fristående och är perfekta för alla prisbaserade automationer.
+
+### Tänk om jag har en annan avtalstyp?
+
+Justera input_number-värdena:
+- Fast pris? Sätt påslag till ditt fasta pris minus spot
+- Andra nätavgifter? Uppdatera nat_eloverforing och nat_energiskatt
+- Andra momszoner? Justera moms-procentsatserna
+
+### Varför är elhandel och nät separerade?
+
+Svenska avtal har typiskt:
+- **Elhandel:** Spot + påslag, med 25% moms
+- **Nät:** Överföring + skatt, med 25% moms
+
+Denna separation möjliggör korrekt beräkning per svensk marknadsstruktur.
+
+### Kan jag lägga till fler avgifter?
+
+Ja, redigera template-beräkningarna. Sök efter:
+```yaml
+{% set elhandel = (spot + el_paslag + el_cert) * el_moms %}
+{% set nat = (nat_overf + nat_skatt) * nat_moms %}
+```
+
+Lägg till dina avgifter i lämplig sektion.
+
+---
+
+## 🆚 Jämförelse med Tibber-integration
+
+| Funktion               | SVOTC Bonus (Nordpool) | Tibber HACS       |
+| ---------------------- | ---------------------- | ----------------- |
+| SVOTC-kompatibel       | ✅ Ja                  | ✅ Ja             |
+| Anpassade avgifter     | ✅ Full kontroll       | ⚠️ Begränsad      |
+| Priskoefficient        | ✅ Inkluderad          | ❌ Nej            |
+| Priszoner (5 zoner)    | ✅ Inkluderad          | ❌ Nej            |
+| Kräver prenumeration   | ❌ Nej (gratis Nordpool)| ⚠️ Tibber-konto  |
+| Realtidspriser         | ⚠️ Endast timme        | ✅ Ja             |
+
+**Använd Nordpool + detta paket om:**
+- Du vill ha full kontroll över avgiftsberäkning
+- Du behöver priskoefficient/zoner
+- Du inte har/vill ha Tibber-prenumeration
+
+**Använd Tibber HACS om:**
+- Du har Tibber som leverantör
+- Du vill ha realtidspriser
+- Du föredrar enklare installation
+
+---
+
+## 🎓 Avancerade tips
+
+### Kombinera koefficient och priszon
+```yaml
+automation:
+  - alias: "Optimerad laddning"
+    trigger:
+      - platform: state
+        entity_id: sensor.nordpool_price_band
+        to: 'cheap'
+    condition:
+      - condition: numeric_state
+        entity_id: sensor.elpriskoefficient
+        below: 0.8
+    action:
+      - service: switch.turn_on
+        target:
+          entity_id: switch.elbilsladdare
+```
+
+### Använd temperaturkompensation
+```yaml
+automation:
+  - alias: "Dynamisk uppvärmning"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.elpriskoefficient
+        below: 0.7
+    action:
+      - service: climate.set_temperature
+        target:
+          entity_id: climate.vardagsrum
+        data:
+          temperature: >
+            {% set outdoor = states('sensor.temperatur_ute') | float %}
+            {% if outdoor < -10 %}
+              22
+            {% elif outdoor < 0 %}
+              21
+            {% else %}
+              20
+            {% endif %}
+```
+
+### Skapa prisvarningar
+```yaml
+automation:
+  - alias: "Varning vid höga priser"
+    trigger:
+      - platform: state
+        entity_id: sensor.nordpool_price_band
+        to: 'very_expensive'
+    action:
+      - service: notify.mobile_app
+        data:
+          message: "Högt elpris nu ({{ states('sensor.elpriskoefficient') }}x). Överväg att sänka förbrukningen."
+```
+
+---
