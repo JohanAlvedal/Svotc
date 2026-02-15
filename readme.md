@@ -190,6 +190,106 @@ Detta är den temperatur din värmepump ska använda istället för verklig utom
 
 ---
 
+### Kopplingsmetoder
+
+SVOTC kan kopplas till din värmepump på flera sätt:
+
+#### 1. Via Ohmigo Ohm-on WiFi Plus (Rekommenderat)
+
+**[Ohmigo Ohm-on WiFi Plus](https://www.ohmigo.io/product-page/ohm-on-wifi-plus)** är en WiFi-adapter som gör det enkelt att integrera SVOTC med din värmepump.
+
+**Fördelar:**
+- ✅ **Plug & Play** — enkel installation, ingen hårdvarumodifiering
+- ✅ **WiFi-baserad** — kommunicerar direkt med Home Assistant
+- ✅ **Stöder offset-styrning** — perfekt för SVOTC
+- ✅ **Kompatibel med många värmepumpar** — kolla kompatibilitetslistan
+- ✅ **Ingen molntjänst krävs** — fungerar lokalt
+
+**Installation:**
+1. Montera Ohm-on WiFi Plus enligt tillverkarens instruktioner
+2. Anslut enheten till ditt WiFi-nätverk
+3. Integrera med Home Assistant (via inbyggd integration eller MQTT)
+4. Skapa en automation som läser `sensor.svotc_virtual_outdoor_temperature`
+5. Skicka värdet till värmepumpen via Ohmigo-enheten
+
+**Exempel på automation:**
+```yaml
+automation:
+  - alias: "SVOTC → Ohmigo Offset"
+    trigger:
+      - platform: state
+        entity_id: sensor.svotc_virtual_outdoor_temperature
+    action:
+      - service: climate.set_temperature
+        target:
+          entity_id: climate.din_varmepump  # Byt till din Ohmigo-enhet
+        data:
+          temperature: "{{ states('sensor.svotc_virtual_outdoor_temperature') }}"
+```
+
+**Kompatibilitet:**  
+Kontrollera att din värmepump stöds på [Ohmigo's kompatibilitetslista](https://www.ohmigo.io/product-page/ohm-on-wifi-plus).
+
+---
+
+#### 2. Via annan integration
+
+Om din värmepump redan har en Home Assistant-integration som stöder temperaturoffset eller värmekurva, kan du använda den direkt.
+
+**Exempel:**
+- **Nibe Uplink** (för Nibe-pumpar)
+- **MyUplink** (för flera tillverkare)
+- **Modbus** (för pumpar med Modbus-stöd)
+
+**Automation-exempel:**
+```yaml
+automation:
+  - alias: "SVOTC → Värmepump"
+    trigger:
+      - platform: state
+        entity_id: sensor.svotc_virtual_outdoor_temperature
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.din_varmepump_offset  # Byt till din offset-entitet
+        data:
+          value: "{{ states('input_number.svotc_applied_offset_c') }}"
+```
+
+---
+
+#### 3. Via manuell mapping (för pumpar utan offset-support)
+
+Om din värmepump inte stöder direktoffset, kan du mappa till värmekurvan:
+
+```yaml
+automation:
+  - alias: "SVOTC → Värmekurva mapping"
+    trigger:
+      - platform: state
+        entity_id: input_number.svotc_applied_offset_c
+    action:
+      - service: select.select_option
+        target:
+          entity_id: select.din_varmepump_kurvniva
+        data:
+          option: >
+            {% set offset = states('input_number.svotc_applied_offset_c') | float %}
+            {% if offset > 5 %}
+              Nivå -2
+            {% elif offset > 2 %}
+              Nivå -1
+            {% elif offset < -2 %}
+              Nivå +1
+            {% else %}
+              Nivå 0
+            {% endif %}
+```
+
+**OBS:** Denna metod är mindre exakt och kräver manuell kalibrering.
+
+---
+
 ## 📊 Viktiga sensorer
 
 ### Primära outputs
@@ -561,6 +661,16 @@ Inputs + price data är stabila igen.
 **Q: Kan jag använda Tibber istället för Nordpool?**  
 **A:** Ja, men du måste skapa en wrapper-sensor som formaterar Tibber-data till Nordpool-format. Se exempel i community discussions.
 
+**Q: Vilken hårdvara behöver jag för att koppla SVOTC till min värmepump?**  
+**A:** Det beror på din värmepump:
+- **Rekommenderat:** [Ohmigo Ohm-on WiFi Plus](https://www.ohmigo.io/product-page/ohm-on-wifi-plus) — fungerar med de flesta värmepumpar och ger fullständig lokal kontroll
+- **Om du har Nibe:** Använd Nibe Uplink eller MyUplink-integrationen
+- **Om du har Modbus-stöd:** Använd Modbus TCP/RTU-integration
+- **Annat:** Kontrollera om din pumpintegration stöder temperaturoffset eller värmekurva
+
+**Q: Fungerar Ohmigo med min värmepump?**  
+**A:** Kolla [Ohmigo's kompatibilitetslista](https://www.ohmigo.io/product-page/ohm-on-wifi-plus). Enheten stöder många populära värmepumpar från Nibe, Bosch, IVT, CTC och andra.
+
 ### Prestanda & Tuning
 
 **Q: Systemet är för aggressivt / för försiktigt**  
@@ -700,22 +810,27 @@ SOFTWARE.
 
 - [Home Assistant Template Documentation](https://www.home-assistant.io/docs/configuration/templating/)
 - [Nordpool Integration](https://github.com/custom-components/nordpool)
-- ~~[Värmepumpsoptimering — best practices](https://example.com/heatpump-optimization)~~
+
+### Hårdvara för värmepumpstyrning
+
+- [Ohmigo Ohm-on WiFi Plus](https://www.ohmigo.io/product-page/ohm-on-wifi-plus) — WiFi-adapter för värmepumpar
+- [Nibe Uplink](https://www.nibeuplink.com/) — Officiell integration för Nibe-pumpar
+- [MyUplink](https://myuplink.com/) — Multi-brand värmepumpintegration
 
 ### Community discussions
 
-- ~~[SVOTC på Home Assistant Forum](#)~~
-- ~~[Reddit r/homeassistant SVOTC tråd](#)~~
-- ~~[Discord community](#)~~
+- *Coming soon: SVOTC på Home Assistant Forum*
+- *Coming soon: Reddit r/homeassistant SVOTC tråd*
+- *Coming soon: Discord community*
 
 ### Video tutorials
 
-- ~~Coming soon: Installation guide~~
-- ~~Coming soon: Advanced tuning~~
-- ~~Coming soon: Integration examples~~
+- *Coming soon: Installation guide*
+- *Coming soon: Advanced tuning*
+- *Coming soon: Integration examples*
 
 ---
 
 **Version:** 2.0.0 (2026-02-14)  
-**Senast uppdaterad:** 2026-02-14
+**Senast uppdaterad:** 2026-02-15
 **Licens:** MIT
