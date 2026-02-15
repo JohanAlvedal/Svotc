@@ -1,5 +1,12 @@
 # Nordpool Package for SVOTC
 
+> 🇸🇪 **Svenska:** För instruktioner på svenska, se [README.sv.md](./README.sv.md).
+
+---
+
+## 🎯 What is this?
+A simple package that makes the **official Nordpool integration** compatible with SVOTC...
+
 ## 🎯 What is this?
 
 A simple package that makes the **official Nordpool integration** compatible with SVOTC.
