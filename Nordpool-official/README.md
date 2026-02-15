@@ -1,4 +1,4 @@
-# SVOTC Bonus - Nordpool Price Sensors
+# SVOTC - Nordpool Price Sensors
 
 > 🇸🇪 **Svenska:** För instruktioner på svenska, se [README.sv.md](./README.sv.md).
 
