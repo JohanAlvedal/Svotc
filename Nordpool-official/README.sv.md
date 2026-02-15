@@ -1,6 +1,6 @@
 # SVOTC Bonus - Nordpool Prissensorer
 
-> 🇬🇧 **English:** For instructions in English, see [README_BONUS.md](./README_BONUS.md).
+> 🇬🇧 **English:** For instructions in English, see [README.md](./README.md).
 
 ---
 
