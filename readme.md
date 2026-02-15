@@ -17,8 +17,6 @@ Systemet är byggt för att vara:
 - ✅ **Enkelt att felsöka** — omfattande diagnostik och reason codes
 - ✅ **Helt autonomt** — kräver minimal inblandning efter setup
 
-Detta är *Smart Core Edition* — en robust grund som kan köras i alla typer av hem.
-
 ---
 
 ## 🚀 Funktioner
@@ -36,7 +34,7 @@ Detta är *Smart Core Edition* — en robust grund som kan köras i alla typer a
 - **Brake-fasmaskin** (ramping up → holding → ramping down) för mjuka övergångar
 - Dwell-timers förhindrar prisfluktuationer från att orsaka instabilitet
 
-### 🧠 Självlärande
+### 🧠 Självlärande (BETA)
 - Räknar **komfortavvikelser** automatiskt
 - Justerar **brake-efficiency** varje natt baserat på historik
 - Blir bättre över tid utan manuell tuning
@@ -201,14 +199,13 @@ SVOTC kan kopplas till din värmepump på flera sätt:
 **Fördelar:**
 - ✅ **Plug & Play** — enkel installation, ingen hårdvarumodifiering
 - ✅ **WiFi-baserad** — kommunicerar direkt med Home Assistant
-- ✅ **Stöder offset-styrning** — perfekt för SVOTC
 - ✅ **Kompatibel med många värmepumpar** — kolla kompatibilitetslistan
 - ✅ **Ingen molntjänst krävs** — fungerar lokalt
 
 **Installation:**
 1. Montera Ohm-on WiFi Plus enligt tillverkarens instruktioner
 2. Anslut enheten till ditt WiFi-nätverk
-3. Integrera med Home Assistant (via inbyggd integration eller MQTT)
+3. Integrera med Home Assistant (via MQTT)
 4. Skapa en automation som läser `sensor.svotc_virtual_outdoor_temperature`
 5. Skicka värdet till värmepumpen via Ohmigo-enheten
 
@@ -227,19 +224,7 @@ automation:
           temperature: "{{ states('sensor.svotc_virtual_outdoor_temperature') }}"
 ```
 
-**Kompatibilitet:**  
-Kontrollera att din värmepump stöds på [Ohmigo's kompatibilitetslista](https://www.ohmigo.io/product-page/ohm-on-wifi-plus).
-
 ---
-
-#### 2. Via annan integration
-
-Om din värmepump redan har en Home Assistant-integration som stöder temperaturoffset eller värmekurva, kan du använda den direkt.
-
-**Exempel:**
-- **Nibe Uplink** (för Nibe-pumpar)
-- **MyUplink** (för flera tillverkare)
-- **Modbus** (för pumpar med Modbus-stöd)
 
 **Automation-exempel:**
 ```yaml
@@ -255,38 +240,6 @@ automation:
         data:
           value: "{{ states('input_number.svotc_applied_offset_c') }}"
 ```
-
----
-
-#### 3. Via manuell mapping (för pumpar utan offset-support)
-
-Om din värmepump inte stöder direktoffset, kan du mappa till värmekurvan:
-
-```yaml
-automation:
-  - alias: "SVOTC → Värmekurva mapping"
-    trigger:
-      - platform: state
-        entity_id: input_number.svotc_applied_offset_c
-    action:
-      - service: select.select_option
-        target:
-          entity_id: select.din_varmepump_kurvniva
-        data:
-          option: >
-            {% set offset = states('input_number.svotc_applied_offset_c') | float %}
-            {% if offset > 5 %}
-              Nivå -2
-            {% elif offset > 2 %}
-              Nivå -1
-            {% elif offset < -2 %}
-              Nivå +1
-            {% else %}
-              Nivå 0
-            {% endif %}
-```
-
-**OBS:** Denna metod är mindre exakt och kräver manuell kalibrering.
 
 ---
 
