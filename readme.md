@@ -197,9 +197,9 @@ SVOTC kan kopplas till din värmepump på flera sätt:
 **[Ohmigo Ohm-on WiFi Plus](https://www.ohmigo.io/product-page/ohm-on-wifi-plus)** är en WiFi-adapter som gör det enkelt att integrera SVOTC med din värmepump.
 
 **Fördelar:**
-- ✅ **Plug & Play** — enkel installation, ingen hårdvarumodifiering
+- ✅ **Plug & Play** — enkel installation
 - ✅ **WiFi-baserad** — kommunicerar direkt med Home Assistant
-- ✅ **Kompatibel med många värmepumpar** — kolla kompatibilitetslistan
+- ✅ **Kompatibel med många värmepumpar**
 - ✅ **Ingen molntjänst krävs** — fungerar lokalt
 
 **Installation:**
@@ -208,39 +208,6 @@ SVOTC kan kopplas till din värmepump på flera sätt:
 3. Integrera med Home Assistant (via MQTT)
 4. Skapa en automation som läser `sensor.svotc_virtual_outdoor_temperature`
 5. Skicka värdet till värmepumpen via Ohmigo-enheten
-
-**Exempel på automation:**
-```yaml
-automation:
-  - alias: "SVOTC → Ohmigo Offset"
-    trigger:
-      - platform: state
-        entity_id: sensor.svotc_virtual_outdoor_temperature
-    action:
-      - service: climate.set_temperature
-        target:
-          entity_id: climate.din_varmepump  # Byt till din Ohmigo-enhet
-        data:
-          temperature: "{{ states('sensor.svotc_virtual_outdoor_temperature') }}"
-```
-
----
-
-**Automation-exempel:**
-```yaml
-automation:
-  - alias: "SVOTC → Värmepump"
-    trigger:
-      - platform: state
-        entity_id: sensor.svotc_virtual_outdoor_temperature
-    action:
-      - service: number.set_value
-        target:
-          entity_id: number.din_varmepump_offset  # Byt till din offset-entitet
-        data:
-          value: "{{ states('input_number.svotc_applied_offset_c') }}"
-```
-
 ---
 
 ## 📊 Viktiga sensorer
