@@ -359,7 +359,7 @@ Om du vill ha en **egen dashboard för SVOTC** med Sections-layout:
 
 ---
 
-### Tillgängliga kort i SVOTC_Cards.yaml
+### Tillgängliga kort i SVOTC_Card1.yaml / SVOTC_Card2.yaml
 
 #### 🎛️ Kontrollpanel (`entities`)
 **Innehåll:**
@@ -495,17 +495,9 @@ entities:
   # - entity: input_number.svotc_brake_aggressiveness  ← Ta bort denna rad om du inte vill ändra den
 ```
 
-#### Ändra ikonerna:
-```yaml
-- entity: input_select.svotc_mode
-  icon: mdi:power  # ← Ändra till valfri MDI-ikon
-```
-
-Hitta ikoner på: https://pictogrammers.com/library/mdi/
-
 ---
 
-## 🧠 Lärande
+## 🧠 Lärande (BETA)
 
 SVOTC har en inbyggd **självlärande algoritm** som anpassar systemets beteende.
 
@@ -611,8 +603,7 @@ Inputs + price data är stabila igen.
 - `raw_today` (lista med timpriser)
 - `raw_tomorrow` (lista med timpriser)
 
-**Q: Kan jag använda Tibber istället för Nordpool?**  
-**A:** Ja, men du måste skapa en wrapper-sensor som formaterar Tibber-data till Nordpool-format. Se exempel i community discussions.
++**Tips:** Om du använder den officiella Nordpool-integrationen, kan du använda paketfilen från [Nordpool-official](https://github.com/custom-components/nordpool) för enklare konfiguration.
 
 **Q: Vilken hårdvara behöver jag för att koppla SVOTC till min värmepump?**  
 **A:** Det beror på din värmepump:
