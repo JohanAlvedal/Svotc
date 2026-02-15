@@ -608,12 +608,7 @@ Inputs + price data är stabila igen.
 **Q: Vilken hårdvara behöver jag för att koppla SVOTC till min värmepump?**  
 **A:** Det beror på din värmepump:
 - **Rekommenderat:** [Ohmigo Ohm-on WiFi Plus](https://www.ohmigo.io/product-page/ohm-on-wifi-plus) — fungerar med de flesta värmepumpar och ger fullständig lokal kontroll
-- **Om du har Nibe:** Använd Nibe Uplink eller MyUplink-integrationen
-- **Om du har Modbus-stöd:** Använd Modbus TCP/RTU-integration
 - **Annat:** Kontrollera om din pumpintegration stöder temperaturoffset eller värmekurva
-
-**Q: Fungerar Ohmigo med min värmepump?**  
-**A:** Kolla [Ohmigo's kompatibilitetslista](https://www.ohmigo.io/product-page/ohm-on-wifi-plus). Enheten stöder många populära värmepumpar från Nibe, Bosch, IVT, CTC och andra.
 
 ### Prestanda & Tuning
 
@@ -627,33 +622,7 @@ Inputs + price data är stabila igen.
 **Q: Kan jag inaktivera learning?**  
 **A:** Ja, ta bort automationen `SVOTC Learning: reset daily counter`. Då behåller systemet alltid det manuella värdet i `svotc_learned_brake_efficiency`.
 
-**Q: Hur mycket kan jag spara?**  
-**A:** Typiskt 10-20% på uppvärmningskostnader under vinterhalvåret. Exakt besparing beror på:
-- Elprisprofil (volatilitet)
-- Husets termiska egenskaper
-- Värmepumpens effektivitet
-- Din komforttolerans
-
 ### Tekniska frågor
-
-**Q: Kan jag använda TimescaleDB/InfluxDB för historik?**  
-**A:** Ja! Lägg till i `configuration.yaml`:
-```yaml
-recorder:
-  include:
-    entities:
-      - sensor.svotc_virtual_outdoor_temperature
-      - input_number.svotc_applied_offset_c
-      - sensor.svotc_prebrake_strength
-      - input_text.svotc_reason_code
-      - binary_sensor.svotc_comfort_guard_active
-```
-
-**Q: Fungerar det med värmepumpar utan offset-support?**  
-**A:** Ja, men då måste du implementera en egen mapping. Exempel:
-- Läs `input_number.svotc_applied_offset_c`
-- Mappa till värmekurva: +3°C offset → sänk kurvan 2 steg
-- Skicka via din pumpintegration
 
 **Q: Hur fungerar freeze-logiken?**  
 **A:** När prisdata saknas:
@@ -671,40 +640,19 @@ recorder:
 4. Du får en notis efter 3 minuter
 5. När Nordpool är uppe igen återgår allt till normalt
 
-**Q: Kan jag köra flera instanser?**  
-**A:** Ja, men du måste:
-1. Kopiera hela filen
-2. Ersätt alla `svotc_` med t.ex. `svotc2_`
-3. Ge unique_id nya värden
-4. Mappa till olika värmepumpar/zoner
-
 ### Support & Community
 
 **Q: Var hittar jag hjälp?**  
 **A:** 
 - GitHub Issues för buggar och feature requests
-- Home Assistant Community Forum tråd
-- Discord #svotc-kanal (länk i repo)
 
 **Q: Kan jag bidra?**  
 **A:** Absolut! Pull requests välkomnas för:
 - Buggfixar
 - Dokumentationsförbättringar
-- Nya features (diskutera först i Issues)
 - Översättningar
 
 ---
-
-## 🧩 Filstruktur
-
-Detta repo innehåller:
-
-| Fil | Storlek | Användning | Kommentarer |
-|-----|---------|-----------|-------------|
-| `svotc.annotated.yaml` | ~40 KB | För utveckling och förståelse | Full dokumentation inline |
-| `svotc.clean.yaml` | ~25 KB | **Rekommenderad för drift** | Inga kommentarer, lättläst |
-| `svotc.min.yaml` | ~15 KB | Minimal footprint | Minifierad, för avancerade användare |
-| `README.md` | Detta dokument | Dokumentation | - |
 
 ### Vilken fil ska jag använda?
 
@@ -714,10 +662,6 @@ Detta repo innehåller:
 | Vill köra i produktion | `svotc.clean.yaml` |
 | Vill ha minimal YAML | `svotc.min.yaml` |
 | Behöver integrationssexempel | `EXAMPLES.md` |
-
----
-
-Förslag och feature requests välkomnas i GitHub Issues!
 
 ---
 
@@ -750,22 +694,10 @@ SOFTWARE.
 
 ## 📚 Ytterligare resurser
 
-### Rekommenderad läsning
-
-- [Home Assistant Template Documentation](https://www.home-assistant.io/docs/configuration/templating/)
-- [Nordpool Integration](https://github.com/custom-components/nordpool)
-
 ### Hårdvara för värmepumpstyrning
 
 - [Ohmigo Ohm-on WiFi Plus](https://www.ohmigo.io/product-page/ohm-on-wifi-plus) — WiFi-adapter för värmepumpar
-- [Nibe Uplink](https://www.nibeuplink.com/) — Officiell integration för Nibe-pumpar
-- [MyUplink](https://myuplink.com/) — Multi-brand värmepumpintegration
 
-### Community discussions
-
-- *Coming soon: SVOTC på Home Assistant Forum*
-- *Coming soon: Reddit r/homeassistant SVOTC tråd*
-- *Coming soon: Discord community*
 
 ### Video tutorials
 
@@ -775,6 +707,6 @@ SOFTWARE.
 
 ---
 
-**Version:** 2.0.0 (2026-02-14)  
+**Version:** 2.0.1 (2026-02-15)  
 **Senast uppdaterad:** 2026-02-15
 **Licens:** MIT
