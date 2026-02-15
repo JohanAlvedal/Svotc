@@ -1,12 +1,6 @@
 ###############################################################################
-## SVOTC – Stable Core Edition + Adaptive Learning (2026-02-13)
+## SVOTC – Stable Core Edition + Adaptive Learning (2026-02-15)
 ## Made By Johan Ä + Claude Enhancements
-##
-## CHANGELOG (2026-02-13):
-##   + Adaptive prebrake window (adjusts for outdoor temp + thermal mass)
-##   + Learning system (auto-adjusts brake efficiency based on comfort violations)
-##   + Optimized percentile calculations (30 min cache instead of 15 min)
-##   + Persistent state handling (all learned values survive restarts)
 ##
 ## CONTENTS:
 ##   1. UI / Controls (Helpers)
