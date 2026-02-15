@@ -1,962 +1,463 @@
 ###############################################################################
-## SVOTC – Stable Core Edition + Adaptive Learning (2026-02-15)
-## Made By Johan Ä + AI Enhancements
+## SVOTC - Nordpool Price Sensors (2026-02-15)
+## Made By Johan Ä
+##
+## INNEHÅLL:
+##   1. Elprisberäkning med alla avgifter (SVOTC-kompatibel)
+##   2. Elpriskoefficient (dynamisk prisnivå 0-∞)
+##   3. Price band (very_cheap → very_expensive med hysteresis)
+##   4. Hjälpsensorer (elpris OK, kort peak)
+##
+## INSTALLATION:
+##   1. Konfigurera input_number-värden med dina avtal
+##   2. Uppdatera config_entry ID i nordpool.get_prices_for_date
+##   3. Ange din elområde (SE1-SE4) om inte SE3
+##   4. För SVOTC: Sätt input_text.svotc_entity_price till 
+##      sensor.elpris_total_inkl_avgifter_moms
+##
+## TIPS:
+##   - Elpriskoefficient: <1.0 = billigt, >1.0 = dyrt (relativt dagsspann)
+##   - Price band: Använd för automationer med 5 priszoner
+##   - Spot exkl moms: För jämförelser/grafer
+##   - Total inkl avgifter: För verklig kostnad och SVOTC-styrning
+##
 ###############################################################################
 
 ###############################################################################
-## 1. UI CONTROLS & CONFIGURATION
+## 1. KONFIGURATION - Ange dina avtalsvillkor
 ###############################################################################
-
-input_select:
-  svotc_mode:
-    name: "SVOTC Mode"
-    options: ["Off", "Smart", "Simple", "PassThrough", "ComfortOnly"]
-    initial: "Smart"
 
 input_number:
-  #--- Comfort Settings ---
-  svotc_comfort_temperature:
-    name: "Comfort temperature"
-    min: 15
-    max: 25
+  #--- Elhandel (SEK/kWh) ---
+  elhandel_rorlig_kvart_paslag:
+    name: "Elhandel påslag (SEK/kWh)"
+    min: 0
+    max: 1
+    step: 0.001
+    unit_of_measurement: "SEK/kWh"
+    mode: box
+    icon: mdi:plus-circle
+
+  elhandel_rorlig_kvart_elcertifikat:
+    name: "Elhandel elcertifikat (SEK/kWh)"
+    min: 0
+    max: 1
+    step: 0.001
+    unit_of_measurement: "SEK/kWh"
+    mode: box
+    icon: mdi:certificate
+
+  elhandel_rorlig_kvart_moms:
+    name: "Elhandel moms (%)"
+    min: 0
+    max: 30
     step: 0.1
-    initial: 21.0
+    unit_of_measurement: "%"
     mode: box
+    icon: mdi:percent
 
-  svotc_comfort_guard_activate_below_c:
-    name: "Comfort guard activate (below target)"
-    min: 0.2
-    max: 3.0
+  elhandel_manadsavgift:
+    name: "Elhandel månadsavgift (SEK/månad)"
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: "SEK/månad"
+    mode: box
+    icon: mdi:calendar-month
+
+  #--- Nät (SEK/kWh) ---
+  nat_eloverforing:
+    name: "Nät elöverföring (SEK/kWh)"
+    min: 0
+    max: 3
+    step: 0.001
+    unit_of_measurement: "SEK/kWh"
+    mode: box
+    icon: mdi:transmission-tower
+
+  nat_energiskatt:
+    name: "Nät energiskatt (SEK/kWh)"
+    min: 0
+    max: 3
+    step: 0.001
+    unit_of_measurement: "SEK/kWh"
+    mode: box
+    icon: mdi:cash
+
+  nat_moms:
+    name: "Nät moms (%)"
+    min: 0
+    max: 30
     step: 0.1
-    initial: 0.8
+    unit_of_measurement: "%"
     mode: box
-
-  svotc_comfort_guard_deactivate_above_c:
-    name: "Comfort guard deactivate (above target)"
-    min: 0.1
-    max: 2.0
-    step: 0.1
-    initial: 0.3
-    mode: box
-
-  #--- Price Control ---
-  svotc_brake_aggressiveness:
-    name: "Brake aggressiveness"
-    min: 0
-    max: 5
-    step: 1
-    initial: 2
-    mode: slider
-
-  svotc_heat_aggressiveness:
-    name: "Heat aggressiveness"
-    min: 0
-    max: 5
-    step: 1
-    initial: 2
-    mode: slider
-
-  svotc_brake_hold_offset_c:
-    name: "Brake hold offset (°C)"
-    min: 0
-    max: 20
-    step: 0.5
-    initial: 6.0
-    mode: box
-
-  svotc_thermal_mass_factor:
-    name: "Thermal mass factor"
-    min: 0.5
-    max: 2.0
-    step: 0.1
-    initial: 1.0
-    mode: slider
-
-  #--- Dwell Times ---
-  svotc_price_dwell_cheap_to_neutral_min:
-    name: "Dwell cheap → neutral (min)"
-    min: 0
-    max: 120
-    step: 1
-    initial: 8
-    mode: box
-
-  svotc_price_dwell_neutral_to_brake_min:
-    name: "Dwell neutral → brake (min)"
-    min: 0
-    max: 120
-    step: 1
-    initial: 8
-    mode: box
-
-  svotc_price_dwell_brake_to_neutral_min:
-    name: "Dwell brake → neutral (min)"
-    min: 0
-    max: 120
-    step: 1
-    initial: 8
-    mode: box
-
-  svotc_price_dwell_neutral_to_cheap_min:
-    name: "Dwell neutral → cheap (min)"
-    min: 0
-    max: 120
-    step: 1
-    initial: 8
-    mode: box
-
-  #--- Brake Phase Durations ---
-  svotc_brake_rampup_duration_min:
-    name: "Brake ramp-up duration (min)"
-    min: 1
-    max: 180
-    step: 1
-    initial: 20
-    mode: box
-
-  svotc_brake_hold_duration_min:
-    name: "Brake hold duration (min)"
-    min: 1
-    max: 120
-    step: 1
-    initial: 15
-    mode: box
-
-  svotc_brake_rampdown_duration_min:
-    name: "Brake ramp-down duration (min)"
-    min: 1
-    max: 180
-    step: 1
-    initial: 25
-    mode: box
-
-  #--- Rate Limiting ---
-  svotc_max_delta_per_step_c:
-    name: "Max delta per step"
-    min: 0.05
-    max: 1.0
-    step: 0.01
-    initial: 0.20
-    mode: box
-
-  #--- System State (Auto-managed) ---
-  svotc_requested_offset_c:
-    name: "Requested offset (engine)"
-    min: -10
-    max: 10
-    step: 0.1
-    initial: 0
-    mode: box
-
-  svotc_applied_offset_c:
-    name: "Applied offset (ramp-limited)"
-    min: -10
-    max: 10
-    step: 0.1
-    initial: 0
-    mode: box
-
-  #--- Learning Metrics (Auto-managed) ---
-  svotc_comfort_violations_24h:
-    name: "Comfort violations (24h)"
-    min: 0
-    max: 100
-    step: 1
-    initial: 0
-    mode: box
-
-  svotc_learned_brake_efficiency:
-    name: "Learned brake efficiency"
-    min: 0.5
-    max: 1.5
-    step: 0.05
-    initial: 1.0
-    mode: box
-
-input_text:
-  #--- Entity Mapping (Required) ---
-  svotc_entity_indoor:
-    name: "Indoor temperature entity"
-
-  svotc_entity_outdoor:
-    name: "Outdoor temperature entity"
-
-  svotc_entity_price:
-    name: "Price entity (Nordpool)"
-
-  svotc_notify_service:
-    name: "Notify service"
-
-  #--- State Machine Memory (Auto-managed) ---
-  svotc_last_price_state:
-    name: "Stable price state"
-    initial: "neutral"
-
-  svotc_pending_price_state:
-    name: "Pending price state"
-    initial: "neutral"
-
-  svotc_brake_phase:
-    name: "Brake phase"
-    initial: "idle"
-
-  svotc_reason_code:
-    name: "Reason code"
-    initial: "INIT"
-
-input_datetime:
-  svotc_last_price_state_changed:
-    name: "Pending state since"
-    has_date: true
-    has_time: true
-
-  svotc_brake_phase_changed:
-    name: "Brake phase changed"
-    has_date: true
-    has_time: true
-
-  svotc_engine_last_run:
-    name: "Engine last run"
-    has_date: true
-    has_time: true
-
-input_boolean:
-  svotc_comfort_guard_enabled:
-    name: "Comfort guard enabled"
-    initial: true
-    icon: mdi:shield-home
+    icon: mdi:percent
 
 ###############################################################################
-## 2. SENSORS & MONITORING
+## 2. PRISSENSORER - Hämtar och beräknar elpriser
 ###############################################################################
 
 template:
-  - sensor:
-      #--- Source Sensors (Validated) ---
-      - name: "SVOTC Src Indoor"
-        unique_id: svotc_src_indoor
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        state: >
-          {% set ent = states('input_text.svotc_entity_indoor') %}
-          {% if ent in ['unknown','unavailable',''] %}
-            {{ none }}
-          {% else %}
-            {% set v = states(ent) | float(none) %}
-            {{ v | round(2) if v is number and 10 <= v <= 35 else none }}
-          {% endif %}
-        availability: >
-          {% set ent = states('input_text.svotc_entity_indoor') %}
-          {{ ent not in ['unknown','unavailable',''] and (states(ent) | float(none) is number) }}
-
-      - name: "SVOTC Src Outdoor"
-        unique_id: svotc_src_outdoor
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        state: >
-          {% set ent = states('input_text.svotc_entity_outdoor') %}
-          {% if ent in ['unknown','unavailable',''] %}
-            {{ none }}
-          {% else %}
-            {% set v = states(ent) | float(none) %}
-            {{ v | round(2) if v is number and -50 <= v <= 50 else none }}
-          {% endif %}
-        availability: >
-          {% set ent = states('input_text.svotc_entity_outdoor') %}
-          {{ ent not in ['unknown','unavailable',''] and (states(ent) | float(none) is number) }}
-
-      - name: "SVOTC Src Current Price"
-        unique_id: svotc_src_current_price
-        unit_of_measurement: "SEK/kWh"
-        state_class: measurement
-        state: >
-          {% set ent = states('input_text.svotc_entity_price') %}
-          {% if ent in ['unknown','unavailable','none',''] %}
-            {{ none }}
-          {% else %}
-            {% set p = state_attr(ent, 'current_price') %}
-            {{ p | round(3) if p is number and -1 <= p <= 20 else none }}
-          {% endif %}
-        availability: >
-          {% set ent = states('input_text.svotc_entity_price') %}
-          {{ ent not in ['unknown','unavailable','none',''] and state_attr(ent, 'current_price') is number }}
-
-      - name: "SVOTC Current price"
-        unique_id: svotc_current_price
-        unit_of_measurement: "SEK/kWh"
-        state_class: measurement
-        state: "{{ states('sensor.svotc_src_current_price') }}"
-        availability: "{{ states('sensor.svotc_src_current_price') not in ['unknown','unavailable','none',''] }}"
-
-      #--- Calculated Sensors ---
-      - name: "SVOTC Dynamic target temperature"
-        unique_id: svotc_dynamic_target_temperature
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        state: "{{ states('input_number.svotc_comfort_temperature') | float(21) | round(2) }}"
-
-      - name: "SVOTC Raw price state"
-        unique_id: svotc_raw_price_state
-        state: >
-          {% set mode = states('input_select.svotc_mode') %}
-          {% if mode in ['Off','PassThrough','ComfortOnly'] %}
-            off
-          {% else %}
-            {% set p = states('sensor.svotc_src_current_price') | float(none) %}
-            {% set p30 = states('sensor.svotc_p30') | float(none) %}
-            {% set p80 = states('sensor.svotc_p80') | float(none) %}
-            {% if p is not number or p30 is not number or p80 is not number %}
-              neutral
-            {% elif p > p80 %}
-              brake
-            {% elif p < p30 %}
-              cheap
-            {% else %}
-              neutral
-            {% endif %}
-          {% endif %}
-
-      - name: "SVOTC Prebrake window (min)"
-        unique_id: svotc_prebrake_window_min
-        unit_of_measurement: "min"
-        state_class: measurement
-        state: >
-          {% set mode = states('input_select.svotc_mode') %}
-          {% set a = 2 if mode == 'Simple' else (states('input_number.svotc_brake_aggressiveness') | int(0)) %}
-          {% set outdoor = states('sensor.svotc_src_outdoor') | float(0) %}
-          {% set thermal = states('input_number.svotc_thermal_mass_factor') | float(1.0) %}
-          {% set base_map = {0:0, 1:15, 2:30, 3:45, 4:60, 5:75} %}
-          {% set base = base_map.get(a, 0) %}
-          {% if outdoor < -10 %}
-            {% set temp_factor = 1.3 %}
-          {% elif outdoor < 0 %}
-            {% set temp_factor = 1.15 %}
-          {% elif outdoor > 10 %}
-            {% set temp_factor = 0.85 %}
-          {% else %}
-            {% set temp_factor = 1.0 %}
-          {% endif %}
-          {{ (base * thermal * temp_factor) | round(0) | int }}
-
-      - name: "SVOTC Prebrake strength"
-        unique_id: svotc_prebrake_strength
-        state_class: measurement
-        state: >
-          {% set window = states('sensor.svotc_prebrake_window_min') | float(0) %}
-          {% set mins = states('sensor.svotc_minutes_to_next_brake_start') | float(999) %}
-          {% if window > 0 and mins <= window %}
-            {{ ((window - mins) / window) | round(3) | clamp(0, 1) }}
-          {% else %}
-            0
-          {% endif %}
-
-      - name: "SVOTC Virtual outdoor temperature"
-        unique_id: svotc_virtual_outdoor_temperature
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        state: >
-          {% set out = states('sensor.svotc_src_outdoor') | float(none) %}
-          {% set off = states('input_number.svotc_applied_offset_c') | float(0) %}
-          {{ (out + off) | clamp(-50, 50) | round(2) if out is number else none }}
-
-  #--- Percentile Sensors (30 min cache) ---
   - trigger:
       - platform: time_pattern
-        minutes: "/30"
-      - platform: homeassistant
-        event: start
-      - platform: state
-        entity_id: input_text.svotc_entity_price
-    sensor:
-      - name: "SVOTC P30"
-        unique_id: svotc_p30
-        unit_of_measurement: "SEK/kWh"
-        state_class: measurement
-        availability: >
-          {% set ent = states('input_text.svotc_entity_price') %}
-          {{ ent not in ['unknown','unavailable','none',''] }}
-        state: >
-          {% set ent = states('input_text.svotc_entity_price') %}
-          {% if ent in ['unknown','unavailable','none',''] %}
-            {{ none }}
-          {% else %}
-            {% set today = state_attr(ent, 'raw_today') | default([], true) %}
-            {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
-            {% set prices = (today + tomorrow) | map(attribute='value') | select('number') | list %}
-            {% if prices | length >= 20 %}
-              {% set s = prices | sort %}
-              {% set idx = ((s | length - 1) * 0.30) | round(0, 'half_up') | int %}
-              {{ s[idx] | round(3) }}
-            {% else %}
-              {{ none }}
-            {% endif %}
-          {% endif %}
-
-      - name: "SVOTC P80"
-        unique_id: svotc_p80
-        unit_of_measurement: "SEK/kWh"
-        state_class: measurement
-        availability: >
-          {% set ent = states('input_text.svotc_entity_price') %}
-          {{ ent not in ['unknown','unavailable','none',''] }}
-        state: >
-          {% set ent = states('input_text.svotc_entity_price') %}
-          {% if ent in ['unknown','unavailable','none',''] %}
-            {{ none }}
-          {% else %}
-            {% set today = state_attr(ent, 'raw_today') | default([], true) %}
-            {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
-            {% set prices = (today + tomorrow) | map(attribute='value') | select('number') | list %}
-            {% if prices | length >= 20 %}
-              {% set s = prices | sort %}
-              {% set idx = ((s | length - 1) * 0.80) | round(0, 'half_up') | int %}
-              {{ s[idx] | round(3) }}
-            {% else %}
-              {{ none }}
-            {% endif %}
-          {% endif %}
-
-  #--- Forward Look Sensor (5 min cache) ---
-  - trigger:
-      - platform: time_pattern
-        minutes: "/5"
+        minutes: "/10"
       - platform: homeassistant
         event: start
       - platform: state
         entity_id:
-          - sensor.svotc_p80
-          - input_text.svotc_entity_price
+          - input_number.elhandel_rorlig_kvart_paslag
+          - input_number.elhandel_rorlig_kvart_elcertifikat
+          - input_number.elhandel_rorlig_kvart_moms
+          - input_number.nat_eloverforing
+          - input_number.nat_energiskatt
+          - input_number.nat_moms
+
+    action:
+      # VIKTIGT: Uppdatera config_entry till din Nordpool-integration
+      - action: nordpool.get_prices_for_date
+        data:
+          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T  # <-- ÄNDRA DETTA
+          date: "{{ now().date() }}"
+          areas: SE3  # <-- ÄNDRA TILL DITT OMRÅDE (SE1-SE4)
+          currency: SEK
+        response_variable: today_price
+
+      - action: nordpool.get_prices_for_date
+        data:
+          config_entry: 01KGFMFDG6SDFKHQFKK5QKCJ5T  # <-- ÄNDRA DETTA
+          date: "{{ (now() + timedelta(days=1)).date() }}"
+          areas: SE3  # <-- ÄNDRA TILL DITT OMRÅDE (SE1-SE4)
+          currency: SEK
+        response_variable: tomorrow_price
+
     sensor:
-      - name: "SVOTC Minutes to next brake start"
-        unique_id: svotc_minutes_to_next_brake_start
-        unit_of_measurement: "min"
+      ###########################################################################
+      # Spotpris (rent börspris utan tillägg)
+      ###########################################################################
+      - name: "Elpris spot exkl moms"
+        unique_id: elpris_spot_exkl_moms
+        device_class: monetary
+        unit_of_measurement: "SEK/kWh"
         state_class: measurement
+        icon: mdi:flash
         availability: >
-          {% set ent = states('input_text.svotc_entity_price') %}
-          {{ ent not in ['unknown','unavailable','none','']
-             and states('sensor.svotc_p80') not in ['unknown','unavailable','none',''] }}
+          {% set entries = (today_price.get('SE3') or []) %}
+          {{ entries | length > 0 }}
         state: >
-          {% set ent = states('input_text.svotc_entity_price') %}
-          {% set p80 = states('sensor.svotc_p80') | float(none) %}
-          {% if ent in ['unknown','unavailable','none',''] or p80 is not number %}
-            999
-          {% else %}
-            {% set today = state_attr(ent, 'raw_today') | default([], true) %}
-            {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
-            {% set combined = today + tomorrow %}
-            {% set now_ts = as_timestamp(now()) %}
-            {% set best = none %}
-            {% set in_expensive = false %}
-            {% for it in combined %}
-              {% set v = it.value | float(none) %}
-              {% set s = as_timestamp(it.start, default=none) if it.start is defined else none %}
-              {% set e = as_timestamp(it.end, default=none) if it.end is defined else none %}
-              {% if v is number and s is number and e is number %}
-                {% if s <= now_ts < e and v > p80 %}
-                  {% set in_expensive = true %}
-                {% elif s >= now_ts and v > p80 %}
-                  {% set mins = (s - now_ts) / 60 %}
-                  {% if best is none or mins < best %}
-                    {% set best = mins %}
-                  {% endif %}
-                {% endif %}
+          {% set entries = (today_price.get('SE3') or []) %}
+          {% set now_ts = now().timestamp() %}
+          {% set ns = namespace(v=None) %}
+          {% for s in entries %}
+            {% set st = as_timestamp(s.start) %}
+            {% set en = as_timestamp(s.end) %}
+            {% if st is not none and en is not none and st <= now_ts < en %}
+              {% set ns.v = ((s.price | float(0)) / 1000) | round(3) %}
+              {% break %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.v if ns.v is not none else 'unavailable' }}
+
+      ###########################################################################
+      # Totalpris (spot + elhandel + nät + moms)
+      # SVOTC-KOMPATIBEL: Innehåller raw_today/raw_tomorrow attribut
+      ###########################################################################
+      - name: "Elpris total (inkl avgifter & moms)"
+        unique_id: elpris_total_inkl_avgifter_moms
+        device_class: monetary
+        unit_of_measurement: "SEK/kWh"
+        state_class: measurement
+        icon: mdi:cash-multiple
+        
+        availability: >
+          {% set entries = (today_price.get('SE3') or []) %}
+          {{ entries | length > 0 }}
+        
+        state: >
+          {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+          {% set el_cert = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+          {% set el_moms = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+          {% set nat_overf = states('input_number.nat_eloverforing') | float(0) %}
+          {% set nat_skatt = states('input_number.nat_energiskatt') | float(0) %}
+          {% set nat_moms = 1 + (states('input_number.nat_moms') | float(0) / 100) %}
+          {% set entries = (today_price.get('SE3') or []) %}
+          {% set now_ts = now().timestamp() %}
+          {% set ns = namespace(v=None) %}
+          
+          {% for s in entries %}
+            {% set st = as_timestamp(s.start) %}
+            {% set en = as_timestamp(s.end) %}
+            {% if st is not none and en is not none and st <= now_ts < en %}
+              {% set spot = (s.price | float(0)) / 1000 %}
+              {% set elhandel = (spot + el_paslag + el_cert) * el_moms %}
+              {% set nat = (nat_overf + nat_skatt) * nat_moms %}
+              {% set ns.v = elhandel + nat %}
+              {% break %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.v | round(3) if ns.v is not none else 'unavailable' }}
+
+        attributes:
+          unit: kWh
+          currency: SEK
+          country: Sweden
+          region: SE3
+          
+          # Avtalsvillkor (synligt i attributes)
+          elhandel_paslag: "{{ states('input_number.elhandel_rorlig_kvart_paslag') | float(0) }}"
+          elhandel_cert: "{{ states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) }}"
+          elhandel_moms: "{{ states('input_number.elhandel_rorlig_kvart_moms') | float(0) }}"
+          nat_overforing: "{{ states('input_number.nat_eloverforing') | float(0) }}"
+          nat_skatt: "{{ states('input_number.nat_energiskatt') | float(0) }}"
+          nat_moms: "{{ states('input_number.nat_moms') | float(0) }}"
+
+          # SVOTC-REQUIRED: Current price attribut
+          current_price: >
+            {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+            {% set el_cert = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+            {% set el_moms = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+            {% set nat_overf = states('input_number.nat_eloverforing') | float(0) %}
+            {% set nat_skatt = states('input_number.nat_energiskatt') | float(0) %}
+            {% set nat_moms = 1 + (states('input_number.nat_moms') | float(0) / 100) %}
+            {% set now_ts = now().timestamp() %}
+            {% set entries = (today_price.get('SE3') or []) + (tomorrow_price.get('SE3') or []) %}
+            {% set ns = namespace(p=None) %}
+            
+            {% for s in entries %}
+              {% set st = as_timestamp(s.start) %}
+              {% set en = as_timestamp(s.end) %}
+              {% if st is not none and en is not none and st <= now_ts < en %}
+                {% set spot = (s.price | float(0)) / 1000 %}
+                {% set elhandel = (spot + el_paslag + el_cert) * el_moms %}
+                {% set nat = (nat_overf + nat_skatt) * nat_moms %}
+                {% set ns.p = (elhandel + nat) | round(3) %}
               {% endif %}
             {% endfor %}
-            {{ 0 if in_expensive else (best | round(1) if best is not none else 999) }}
+            {{ ns.p if ns.p is not none else 'unavailable' }}
+
+          # Min/max för dagens priser
+          min: >
+            {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+            {% set el_cert = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+            {% set el_moms = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+            {% set nat_overf = states('input_number.nat_eloverforing') | float(0) %}
+            {% set nat_skatt = states('input_number.nat_energiskatt') | float(0) %}
+            {% set nat_moms = 1 + (states('input_number.nat_moms') | float(0) / 100) %}
+            {% set entries = (today_price.get('SE3') or []) %}
+            {% if entries %}
+              {% set spot_min = (entries | map(attribute='price') | map('float') | list | min) / 1000 %}
+              {% set elhandel = (spot_min + el_paslag + el_cert) * el_moms %}
+              {% set nat = (nat_overf + nat_skatt) * nat_moms %}
+              {{ (elhandel + nat) | round(3) }}
+            {% else %}
+              unavailable
+            {% endif %}
+
+          max: >
+            {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+            {% set el_cert = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+            {% set el_moms = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+            {% set nat_overf = states('input_number.nat_eloverforing') | float(0) %}
+            {% set nat_skatt = states('input_number.nat_energiskatt') | float(0) %}
+            {% set nat_moms = 1 + (states('input_number.nat_moms') | float(0) / 100) %}
+            {% set entries = (today_price.get('SE3') or []) %}
+            {% if entries %}
+              {% set spot_max = (entries | map(attribute='price') | map('float') | list | max) / 1000 %}
+              {% set elhandel = (spot_max + el_paslag + el_cert) * el_moms %}
+              {% set nat = (nat_overf + nat_skatt) * nat_moms %}
+              {{ (elhandel + nat) | round(3) }}
+            {% else %}
+              unavailable
+            {% endif %}
+
+          # SVOTC-REQUIRED: raw_today och raw_tomorrow med start/end/value
+          raw_today: >
+            {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+            {% set el_cert = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+            {% set el_moms = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+            {% set nat_overf = states('input_number.nat_eloverforing') | float(0) %}
+            {% set nat_skatt = states('input_number.nat_energiskatt') | float(0) %}
+            {% set nat_moms = 1 + (states('input_number.nat_moms') | float(0) / 100) %}
+            {% set entries = (today_price.get('SE3') or []) %}
+            {% set ns = namespace(r=[]) %}
+            
+            {% for s in entries %}
+              {% set spot = (s.price | float(0)) / 1000 %}
+              {% set elhandel = (spot + el_paslag + el_cert) * el_moms %}
+              {% set nat = (nat_overf + nat_skatt) * nat_moms %}
+              {% set val = (elhandel + nat) %}
+              {% set ns.r = ns.r + [{
+                'start': (s.start | as_datetime | as_local).isoformat(),
+                'end': (s.end | as_datetime | as_local).isoformat(),
+                'value': (val | round(3))
+              }] %}
+            {% endfor %}
+            {{ ns.r }}
+
+          raw_tomorrow: >
+            {% set entries = (tomorrow_price.get('SE3') or []) %}
+            {% if not entries %}
+              []
+            {% else %}
+              {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+              {% set el_cert = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+              {% set el_moms = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+              {% set nat_overf = states('input_number.nat_eloverforing') | float(0) %}
+              {% set nat_skatt = states('input_number.nat_energiskatt') | float(0) %}
+              {% set nat_moms = 1 + (states('input_number.nat_moms') | float(0) / 100) %}
+              {% set ns = namespace(r=[]) %}
+              
+              {% for s in entries %}
+                {% set spot = (s.price | float(0)) / 1000 %}
+                {% set elhandel = (spot + el_paslag + el_cert) * el_moms %}
+                {% set nat = (nat_overf + nat_skatt) * nat_moms %}
+                {% set val = (elhandel + nat) %}
+                {% set ns.r = ns.r + [{
+                  'start': (s.start | as_datetime | as_local).isoformat(),
+                  'end': (s.end | as_datetime | as_local).isoformat(),
+                  'value': (val | round(3))
+                }] %}
+              {% endfor %}
+              {{ ns.r }}
+            {% endif %}
+
+###############################################################################
+## 3. ANALYSSENSORER - Priskoefficient & priszoner
+###############################################################################
+
+  - sensor:
+      ###########################################################################
+      # Elpriskoefficient: Dynamisk prisnivå relativt dagsspann
+      # <1.0 = billigt, >1.0 = dyrt
+      # Formel anpassar sig efter både min/max-nivåer
+      ###########################################################################
+      - name: "Elpriskoefficient"
+        unique_id: elpriskoefficient
+        unit_of_measurement: ""
+        state: >
+          {% set price = states('sensor.elpris_total_inkl_avgifter_moms') | float(none) %}
+          {% set pmax = state_attr('sensor.elpris_total_inkl_avgifter_moms', 'max') | float(none) %}
+          {% set pmin = state_attr('sensor.elpris_total_inkl_avgifter_moms', 'min') | float(none) %}
+          
+          {% if price is none or pmax is none or pmin is none or pmax <= 0 %}
+            {{ this.state | default(0) }}
+          {% else %}
+            {% set threshold = (pmax - pmin) * (1.3 * (pmax ** -0.7)) * (1 / (1 + pmin * 0.25)) + pmin %}
+            {{ (price / threshold) | round(2) }}
           {% endif %}
 
-  #--- Binary Sensors ---
+      ###########################################################################
+      # Price band: 5 zoner med hysteresis för stabila övergångar
+      # very_cheap → cheap → normal → expensive → very_expensive
+      ###########################################################################
+      - name: "Nordpool price band"
+        unique_id: nordpool_price_band_dynamic_minmax
+        state: >
+          {% set price = states('sensor.elpris_total_inkl_avgifter_moms') | float(0) %}
+          {% set pmin = state_attr('sensor.elpris_total_inkl_avgifter_moms', 'min') | float(price) %}
+          {% set pmax = state_attr('sensor.elpris_total_inkl_avgifter_moms', 'max') | float(price) %}
+          {% set span = pmax - pmin %}
+          
+          {% if span <= 0 %}
+            normal
+          {% else %}
+            {% set x = (price - pmin) / span %}
+            {% set prev = this.state | default('normal') %}
+            {% set h = 0.02 %}
+            
+            {# Bas-trösklar #}
+            {% set t_vc = 0.15 %}
+            {% set t_c = 0.35 %}
+            {% set t_e = 0.65 %}
+            {% set t_ve = 0.85 %}
+            
+            {# Hysteresis baserat på föregående state #}
+            {% if prev == 'very_cheap' %}
+              {% set t_vc = t_vc + h %}
+            {% elif prev == 'cheap' %}
+              {% set t_vc = t_vc - h %}
+              {% set t_c = t_c + h %}
+            {% elif prev == 'normal' %}
+              {% set t_c = t_c - h %}
+              {% set t_e = t_e + h %}
+            {% elif prev == 'expensive' %}
+              {% set t_e = t_e - h %}
+              {% set t_ve = t_ve + h %}
+            {% elif prev == 'very_expensive' %}
+              {% set t_ve = t_ve - h %}
+            {% endif %}
+            
+            {% if x <= t_vc %}very_cheap
+            {% elif x <= t_c %}cheap
+            {% elif x < t_e %}normal
+            {% elif x <= t_ve %}expensive
+            {% else %}very_expensive
+            {% endif %}
+          {% endif %}
+        
+        attributes:
+          current_price: "{{ states('sensor.elpris_total_inkl_avgifter_moms') | float(0) }}"
+          today_min: "{{ state_attr('sensor.elpris_total_inkl_avgifter_moms', 'min') | float(0) }}"
+          today_max: "{{ state_attr('sensor.elpris_total_inkl_avgifter_moms', 'max') | float(0) }}"
+          normalized_0_1: >
+            {% set price = states('sensor.elpris_total_inkl_avgifter_moms') | float(0) %}
+            {% set pmin = state_attr('sensor.elpris_total_inkl_avgifter_moms', 'min') | float(price) %}
+            {% set pmax = state_attr('sensor.elpris_total_inkl_avgifter_moms', 'max') | float(price) %}
+            {% set span = pmax - pmin %}
+            {{ ((price - pmin) / span) | round(3) if span > 0 else 0.5 }}
+          thresholds: "vc:0.15, c:0.35, e:0.65, ve:0.85"
+          hysteresis: "±0.02"
+
+###############################################################################
+## 4. HJÄLPSENSORER - Binära statusar
+###############################################################################
+
   - binary_sensor:
-      - name: "SVOTC Comfort guard active"
-        unique_id: svotc_comfort_guard_active
+      ###########################################################################
+      # Elpris OK: True när priset är lågt OCH temperaturen är mild
+      # Användbart för automationer som vill dra nytta av billig el
+      ###########################################################################
+      - name: "Elpris OK"
+        unique_id: elpris_ok
         state: >
-          {% set enabled = is_state('input_boolean.svotc_comfort_guard_enabled','on') %}
-          {% if not enabled %}
-            false
-          {% else %}
-            {% set mode = states('input_select.svotc_mode') %}
-            {% set indoor = states('sensor.svotc_src_indoor') | float(none) %}
-            {% set target = states('sensor.svotc_dynamic_target_temperature') | float(none) %}
-            {% set activate_below = 0.8 if mode == 'Simple' else (states('input_number.svotc_comfort_guard_activate_below_c') | float(1.0)) %}
-            {% set deactivate_above = 0.3 if mode == 'Simple' else (states('input_number.svotc_comfort_guard_deactivate_above_c') | float(0.4)) %}
-            {% set was_on = is_state('binary_sensor.svotc_comfort_guard_active','on') %}
-            {% if indoor is not number or target is not number %}
-              {{ was_on }}
-            {% else %}
-              {% set activate_threshold = target - activate_below %}
-              {% set deactivate_threshold = target - deactivate_above %}
-              {{ indoor < deactivate_threshold if was_on else indoor < activate_threshold }}
-            {% endif %}
-          {% endif %}
-
-      - name: "SVOTC Inputs healthy"
-        unique_id: svotc_inputs_healthy
+          {% set k = states('sensor.elpriskoefficient') | float(none) %}
+          {{ (k is not none) and (k < 1.0) }}
+      ###########################################################################
+      # Kort peak nu: True under korta pristoppar (koefficient >= 1.0)
+      # Användbart för att pausa icke-kritisk förbrukning
+      ###########################################################################
+      - name: "Kort peak nu"
+        unique_id: kort_peak_nu
         state: >
-          {{ states('sensor.svotc_src_indoor') not in ['unknown','unavailable','none','']
-             and states('sensor.svotc_src_outdoor') not in ['unknown','unavailable','none',''] }}
-
-      - name: "SVOTC Price available"
-        unique_id: svotc_price_available
-        state: >
-          {{ states('sensor.svotc_src_current_price') not in ['unknown','unavailable','none',''] }}
+          {% set k = states('sensor.elpriskoefficient') | float(none) %}
+          {% set entries = state_attr('sensor.elpris_total_inkl_avgifter_moms', 'raw_today') or [] %}
+          {{ (k is not none) and (entries | length > 2) and (k >= 1.0) }}
 
 ###############################################################################
-## 3. STATE MACHINES & CONTROL LOGIC
-###############################################################################
-
-automation:
-  #--- Price Dwell State Machine ---
-  - alias: "SVOTC Price dwell"
-    id: svotc_price_dwell
-    mode: single
-    trigger:
-      - platform: time_pattern
-        minutes: "/1"
-      - platform: state
-        entity_id: sensor.svotc_raw_price_state
-
-    action:
-      - variables:
-          raw: "{{ states('sensor.svotc_raw_price_state') }}"
-          stable: "{{ states('input_text.svotc_last_price_state') }}"
-          pending: "{{ states('input_text.svotc_pending_price_state') }}"
-
-      - condition: "{{ raw not in ['unknown','unavailable','none',''] }}"
-
-      - choose:
-          - conditions: "{{ raw != pending }}"
-            sequence:
-              - service: input_text.set_value
-                target:
-                  entity_id: input_text.svotc_pending_price_state
-                data:
-                  value: "{{ raw }}"
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: input_datetime.svotc_last_price_state_changed
-                data:
-                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-
-      - variables:
-          ts: "{{ as_timestamp(states('input_datetime.svotc_last_price_state_changed'), default=none) }}"
-          elapsed_min: "{{ ((as_timestamp(now()) - ts) / 60) if ts is number else 999 }}"
-          dwell_map:
-            cheap_neutral: "{{ states('input_number.svotc_price_dwell_cheap_to_neutral_min') | float(0) }}"
-            neutral_brake: "{{ states('input_number.svotc_price_dwell_neutral_to_brake_min') | float(0) }}"
-            brake_neutral: "{{ states('input_number.svotc_price_dwell_brake_to_neutral_min') | float(0) }}"
-            neutral_cheap: "{{ states('input_number.svotc_price_dwell_neutral_to_cheap_min') | float(0) }}"
-          dwell_needed: >
-            {% if stable == 'cheap' and pending == 'neutral' %}
-              {{ dwell_map.cheap_neutral }}
-            {% elif stable == 'neutral' and pending == 'brake' %}
-              {{ dwell_map.neutral_brake }}
-            {% elif stable == 'brake' and pending == 'neutral' %}
-              {{ dwell_map.brake_neutral }}
-            {% elif stable == 'neutral' and pending == 'cheap' %}
-              {{ dwell_map.neutral_cheap }}
-            {% else %}
-              0
-            {% endif %}
-
-      - choose:
-          - conditions: >
-              {{ pending not in ['unknown','unavailable','none','']
-                 and pending != stable
-                 and elapsed_min >= dwell_needed }}
-            sequence:
-              - service: input_text.set_value
-                target:
-                  entity_id: input_text.svotc_last_price_state
-                data:
-                  value: "{{ pending }}"
-
-  #--- Brake Phase Controller ---
-  - alias: "SVOTC Brake phase controller"
-    id: svotc_brake_phase_controller
-    mode: single
-    trigger:
-      - platform: time_pattern
-        minutes: "/1"
-      - platform: state
-        entity_id:
-          - input_text.svotc_last_price_state
-          - input_text.svotc_brake_phase
-
-    action:
-      - variables:
-          price_state: "{{ states('input_text.svotc_last_price_state') }}"
-          phase: "{{ states('input_text.svotc_brake_phase') }}"
-          phase_ts: "{{ as_timestamp(states('input_datetime.svotc_brake_phase_changed'), default=none) }}"
-          elapsed_min: "{{ ((as_timestamp(now()) - phase_ts) / 60) if phase_ts is number else 999 }}"
-          rampup: "{{ states('input_number.svotc_brake_rampup_duration_min') | float(30) }}"
-          hold_min: "{{ states('input_number.svotc_brake_hold_duration_min') | float(1) }}"
-          rampdown: "{{ states('input_number.svotc_brake_rampdown_duration_min') | float(45) }}"
-
-      - choose:
-          # Brake state transitions
-          - conditions: "{{ price_state == 'brake' and phase == 'idle' }}"
-            sequence:
-              - service: input_text.set_value
-                target: { entity_id: input_text.svotc_brake_phase }
-                data: { value: "ramping_up" }
-              - service: input_datetime.set_datetime
-                target: { entity_id: input_datetime.svotc_brake_phase_changed }
-                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
-
-          - conditions: "{{ price_state == 'brake' and phase == 'ramping_down' }}"
-            sequence:
-              - service: input_text.set_value
-                target: { entity_id: input_text.svotc_brake_phase }
-                data: { value: "ramping_up" }
-              - service: input_datetime.set_datetime
-                target: { entity_id: input_datetime.svotc_brake_phase_changed }
-                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
-
-          - conditions: "{{ price_state == 'brake' and phase == 'ramping_up' and elapsed_min >= rampup }}"
-            sequence:
-              - service: input_text.set_value
-                target: { entity_id: input_text.svotc_brake_phase }
-                data: { value: "holding" }
-              - service: input_datetime.set_datetime
-                target: { entity_id: input_datetime.svotc_brake_phase_changed }
-                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
-
-          # Non-brake transitions
-          - conditions: "{{ price_state != 'brake' and phase == 'holding' and elapsed_min < hold_min }}"
-            sequence: []
-
-          - conditions: "{{ price_state != 'brake' and phase in ['ramping_up','holding'] }}"
-            sequence:
-              - service: input_text.set_value
-                target: { entity_id: input_text.svotc_brake_phase }
-                data: { value: "ramping_down" }
-              - service: input_datetime.set_datetime
-                target: { entity_id: input_datetime.svotc_brake_phase_changed }
-                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
-
-          - conditions: "{{ price_state != 'brake' and phase == 'ramping_down' and elapsed_min >= rampdown }}"
-            sequence:
-              - service: input_text.set_value
-                target: { entity_id: input_text.svotc_brake_phase }
-                data: { value: "idle" }
-              - service: input_datetime.set_datetime
-                target: { entity_id: input_datetime.svotc_brake_phase_changed }
-                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
-
-  #--- Main Engine ---
-  - alias: "SVOTC Engine"
-    id: svotc_engine
-    mode: single
-    trigger:
-      - platform: homeassistant
-        event: start
-      - platform: time_pattern
-        minutes: "/2"
-      - platform: state
-        entity_id:
-          - input_select.svotc_mode
-          - sensor.svotc_prebrake_strength
-          - binary_sensor.svotc_comfort_guard_active
-          - input_boolean.svotc_comfort_guard_enabled
-          - input_number.svotc_brake_hold_offset_c
-          - input_number.svotc_heat_aggressiveness
-          - input_number.svotc_max_delta_per_step_c
-          - input_number.svotc_learned_brake_efficiency
-          - binary_sensor.svotc_price_available
-
-    variables:
-      last_run_ts: "{{ as_timestamp(states('input_datetime.svotc_engine_last_run'), default=0) }}"
-      now_ts: "{{ as_timestamp(now()) }}"
-      since_last_s: "{{ now_ts - last_run_ts }}"
-      mode: "{{ states('input_select.svotc_mode') }}"
-      healthy: "{{ is_state('binary_sensor.svotc_inputs_healthy','on') }}"
-      pre: "{{ states('sensor.svotc_prebrake_strength') | float(0) }}"
-
-      guard: >
-        {{ is_state('binary_sensor.svotc_comfort_guard_active','on')
-           and is_state('input_boolean.svotc_comfort_guard_enabled','on') }}
-
-      hold_offset: >
-        {% set base = 3.0 if mode == 'Simple' else (states('input_number.svotc_brake_hold_offset_c') | float(0)) %}
-        {% set eff = states('input_number.svotc_learned_brake_efficiency') | float(1.0) %}
-        {{ (base * eff) | round(2) }}
-
-      heat_aggr: "{{ 2 if mode == 'Simple' else (states('input_number.svotc_heat_aggressiveness') | int(0)) }}"
-      max_delta: "{{ 0.10 if mode == 'Simple' else (states('input_number.svotc_max_delta_per_step_c') | float(0.2)) }}"
-
-      price_ok: "{{ is_state('binary_sensor.svotc_price_available','on') }}"
-      ttn: "{{ states('sensor.svotc_minutes_to_next_brake_start') | float(999) }}"
-
-      # Prisdata "redo" = vi har pris + percentiler. Forward-look får vara none.
-      price_ready: >
-        {{ price_ok
-           and states('sensor.svotc_p30') not in ['unknown','unavailable','none','']
-           and states('sensor.svotc_p80') not in ['unknown','unavailable','none',''] }}
-
-      # Frys bara om priset faktiskt saknas (inputs hanteras tidigare).
-      freeze_price: >
-        {{ healthy and mode in ['Smart','Simple'] and (not guard) and (not price_ok) }}
-
-      comfort_term: >
-        {% if mode in ['Off','PassThrough'] %}
-          0
-        {% elif mode in ['Smart','Simple','ComfortOnly'] and guard %}
-          {{ -(heat_aggr * 0.4) }}
-        {% else %}
-          0
-        {% endif %}
-
-      price_term: >
-        {% if mode not in ['Smart','Simple'] or guard %}
-          0
-        {% else %}
-          {{ hold_offset * pre }}
-        {% endif %}
-
-      req_limits: >
-        {{ {'min': state_attr('input_number.svotc_requested_offset_c','min') | float(-10),
-            'max': state_attr('input_number.svotc_requested_offset_c','max') | float(10)} }}
-
-      app_limits: >
-        {{ {'min': state_attr('input_number.svotc_applied_offset_c','min') | float(-10),
-            'max': state_attr('input_number.svotc_applied_offset_c','max') | float(10)} }}
-
-      requested_calc: "{{ (comfort_term + price_term) | clamp(req_limits.min, req_limits.max) | round(2) }}"
-      prev_req: "{{ states('input_number.svotc_requested_offset_c') | float(0) }}"
-      requested: "{{ prev_req | round(2) if freeze_price else requested_calc }}"
-
-      prev_applied: "{{ states('input_number.svotc_applied_offset_c') | float(requested) }}"
-      delta: "{{ requested - prev_applied }}"
-
-      next_applied: >
-        {% if freeze_price %}
-          {{ prev_applied | round(2) }}
-        {% else %}
-          {% if delta > max_delta %}
-            {{ (prev_applied + max_delta) | clamp(app_limits.min, app_limits.max) | round(2) }}
-          {% elif delta < -max_delta %}
-            {{ (prev_applied - max_delta) | clamp(app_limits.min, app_limits.max) | round(2) }}
-          {% else %}
-            {{ requested | clamp(app_limits.min, app_limits.max) | round(2) }}
-          {% endif %}
-        {% endif %}
-
-      reason: >
-        {% if mode == 'Off' %}OFF
-        {% elif not healthy %}MISSING_INPUTS_FREEZE
-        {% elif mode == 'PassThrough' %}PASS_THROUGH
-        {% elif freeze_price %}PRICE_DATA_WARMUP_FREEZE
-        {% elif guard and pre > 0 and mode in ['Smart','Simple'] %}MCP_BLOCKS_BRAKE
-        {% elif guard %}COMFORT_GUARD
-        {% elif pre > 0 and mode in ['Smart','Simple'] %}PRICE_BRAKE
-        {% elif mode == 'ComfortOnly' %}COMFORT_ONLY
-        {% else %}NEUTRAL
-        {% endif %}
-
-    action:
-      - condition: "{{ since_last_s >= 30 }}"
-
-      - service: input_datetime.set_datetime
-        target:
-          entity_id: input_datetime.svotc_engine_last_run
-        data:
-          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-
-      - choose:
-          - conditions: "{{ not healthy and mode in ['Smart','Simple','ComfortOnly'] }}"
-            sequence:
-              - service: input_number.set_value
-                target:
-                  entity_id: input_number.svotc_requested_offset_c
-                data:
-                  value: 0
-              - service: input_text.set_value
-                target:
-                  entity_id: input_text.svotc_reason_code
-                data:
-                  value: "MISSING_INPUTS_FREEZE"
-              - stop: "Inputs not healthy"
-
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.svotc_requested_offset_c
-        data:
-          value: "{{ requested }}"
-
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.svotc_applied_offset_c
-        data:
-          value: "{{ next_applied }}"
-
-      - service: input_text.set_value
-        target:
-          entity_id: input_text.svotc_reason_code
-        data:
-          value: "{{ reason }}"
-
-  #--- Learning: Comfort Violation Tracker ---
-  - alias: "SVOTC Learning: comfort violations"
-    id: svotc_learning_comfort_violations
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.svotc_comfort_guard_active
-        to: "on"
-    action:
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.svotc_comfort_violations_24h
-        data:
-          value: "{{ states('input_number.svotc_comfort_violations_24h') | float(0) + 1 }}"
-
-  #--- Learning: Daily Adaptation ---
-  - alias: "SVOTC Learning: daily reset"
-    id: svotc_learning_reset_daily
-    mode: single
-    trigger:
-      - platform: time
-        at: "00:00:00"
-    action:
-      - variables:
-          violations: "{{ states('input_number.svotc_comfort_violations_24h') | float(0) }}"
-          current_eff: "{{ states('input_number.svotc_learned_brake_efficiency') | float(1.0) }}"
-
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.svotc_learned_brake_efficiency
-        data:
-          value: >
-            {% if violations > 5 %}
-              {{ (current_eff - 0.05) | clamp(0.5, 1.5) | round(2) }}
-            {% elif violations < 2 %}
-              {{ (current_eff + 0.02) | clamp(0.5, 1.5) | round(2) }}
-            {% else %}
-              {{ current_eff }}
-            {% endif %}
-
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.svotc_comfort_violations_24h
-        data:
-          value: 0
-
-  #--- Notifications ---
-  - alias: "SVOTC Notify: system status"
-    id: svotc_notify_missing_inputs_price_delayed
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.svotc_inputs_healthy
-        to: "off"
-        for:
-          minutes: 3
-      - platform: state
-        entity_id: binary_sensor.svotc_price_available
-        to: "off"
-        for:
-          minutes: 3
-      - platform: template
-        for:
-          minutes: 2
-        value_template: >
-          {{ is_state('binary_sensor.svotc_inputs_healthy','on')
-             and is_state('binary_sensor.svotc_price_available','on') }}
-      - platform: state
-        entity_id: input_boolean.svotc_comfort_guard_enabled
-        to: "off"
-        for:
-          minutes: 5
-
-    action:
-      - variables:
-          notify_svc: >
-            {% set s = states('input_text.svotc_notify_service') %}
-            {{ s if s not in ['unknown','unavailable',''] else 'notify.notify' }}
-          inputs_ok: "{{ is_state('binary_sensor.svotc_inputs_healthy', 'on') }}"
-          price_ok: "{{ is_state('binary_sensor.svotc_price_available', 'on') }}"
-          guard_enabled: "{{ is_state('input_boolean.svotc_comfort_guard_enabled', 'on') }}"
-
-      - choose:
-          - conditions: "{{ trigger.entity_id == 'input_boolean.svotc_comfort_guard_enabled' and not guard_enabled }}"
-            sequence:
-              - service: "{{ notify_svc }}"
-                data:
-                  title: "SVOTC: Comfort Guard OFF"
-                  message: >
-                    Comfort Guard disabled for 5+ minutes.
-                    Indoor temp may drop during expensive hours.
-                    Mode: {{ states('input_select.svotc_mode') }},
-                    Indoor: {{ states('sensor.svotc_src_indoor') }}°C
-
-          - conditions: "{{ not inputs_ok or not price_ok }}"
-            sequence:
-              - service: "{{ notify_svc }}"
-                data:
-                  title: "SVOTC: Missing data"
-                  message: >
-                    Inputs: {{ 'OK' if inputs_ok else 'FAIL' }},
-                    Price: {{ 'OK' if price_ok else 'FAIL' }}
-
-          - conditions: "{{ inputs_ok and price_ok }}"
-            sequence:
-              - service: "{{ notify_svc }}"
-                data:
-                  title: "SVOTC: OK"
-                  message: "System recovered. All sensors healthy."
-
-  #--- Startup Initialization ---
-  - alias: "SVOTC Startup"
-    id: svotc_startup_init
-    mode: single
-    trigger:
-      - platform: homeassistant
-        event: start
-
-    action:
-      - choose:
-          - conditions: "{{ states('input_datetime.svotc_last_price_state_changed') in ['unknown','unavailable'] }}"
-            sequence:
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: input_datetime.svotc_last_price_state_changed
-                data:
-                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-
-      - choose:
-          - conditions: "{{ states('input_datetime.svotc_brake_phase_changed') in ['unknown','unavailable'] }}"
-            sequence:
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: input_datetime.svotc_brake_phase_changed
-                data:
-                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-
-      - choose:
-          - conditions: "{{ states('input_datetime.svotc_engine_last_run') in ['unknown','unavailable'] }}"
-            sequence:
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: input_datetime.svotc_engine_last_run
-                data:
-                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-
-      - variables:
-          current_eff: "{{ states('input_number.svotc_learned_brake_efficiency') | float(1.0) }}"
-
-      - choose:
-          - conditions: "{{ current_eff < 0.5 or current_eff > 1.5 }}"
-            sequence:
-              - service: input_number.set_value
-                target:
-                  entity_id: input_number.svotc_learned_brake_efficiency
-                data:
-                  value: 1.0
-
-###############################################################################
-## END OF FILE
+## ANVÄNDNINGSEXEMPEL
+##
+## 1. SVOTC Integration:
+##    input_text.svotc_entity_price: sensor.elpris_total_inkl_avgifter_moms
+##
+## 2. Automation med price band:
+##    trigger:
+##      - platform: state
+##        entity_id: sensor.nordpool_price_band
+##        to: 'very_cheap'
+##    action:
+##      - service: switch.turn_on
+##        target:
+##          entity_id: switch.varmvattenberedare
+##
+## 3. Automation med koefficient:
+##    condition:
+##      - condition: numeric_state
+##        entity_id: sensor.elpriskoefficient
+##        below: 0.8
+##    action:
+##      - service: climate.set_temperature
+##        target:
+##          entity_id: climate.vardagsrum
+##        data:
+##          temperature: 22
+##
 ###############################################################################
