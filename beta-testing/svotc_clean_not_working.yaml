@@ -1,30 +1,6 @@
 ###############################################################################
 ## SVOTC – Stable Core Edition + Adaptive Learning (2026-02-15)
 ## Made By Johan Ä + AI Enhancements
-##
-## CLEANED VERSION - Improvements:
-##   - Removed redundant comments and repetitive documentation
-##   - Consolidated similar logic patterns
-##   - Improved variable naming for clarity
-##   - Optimized template expressions
-##   - Removed unnecessary namespace declarations
-##   - Streamlined automation conditions
-##   - Better organized helper groups
-##
-## CONTENTS:
-##   1. UI Controls & Configuration
-##   2. Sensors & Monitoring
-##   3. State Machines & Control Logic
-##
-## QUICK START:
-##   1. Set these three entity mappings:
-##      - input_text.svotc_entity_indoor  (your indoor temp sensor)
-##      - input_text.svotc_entity_outdoor (your outdoor temp sensor)
-##      - input_text.svotc_entity_price   (your Nordpool sensor)
-##   2. (Optional) Set input_text.svotc_notify_service for notifications
-##   3. Restart Home Assistant
-##   4. Set svotc_mode to "Smart"
-##
 ###############################################################################
 
 ###############################################################################
@@ -520,8 +496,8 @@ template:
       - name: "SVOTC Inputs healthy"
         unique_id: svotc_inputs_healthy
         state: >
-          {{ states('sensor.svotc_src_indoor') not in ['unknown','unavailable','none',''] 
-          and states('sensor.svotc_src_outdoor') not in ['unknown','unavailable','none',''] }}
+          {{ states('sensor.svotc_src_indoor') not in ['unknown','unavailable','none','']
+             and states('sensor.svotc_src_outdoor') not in ['unknown','unavailable','none',''] }}
 
       - name: "SVOTC Price available"
         unique_id: svotc_price_available
@@ -588,8 +564,8 @@ automation:
 
       - choose:
           - conditions: >
-              {{ pending not in ['unknown','unavailable','none',''] 
-                 and pending != stable 
+              {{ pending not in ['unknown','unavailable','none','']
+                 and pending != stable
                  and elapsed_min >= dwell_needed }}
             sequence:
               - service: input_text.set_value
@@ -625,29 +601,29 @@ automation:
           - conditions: "{{ price_state == 'brake' and phase == 'idle' }}"
             sequence:
               - service: input_text.set_value
-                target: {entity_id: input_text.svotc_brake_phase}
-                data: {value: "ramping_up"}
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "ramping_up" }
               - service: input_datetime.set_datetime
-                target: {entity_id: input_datetime.svotc_brake_phase_changed}
-                data: {datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"}
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
 
           - conditions: "{{ price_state == 'brake' and phase == 'ramping_down' }}"
             sequence:
               - service: input_text.set_value
-                target: {entity_id: input_text.svotc_brake_phase}
-                data: {value: "ramping_up"}
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "ramping_up" }
               - service: input_datetime.set_datetime
-                target: {entity_id: input_datetime.svotc_brake_phase_changed}
-                data: {datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"}
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
 
           - conditions: "{{ price_state == 'brake' and phase == 'ramping_up' and elapsed_min >= rampup }}"
             sequence:
               - service: input_text.set_value
-                target: {entity_id: input_text.svotc_brake_phase}
-                data: {value: "holding"}
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "holding" }
               - service: input_datetime.set_datetime
-                target: {entity_id: input_datetime.svotc_brake_phase_changed}
-                data: {datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"}
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
 
           # Non-brake transitions
           - conditions: "{{ price_state != 'brake' and phase == 'holding' and elapsed_min < hold_min }}"
@@ -656,20 +632,20 @@ automation:
           - conditions: "{{ price_state != 'brake' and phase in ['ramping_up','holding'] }}"
             sequence:
               - service: input_text.set_value
-                target: {entity_id: input_text.svotc_brake_phase}
-                data: {value: "ramping_down"}
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "ramping_down" }
               - service: input_datetime.set_datetime
-                target: {entity_id: input_datetime.svotc_brake_phase_changed}
-                data: {datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"}
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
 
           - conditions: "{{ price_state != 'brake' and phase == 'ramping_down' and elapsed_min >= rampdown }}"
             sequence:
               - service: input_text.set_value
-                target: {entity_id: input_text.svotc_brake_phase}
-                data: {value: "idle"}
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "idle" }
               - service: input_datetime.set_datetime
-                target: {entity_id: input_datetime.svotc_brake_phase_changed}
-                data: {datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"}
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
 
   #--- Main Engine ---
   - alias: "SVOTC Engine"
@@ -699,23 +675,32 @@ automation:
       mode: "{{ states('input_select.svotc_mode') }}"
       healthy: "{{ is_state('binary_sensor.svotc_inputs_healthy','on') }}"
       pre: "{{ states('sensor.svotc_prebrake_strength') | float(0) }}"
+
       guard: >
         {{ is_state('binary_sensor.svotc_comfort_guard_active','on')
            and is_state('input_boolean.svotc_comfort_guard_enabled','on') }}
+
       hold_offset: >
         {% set base = 3.0 if mode == 'Simple' else (states('input_number.svotc_brake_hold_offset_c') | float(0)) %}
         {% set eff = states('input_number.svotc_learned_brake_efficiency') | float(1.0) %}
         {{ (base * eff) | round(2) }}
+
       heat_aggr: "{{ 2 if mode == 'Simple' else (states('input_number.svotc_heat_aggressiveness') | int(0)) }}"
       max_delta: "{{ 0.10 if mode == 'Simple' else (states('input_number.svotc_max_delta_per_step_c') | float(0.2)) }}"
+
       price_ok: "{{ is_state('binary_sensor.svotc_price_available','on') }}"
       ttn: "{{ states('sensor.svotc_minutes_to_next_brake_start') | float(999) }}"
+
+      # Prisdata "redo" = vi har pris + percentiler. Forward-look får vara none.
       price_ready: >
-        {{ price_ok 
-           and ttn < 900 
+        {{ price_ok
            and states('sensor.svotc_p30') not in ['unknown','unavailable','none','']
            and states('sensor.svotc_p80') not in ['unknown','unavailable','none',''] }}
-      freeze_price: "{{ healthy and mode in ['Smart','Simple'] and (not guard) and (not price_ready) }}"
+
+      # Frys bara om priset faktiskt saknas (inputs hanteras tidigare).
+      freeze_price: >
+        {{ healthy and mode in ['Smart','Simple'] and (not guard) and (not price_ok) }}
+
       comfort_term: >
         {% if mode in ['Off','PassThrough'] %}
           0
@@ -724,23 +709,29 @@ automation:
         {% else %}
           0
         {% endif %}
+
       price_term: >
         {% if mode not in ['Smart','Simple'] or guard %}
           0
         {% else %}
           {{ hold_offset * pre }}
         {% endif %}
+
       req_limits: >
         {{ {'min': state_attr('input_number.svotc_requested_offset_c','min') | float(-10),
             'max': state_attr('input_number.svotc_requested_offset_c','max') | float(10)} }}
+
       app_limits: >
         {{ {'min': state_attr('input_number.svotc_applied_offset_c','min') | float(-10),
             'max': state_attr('input_number.svotc_applied_offset_c','max') | float(10)} }}
+
       requested_calc: "{{ (comfort_term + price_term) | clamp(req_limits.min, req_limits.max) | round(2) }}"
       prev_req: "{{ states('input_number.svotc_requested_offset_c') | float(0) }}"
       requested: "{{ prev_req | round(2) if freeze_price else requested_calc }}"
+
       prev_applied: "{{ states('input_number.svotc_applied_offset_c') | float(requested) }}"
       delta: "{{ requested - prev_applied }}"
+
       next_applied: >
         {% if freeze_price %}
           {{ prev_applied | round(2) }}
@@ -753,6 +744,7 @@ automation:
             {{ requested | clamp(app_limits.min, app_limits.max) | round(2) }}
           {% endif %}
         {% endif %}
+
       reason: >
         {% if mode == 'Off' %}OFF
         {% elif not healthy %}MISSING_INPUTS_FREEZE
@@ -815,7 +807,6 @@ automation:
       - platform: state
         entity_id: binary_sensor.svotc_comfort_guard_active
         to: "on"
-
     action:
       - service: input_number.set_value
         target:
@@ -830,7 +821,6 @@ automation:
     trigger:
       - platform: time
         at: "00:00:00"
-
     action:
       - variables:
           violations: "{{ states('input_number.svotc_comfort_violations_24h') | float(0) }}"
