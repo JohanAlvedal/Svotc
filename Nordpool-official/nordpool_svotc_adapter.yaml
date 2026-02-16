@@ -157,7 +157,7 @@ template:
               {% break %}
             {% endif %}
           {% endfor %}
-          {{ ns.v if ns.v is not none else 'unavailable' }}
+          {{ ns.v if ns.v is not none else none }}
 
       ###########################################################################
       # Totalpris (spot + elhandel + nät + moms)
@@ -195,7 +195,7 @@ template:
               {% break %}
             {% endif %}
           {% endfor %}
-          {{ ns.v | round(3) if ns.v is not none else 'unavailable' }}
+          {{ ns.v | round(3) if ns.v is not none else none }}
 
         attributes:
           unit: kWh
@@ -226,7 +226,7 @@ template:
                 {% break %}
               {% endif %}
             {% endfor %}
-            {{ ns.p if ns.p is not none else 'unavailable' }}
+            {{ ns.p if ns.p is not none else none }}
 
           # Min/max för dagens priser
           min: >
@@ -243,7 +243,7 @@ template:
               {% set nat = (nat_overf + nat_skatt) * nat_moms %}
               {{ (elhandel + nat) | round(3) }}
             {% else %}
-              unavailable
+              {{ none }}
             {% endif %}
 
           max: >
@@ -260,7 +260,7 @@ template:
               {% set nat = (nat_overf + nat_skatt) * nat_moms %}
               {{ (elhandel + nat) | round(3) }}
             {% else %}
-              unavailable
+              {{ none }}
             {% endif %}
 
           # SVOTC-REQUIRED: raw_today och raw_tomorrow med start/end/value
@@ -327,31 +327,33 @@ template:
         unique_id: elpris_total_slim
         device_class: monetary
         unit_of_measurement: "SEK/kWh"
-        state_class: total
+        state_class: measurement
         icon: mdi:chart-line
         availability: >
           {{ states('sensor.elpris_total_inkl_avgifter_moms') not in ['unknown','unavailable','none',''] }}
         state: >
-          {{ states('sensor.elpris_total_inkl_avgifter_moms') | float(none) | round(3) }}
-
+          {{ states('sensor.elpris_total_inkl_avgifter_moms') | float(none) }}
       ###########################################################################
       # Elpriskoefficient: Dynamisk prisnivå relativt dagsspann
       # <1.0 = billigt, >1.0 = dyrt
       ###########################################################################
       - name: "Elpriskoefficient"
         unique_id: elpriskoefficient
-        unit_of_measurement: ""
+        state_class: measurement
         state: >
           {% set price = states('sensor.elpris_total_inkl_avgifter_moms') | float(none) %}
           {% set pmax  = state_attr('sensor.elpris_total_inkl_avgifter_moms', 'max') | float(none) %}
           {% set pmin  = state_attr('sensor.elpris_total_inkl_avgifter_moms', 'min') | float(none) %}
           {% if price is none or pmax is none or pmin is none or pmax <= 0 %}
-            {{ this.state | default(0) }}
+            {{ this.state | float(0) }}
           {% else %}
             {% set threshold = (pmax - pmin) * (1.3 * (pmax ** -0.7)) * (1 / (1 + pmin * 0.25)) + pmin %}
-            {{ (price / threshold) | round(2) }}
+            {% if threshold <= 0 %}
+              {{ this.state | float(0) }}
+            {% else %}
+              {{ (price / threshold) | round(2) }}
+            {% endif %}
           {% endif %}
-
       ###########################################################################
       # Price band: 5 zoner med hysteresis för stabila övergångar
       # very_cheap → cheap → normal → expensive → very_expensive
@@ -423,7 +425,6 @@ template:
         state: >
           {% set k = states('sensor.elpriskoefficient') | float(none) %}
           {{ (k is not none) and (k < 1.0) }}
-
       ###########################################################################
       # Kort peak nu: True under korta pristoppar (koefficient >= 1.0)
       ###########################################################################
@@ -433,7 +434,6 @@ template:
           {% set k = states('sensor.elpriskoefficient') | float(none) %}
           {% set entries = state_attr('sensor.elpris_total_inkl_avgifter_moms', 'raw_today') or [] %}
           {{ (k is not none) and (entries | length > 2) and (k >= 1.0) }}
-
 ###############################################################################
 ## RECORDER-TIPS (för att slippa 16KB-varningen men behålla raw_today live):
 ##
@@ -441,4 +441,6 @@ template:
 ##   exclude:
 ##     entities:
 ##       - sensor.elpris_total_inkl_avgifter_moms
+##
+## Spela sedan in/grafa: sensor.elpris_total_slim
 ###############################################################################
