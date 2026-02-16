@@ -1,6 +1,12 @@
 ###############################################################################
-## SVOTC – Stable Core Edition + Adaptive Learning (2026-02-15)
+## SVOTC – Stable Core Edition + Adaptive Learning (2026-02-13)
 ## Made By Johan Ä + Claude Enhancements
+##
+## CHANGELOG (2026-02-13):
+##   + Adaptive prebrake window (adjusts for outdoor temp + thermal mass)
+##   + Learning system (auto-adjusts brake efficiency based on comfort violations)
+##   + Optimized percentile calculations (30 min cache instead of 15 min)
+##   + Persistent state handling (all learned values survive restarts)
 ##
 ## CONTENTS:
 ##   1. UI / Controls (Helpers)
@@ -311,26 +317,26 @@ input_text:
   # --- Entity Mapping (Configure your sensors) ---
   svotc_entity_indoor:
     name: "Indoor temperature entity"
- #   initial: ""
+    #initial: ""
     # REQUIRED: Set to your indoor temperature sensor
     # Example: sensor.inomhusmedel
 
   svotc_entity_outdoor:
     name: "Outdoor temperature entity"
-#    initial: ""
+    #initial: ""
     # REQUIRED: Set to your outdoor temperature sensor
     # Example: sensor.temperatur_nu
 
   svotc_entity_price:
     name: "Price entity (Nordpool)"
-#    initial: ""
+   # initial: ""
     # REQUIRED: Set to your electricity price sensor
     # Must provide attributes: current_price + raw_today + raw_tomorrow
     # Example: sensor.nordpool_tibber
 
   svotc_notify_service:
     name: "SVOTC Notify service"
- #   initial: ""
+  #  initial: ""
     # OPTIONAL: Set to your notification service
     # Example: notify.mobile_app_iphone13pro
     # Leave empty to use notify.notify
