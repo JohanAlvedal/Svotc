@@ -559,7 +559,7 @@ template:
           {% set out = states('sensor.svotc_src_outdoor') | float(none) %}
           {% set off = states('input_number.svotc_applied_offset_c') | float(0) %}
           {% if out is number %}
-            {{ (out + off) | clamp(-50, 50) | round(2) }}
+            {{ (out + off) | clamp(-30, 30) | round(2) }}
           {% else %}
             {{ none }}
           {% endif %}
