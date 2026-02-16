@@ -1,61 +1,55 @@
 # SVOTC — Smart Virtual Outdoor Temperature Control
-### Stable Edition + Adaptive Learning (2026)
 
-SVOTC är ett avancerat, självlärande styrsystem för värmepumpar i Home Assistant.  
-Det optimerar värmeproduktion baserat på:
+### Stable Edition (2026)
 
-- **Inomhustemperatur** (komfort)
-- **Nordpool-priser** (15-minuters upplösning)
-- **Husets termiska tröghet**
-- **Förutseende pre-brake-logik**
-- **Lärande algoritm** som justerar aggressivitet över tid
+SVOTC är ett stabilt och förutseende styrsystem för värmepumpar i Home Assistant.
+Det optimerar värmeproduktion genom att kombinera komfortskydd och prislogik, med mjuka övergångar och tydliga förklaringar (reason codes).
 
 Systemet är byggt för att vara:
-- ✅ **Stabilt** — inga oscillationer eller instabila tillstånd
-- ✅ **Förutsägbart** — tydlig logik med full observability
-- ✅ **Självkorrigerande** — lär sig din husets egenskaper
-- ✅ **Enkelt att felsöka** — omfattande diagnostik och reason codes
-- ✅ **Helt autonomt** — kräver minimal inblandning efter setup
+
+* ✅ **Stabilt** — inga oscillationer eller instabila tillstånd
+* ✅ **Förutsägbart** — tydlig logik med full observability
+* ✅ **Självkorrigerande** — via stabiliserande lager (dwell, hysteresis, ramp-limit)
+* ✅ **Enkelt att felsöka** — omfattande diagnostik och reason codes
+* ✅ **Autonomt** — kräver minimal inblandning efter setup
 
 ---
 
-## 🚀 Funktioner
+## Funktioner
 
-### 🔥 Komfortstyrning
-- Håller inomhustemperaturen nära ett mål
-- Komfortskydd aktiveras när temperaturen sjunker för lågt
-- **MCP (Maximum Comfort Priority)** blockerar prisstyrning när komforten hotas
-- Hysteresis förhindrar studsning mellan on/off
+### Komfortstyrning
 
-### ⚡ Prisoptimering
-- Använder **P30/P80-percentiler** för att avgöra billiga/dyra perioder
-- **Pre-brake-logik** för att förvärma innan dyra timmar
-- Adaptiv prebrake-window baserat på utomhustemperatur och termisk massa
-- **Brake-fasmaskin** (ramping up → holding → ramping down) för mjuka övergångar
-- Dwell-timers förhindrar prisfluktuationer från att orsaka instabilitet
+* Håller inomhustemperaturen nära ett mål
+* Komfortskydd aktiveras när temperaturen sjunker för lågt
+* **MCP (Maximum Comfort Priority)** blockerar prisstyrning när komforten hotas
+* Hysteresis förhindrar studsning mellan on/off
 
-### 🧠 Självlärande (BETA)
-- Räknar **komfortavvikelser** automatiskt
-- Justerar **brake-efficiency** varje natt baserat på historik
-- Blir bättre över tid utan manuell tuning
-- Lär sig ditt hus termiska egenskaper
+### Prisoptimering
 
-### 🧩 Modularitet
+* Använder **P30/P80-percentiler** för att avgöra billiga/dyra perioder
+* **Pre-brake-logik** (forward-look) som bygger upp bromsning gradvis innan dyra timmar
+* **Brake-fasmaskin** (ramping up → holding → ramping down) för mjuka övergångar
+* Dwell-timers förhindrar prisfluktuationer från att orsaka instabilitet
+
+### Modularitet
+
 Alla delar är separerade för enkel förståelse och underhåll:
-- **Sensors** — validerade temperaturer och priser
-- **Price dwell** — stabiliserar råa pristillstånd
-- **Brake phase** — fasmaskin för mjuka bromscykler
-- **Engine** — core control loop
-- **Learning** — självjustering
-- **Notify** — diagnostik och varningar
-- **Startup init** — säker initialisering
 
-### 🛡 Stabilitet
-- **Freeze-logik** när prisdata saknas (fortsätter med komfortskydd)
-- **Rate-limiter** för applied offset (förhindrar plötsliga hopp)
-- **Hälsokontroller** för alla inputs
-- **Anti-storm throttling** (max en körning per 30 sekunder)
-- Sanity checks på alla sensorvärden
+* **Sensors** — validerade temperaturer och priser
+* **Price dwell** — stabiliserar råa pristillstånd
+* **Brake phase** — fasmaskin för mjuka bromscykler
+* **Engine** — core control loop
+* **Learning** — självjustering (endast i learning-variant)
+* **Notify** — diagnostik och varningar
+* **Startup init** — säker initialisering (om din variant har den)
+
+### Stabilitet
+
+* **Freeze-logik** när prisdata saknas (komfortskydd fortsätter)
+* **Rate-limiter** för applied offset (förhindrar plötsliga hopp)
+* **Hälsokontroller** för alla inputs
+* **Anti-storm throttling** (max en körning per 30 sekunder, om aktiverat i din variant)
+* Sanity checks på alla sensorvärden
 
 ---
 
@@ -464,23 +458,26 @@ entities:
 
 ---
 
-## 🧠 Lärande (BETA)
+## 🧠 Lärande
 
-SVOTC har en inbyggd **självlärande algoritm** som anpassar systemets beteende.
+SVOTC kan (i learning-varianten) använda en enkel **självjustering** som anpassar bromsningen över tid baserat på hur ofta komfortskyddet behöver ingripa.
 
 ### Hur det fungerar
 
-1. **Varje gång komfortskyddet aktiveras** räknas en "komfortavvikelse"
-2. **Vid midnatt varje natt** analyseras de senaste 24 timmarnas data:
-   - **>5 avvikelser** → Systemet var för aggressivt → **minska brake-efficiency med 0.05**
-   - **<2 avvikelser** → Systemet kan vara mer aggressivt → **öka brake-efficiency med 0.02**
-   - **2–5 avvikelser** → Perfekt balans → **behåll nuvarande värde**
-3. Counter nollställs
-4. Nästa dag använder systemet den justerade effektiviteten
+1. Varje gång **komfortskyddet aktiveras** räknas en “komfortavvikelse”.
+2. Vid **midnatt varje natt** analyseras senaste 24 timmarna:
 
-### Convergence
+   * **>5 avvikelser** → systemet har varit för aggressivt → **minska brake-efficiency med 0.05**
+   * **<2 avvikelser** → systemet kan bromsa mer → **öka brake-efficiency med 0.02**
+   * **2–5 avvikelser** → balans → **behåll nuvarande värde**
+3. Räknaren nollställs.
+4. Nästa dag används den uppdaterade effektiviteten i prisbromsningen.
 
-Systemet konvergerar vanligtvis efter **5–10 dagar** till ett optimalt läge för ditt specifika hus.
+### Konvergens
+
+Systemet brukar stabilisera sig efter några dygn till någon vecka, men tiden varierar beroende på husets tröghet, väder, värmepumpens kurva och elprisernas mönster.
+
+---
 
 ### Manuell överridning
 
@@ -609,26 +606,11 @@ Inputs + price data är stabila igen.
 
 ### Support & Community
 
-**Q: Var hittar jag hjälp?**  
-**A:** 
-- GitHub Issues för buggar och feature requests
-
 **Q: Kan jag bidra?**  
 **A:** Absolut! Pull requests välkomnas för:
 - Buggfixar
 - Dokumentationsförbättringar
 - Översättningar
-
----
-
-### Vilken fil ska jag använda?
-
-| Om du... | Använd... |
-|----------|-----------|
-| Vill förstå hur systemet fungerar | `svotc.annotated.yaml` |
-| Vill köra i produktion | `svotc.clean.yaml` |
-| Vill ha minimal YAML | `svotc.min.yaml` |
-| Behöver integrationssexempel | `EXAMPLES.md` |
 
 ---
 
@@ -674,6 +656,6 @@ SOFTWARE.
 
 ---
 
-**Version:** 2.0.1 (2026-02-15)  
+**Version:** 2.0.1 (2026-02-16)  
 **Senast uppdaterad:** 2026-02-15
 **Licens:** MIT
