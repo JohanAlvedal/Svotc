@@ -441,6 +441,4 @@ template:
 ##   exclude:
 ##     entities:
 ##       - sensor.elpris_total_inkl_avgifter_moms
-##
-## Spela sedan in/grafa: sensor.elpris_total_slim
 ###############################################################################
