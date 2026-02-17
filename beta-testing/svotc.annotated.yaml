@@ -331,8 +331,8 @@ input_text:
     name: "Price entity (Nordpool)"
 #    initial: ""
     # REQUIRED: Set to your electricity price sensor
-    # Must provide attributes: current_price + raw_today + raw_tomorrow
-    # Example: sensor.nordpool_tibber
+    # Must provide attributes: raw_today + raw_tomorrow
+    # Example: sensor.nordpool_xxxx
 
   svotc_notify_service:
     name: "SVOTC Notify service"
