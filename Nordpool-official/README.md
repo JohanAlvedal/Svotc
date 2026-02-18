@@ -121,13 +121,6 @@ After restarting, configure your electricity contract in the helpers:
 | `Elhandel moms (%)`                          | VAT on trading           | 25            |
 | `Elhandel månadsavgift (SEK/månad)` (unused) | Monthly fee (info only)  | 0-50          |
 
-### Grid (Nät)
-| Helper                             | Description             | Typical value |
-| ---------------------------------- | ----------------------- | ------------- |
-| `Nät elöverföring (SEK/kWh)`       | Grid transfer fee       | 0.30-0.50     |
-| `Nät energiskatt (SEK/kWh)`        | Energy tax              | 0.42          |
-| `Nät moms (%)`                     | VAT on grid             | 25            |
-
 **Set these values in the UI:**
 1. Go to **Settings → Devices & services → Helpers**
 2. Search for each helper name
