@@ -1410,7 +1410,7 @@ automation:
   # Fyller i rekommenderade värden om de är tomma eller på default min-värde.
   # ---------------------------------------------------------------------------
   - alias: "SVOTC - Startup Initialization"
-    unique_id: svotc_startup_initialization
+    id: svotc_startup_initialization
     trigger:
       - platform: homeassistant
         event: start
@@ -1421,33 +1421,33 @@ automation:
           # --- Comfort Defaults ---
           - if: "{{ states('input_number.svotc_comfort_temperature') | float(0) == 15.0 }}"
             then:
-              - action: input_number.set_value
+              - service: input_number.set_value
                 target: { entity_id: input_number.svotc_comfort_temperature }
                 data: { value: 21.0 }
 
           - if: "{{ states('input_number.svotc_comfort_guard_activate_below_c') | float(0) == 0.2 }}"
             then:
-              - action: input_number.set_value
+              - service: input_number.set_value
                 target: { entity_id: input_number.svotc_comfort_guard_activate_below_c }
                 data: { value: 0.8 }
 
           # --- Price Control Defaults ---
           - if: "{{ states('input_number.svotc_brake_hold_offset_c') | float(0) == 0.0 }}"
             then:
-              - action: input_number.set_value
+              - service: input_number.set_value
                 target: { entity_id: input_number.svotc_brake_hold_offset_c }
                 data: { value: 6.0 }
 
           - if: "{{ states('input_number.svotc_bridge_hold_window_min') | float(0) == 0.0 }}"
             then:
-              - action: input_number.set_value
+              - service: input_number.set_value
                 target: { entity_id: input_number.svotc_bridge_hold_window_min }
                 data: { value: 90 }
 
           # --- Dwell Time Defaults (8 min) ---
           - if: "{{ states('input_number.svotc_price_dwell_neutral_to_brake_min') | float(0) == 0.0 }}"
             then:
-              - action: input_number.set_value
+              - service: input_number.set_value
                 target:
                   entity_id:
                     - input_number.svotc_price_dwell_cheap_to_neutral_min
@@ -1459,24 +1459,24 @@ automation:
           # --- Brake Phase Duration Defaults ---
           - if: "{{ states('input_number.svotc_brake_rampup_duration_min') | float(0) == 1.0 }}"
             then:
-              - action: input_number.set_value
+              - service: input_number.set_value
                 target: { entity_id: input_number.svotc_brake_rampup_duration_min }
                 data: { value: 20 }
-              - action: input_number.set_value
+              - service: input_number.set_value
                 target: { entity_id: input_number.svotc_brake_hold_duration_min }
                 data: { value: 15 }
-              - action: input_number.set_value
+              - service: input_number.set_value
                 target: { entity_id: input_number.svotc_brake_rampdown_duration_min }
                 data: { value: 25 }
 
           # --- System Protection Defaults ---
           - if: "{{ states('input_number.svotc_max_delta_per_step_c') | float(0) == 0.05 }}"
             then:
-              - action: input_number.set_value
+              - service: input_number.set_value
                 target: { entity_id: input_number.svotc_max_delta_per_step_c }
                 data: { value: 0.20 }
 
-      - action: system_log.write
+      - service: system_log.write
         data:
           level: info
           logger: custom_components.svotc
