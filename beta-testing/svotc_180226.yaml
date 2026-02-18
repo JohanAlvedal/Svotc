@@ -390,7 +390,7 @@ template:
             {{ none }}
           {% else %}
             {% set p = states(ent) | float(none) %}
-            {{ p | round(3) if p is number and -1 <= p <= 20 else none }}
+            {{ p | round(3) if p is number and -2 <= p <= 20 else none }}
           {% endif %}
         availability: >
           {% set ent = states('input_text.svotc_entity_price') %}
