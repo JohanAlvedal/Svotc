@@ -121,13 +121,6 @@ Efter omstart, konfigurera ditt elavtal i hjälparna:
 | `Elhandel moms (%)`                          | Moms på elhandel         | 25            |
 | `Elhandel månadsavgift (SEK/månad)` (oanvänd)| Månadsavgift (bara info) | 0-50          |
 
-### Nät
-| Hjälpare                           | Beskrivning             | Typiskt värde |
-| ---------------------------------- | ----------------------- | ------------- |
-| `Nät elöverföring (SEK/kWh)`       | Nätavgift               | 0.30-0.50     |
-| `Nät energiskatt (SEK/kWh)`        | Energiskatt             | 0.42          |
-| `Nät moms (%)`                     | Moms på nät             | 25            |
-
 **Ange dessa värden i gränssnittet:**
 1. Gå till **Inställningar → Enheter & tjänster → Hjälpare**
 2. Sök efter varje hjälpare
