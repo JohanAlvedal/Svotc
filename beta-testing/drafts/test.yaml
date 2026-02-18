@@ -1037,6 +1037,10 @@ automation:
            and pre == 0
            and price_state != 'brake' }}
 
+      # NEW: when user selects Off / PassThrough / ComfortOnly -> snap applied immediately
+      # (no ramp-down, no freeze linger)
+      force_instant: "{{ mode in ['Off','PassThrough','ComfortOnly'] }}"
+
       req_min: "{{ state_attr('input_number.svotc_requested_offset_c','min') | float(-10) }}"
       req_max: "{{ state_attr('input_number.svotc_requested_offset_c','max') | float(10) }}"
       app_min: "{{ state_attr('input_number.svotc_applied_offset_c','min') | float(-10) }}"
@@ -1056,7 +1060,7 @@ automation:
       prev_req: "{{ states('input_number.svotc_requested_offset_c') | float(0) }}"
 
       requested: >
-        {% if freeze_price %}
+        {% if freeze_price and (not force_instant) %}
           {{ prev_req | round(2) }}
         {% else %}
           {{ requested_calc }}
@@ -1066,7 +1070,9 @@ automation:
       delta: "{{ requested - prev_applied }}"
 
       next_applied: >
-        {% if freeze_price %}
+        {% if force_instant %}
+          {{ requested | clamp(app_min, app_max) | round(2) }}
+        {% elif freeze_price %}
           {{ prev_applied | round(2) }}
         {% elif delta > max_delta %}
           {{ (prev_applied + max_delta) | clamp(app_min, app_max) | round(2) }}
@@ -1107,6 +1113,11 @@ automation:
               - service: input_number.set_value
                 target:
                   entity_id: input_number.svotc_requested_offset_c
+                data:
+                  value: 0
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.svotc_applied_offset_c
                 data:
                   value: 0
               - service: input_text.set_value
