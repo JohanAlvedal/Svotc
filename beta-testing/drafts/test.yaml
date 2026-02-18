@@ -102,7 +102,7 @@ input_select:
   svotc_mode:
     name: "SVOTC Mode"
     options: ["Off", "Smart", "Simple", "PassThrough", "ComfortOnly"]
-    initial: "Smart"
+#    initial: "Smart"
     # Off          - System disabled, no offset applied
     # Smart        - Full automatic control (comfort + price)
     # Simple       - Ngenic-style preset
@@ -116,7 +116,7 @@ input_number:
     min: 15
     max: 25
     step: 0.1
-    initial: 21.0
+    #initial: 21.0
     mode: box
     # Target indoor temperature for comfort guard
 
@@ -174,7 +174,7 @@ input_number:
     min: 0
     max: 20
     step: 0.5
-    initial: 6.0
+#    initial: 6.0
     mode: box
     # Maximum offset during expensive periods (positive = less heat)
 
