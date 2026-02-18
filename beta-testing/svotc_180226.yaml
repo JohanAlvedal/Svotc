@@ -2,102 +2,47 @@
 ## SVOTC – Beta Core Edition (18-02-26V2)
 ## Made By Johan Ä + AI Enhancements
 ##
-## CONTENTS (searchable anchors):
+## INDEX (Ctrl+F tags: @1, @2, @3, @INSTALL, @TUNING)
+##   @1  HELPERS — UI / Controls
+##     @1.1 User settings
+##       @1.1.A Mode
+##       @1.1.B Comfort
+##       @1.1.C Price
+##       @1.1.D Thermal
+##       @1.1.E Dwell
+##       @1.1.F Brake
+##       @1.1.G Rate
+##     @1.2 System state (read-only)
+##       @1.2.A Engine outputs
+##       @1.2.B Learning metrics
+##     @1.3 Configuration (entity mapping)
+##       @1.3.A Entity mapping
+##       @1.3.B Notify
+##     @1.4 Internal state (memory/timestamps)
+##       @1.4.A Memory
+##       @1.4.B Timestamps
 ##
-## [1] UI / Controls (Helpers)
-##   [1.1] USER SETTINGS (modify these)        → find: "@1.1 USER SETTINGS"
-##     [1.1.A] Mode selection                  → find: "@1.1.A MODE"
-##     [1.1.B] Comfort settings                → find: "@1.1.B COMFORT"
-##     [1.1.C] Price controls                  → find: "@1.1.C PRICE"
-##     [1.1.D] Thermal mass factor             → find: "@1.1.D THERMAL"
-##     [1.1.E] Dwell times                     → find: "@1.1.E DWELL"
-##     [1.1.F] Brake phase settings            → find: "@1.1.F BRAKE"
-##     [1.1.G] Rate limiting                   → find: "@1.1.G RATE"
+##   @2  SENSORS — Sensing & Planning
+##     @2.A Sources (continuous)
+##     @2.B Derived (continuous)
+##     @2.C Percentiles (P30/P80)
+##     @2.D Forward look (TTN/near)
+##     @2.E Binary sensors
 ##
-##   [1.2] SYSTEM STATE (read-only)            → find: "@1.2 SYSTEM STATE"
-##     [1.2.A] Engine outputs                  → find: "@1.2.A ENGINE OUTPUTS"
-##     [1.2.B] Learning metrics                → find: "@1.2.B LEARNING METRICS"
+##   @3  AUTOMATIONS — State Machines & Control Loops
+##     @3.1 Price dwell
+##     @3.2 Brake phase
+##     @3.3 Engine
+##     @3.4 Learning
+##     @3.5 Notify
+##     @3.6 Startup init
 ##
-##   [1.3] CONFIGURATION (set once)            → find: "@1.3 CONFIGURATION"
-##     [1.3.A] Entity mapping                  → find: "@1.3.A ENTITY MAPPING"
-##     [1.3.B] Notifications                   → find: "@1.3.B NOTIFY"
-##
-##   [1.4] INTERNAL STATE (read-only)          → find: "@1.4 INTERNAL STATE"
-##     [1.4.A] State machine memory            → find: "@1.4.A MEMORY"
-##     [1.4.B] Timestamps                      → find: "@1.4.B TIMESTAMPS"
-##
-## [2] Sensing & Planning Sensors              → find: "@2 SENSORS"
-##   [2.A] Source sensors (validated)          → find: "@2.A SOURCES"
-##   [2.B] Derived sensors (target/virtual)    → find: "@2.B DERIVED"
-##   [2.C] Percentiles (P30/P80)               → find: "@2.C PERCENTILES"
-##   [2.D] Forward look (TTN / near-brake)     → find: "@2.D FORWARD LOOK"
-##   [2.E] Binary sensors (diagnostics)        → find: "@2.E BINARY"
-##
-## [3] Automations (State Machines)            → find: "@3 AUTOMATIONS"
-##   [3.1] Price dwell (raw → stable)          → find: "@3.1 PRICE DWELL"
-##   [3.2] Brake phase controller              → find: "@3.2 BRAKE PHASE"
-##   [3.3] Engine (requested → applied)        → find: "@3.3 ENGINE"
-##   [3.3b] Learning - comfort violations      → find: "@3.3b LEARNING VIOLATIONS"
-##   [3.3c] Learning - daily adaptation        → find: "@3.3c LEARNING DAILY"
-##   [3.4] Notify (diagnostics)                → find: "@3.4 NOTIFY"
-##   [3.5] Startup initialization              → find: "@3.5 STARTUP"
-##
-## RESTART BEHAVIOR:
-##   All learned values (thermal_mass_factor, learned_brake_efficiency, violations)
-##   are stored in input_number helpers which persist across restarts.
-##   The system will continue learning from where it left off.
-##
-## INSTALL (REQUIRED):
-##  - Set input_text.svotc_entity_indoor  = your indoor temperature sensor entity_id
-##  - Set input_text.svotc_entity_outdoor = your outdoor temperature sensor entity_id
-##  - Set input_text.svotc_entity_price   = your Nordpool price sensor entity_id
-##
-## INSTALL (OPTIONAL - NOTIFICATIONS):
-##  - Set input_text.svotc_notify_service = notify.mobile_app_<your_device>
-##     (leave empty → uses notify.notify)
-##
+## Appendix (bottom):
+##   @INSTALL  Quick install
+##   @TUNING   Recommended defaults & tuning notes
 ###############################################################################
-## SVOTC Recommended Defaults (Optimized for 15-minute electricity prices)
-##
-## Comfort settings:
-##   svotc_comfort_temperature:                21.0
-##   svotc_comfort_guard_activate_below_c:     0.8
-##   svotc_comfort_guard_deactivate_above_c:   0.3
-##
-## Price control:
-##   svotc_brake_aggressiveness:               2   # 30 min prebrake window (base, then scaled)
-##   svotc_heat_aggressiveness:                2
-##   svotc_brake_hold_offset_c:                6.0
-##   svotc_thermal_mass_factor:                1.0  # Adjust after 1-2 weeks
-##
-## Dwell times (recommended < 15 min for quarter-hour pricing):
-##   svotc_price_dwell_cheap_to_neutral_min:   8
-##   svotc_price_dwell_neutral_to_brake_min:   8
-##   svotc_price_dwell_brake_to_neutral_min:   8
-##   svotc_price_dwell_neutral_to_cheap_min:   8
-##
-## Brake phase durations:
-##   svotc_brake_rampup_duration_min:          20
-##   svotc_brake_hold_duration_min:            15
-##   svotc_brake_rampdown_duration_min:        25
-##
-## Rate limiting:
-##   svotc_max_delta_per_step_c:               0.20
-##
-## Learning (auto-managed):
-##   svotc_learned_brake_efficiency:           1.0  # Auto-adjusts 0.5-1.5
-##   svotc_comfort_violations_24h:             0    # Auto-resets daily
-##
-## Mode:
-##   svotc_mode: Smart
+## @1 HELPERS — UI / Controls
 ###############################################################################
-
-
-###############################################################################
-## [1] UI / Controls (Helpers)
-###############################################################################
-
-#############################################################################
 ## @1.1 USER SETTINGS (Modify these to control SVOTC behavior)
 #############################################################################
 input_select:
@@ -1340,7 +1285,66 @@ automation:
           level: info
           logger: custom_components.svotc
           message: "SVOTC: Startup initialization complete. Defaults applied to unconfigured helpers."
+################################################################################
+## @INSTALL — Quick install
+################################################################################
+## REQUIRED (map your entities)
+##   1) input_text.svotc_entity_indoor  = your indoor temperature sensor entity_id
+##   2) input_text.svotc_entity_outdoor = your outdoor temperature sensor entity_id
+##   3) input_text.svotc_entity_price   = your Nordpool price sensor entity_id
+##      - Must expose attributes: raw_today + raw_tomorrow
+##
+## OPTIONAL (notifications)
+##   4) input_text.svotc_notify_service = notify.mobile_app_<your_device>
+##      - Leave empty → uses notify.notify
+##
+## QUICK CHECK (after restart / reload)
+##   - binary_sensor.svotc_inputs_healthy == on
+##   - binary_sensor.svotc_price_available == on
+##   - sensor.svotc_p30 / sensor.svotc_p80 become numbers within ~30 min
+##   - input_text.svotc_reason_code moves away from INIT
+################################################################################
 
+################################################################################
+## @TUNING — Recommended defaults & tuning notes (15-minute prices)
+################################################################################
+## Recommended starting values:
+##   Comfort:
+##     svotc_comfort_temperature:                21.0
+##     svotc_comfort_guard_activate_below_c:     0.8
+##     svotc_comfort_guard_deactivate_above_c:   0.3
+##
+##   Price control:
+##     svotc_brake_aggressiveness:               2   # ~30 min base (then scaled)
+##     svotc_heat_aggressiveness:                2
+##     svotc_brake_hold_offset_c:                6.0
+##     svotc_bridge_hold_window_min:             90  # keep holding between close peaks
+##
+##   Thermal:
+##     svotc_thermal_mass_factor:                1.0  # adjust after 1–2 weeks
+##
+##   Dwell (recommend < 15 min for 15-min pricing):
+##     svotc_price_dwell_cheap_to_neutral_min:   8
+##     svotc_price_dwell_neutral_to_brake_min:   8
+##     svotc_price_dwell_brake_to_neutral_min:   8
+##     svotc_price_dwell_neutral_to_cheap_min:   8
+##
+##   Brake phases:
+##     svotc_brake_rampup_duration_min:          20
+##     svotc_brake_hold_duration_min:            15
+##     svotc_brake_rampdown_duration_min:        25
+##
+##   Rate limiting:
+##     svotc_max_delta_per_step_c:               0.20
+##
+## Learning (auto-managed):
+##   - input_number.svotc_learned_brake_efficiency auto-adjusts (0.5–1.5)
+##   - input_number.svotc_comfort_violations_24h resets daily
+##
+## Practical tuning tips:
+##   - Too cold during expensive hours → increase svotc_heat_aggressiveness OR reduce svotc_brake_hold_offset_c
+##   - Too little savings / too warm → increase svotc_brake_aggressiveness OR increase svotc_brake_hold_offset_c
+##   - House reacts slowly → increase svotc_thermal_mass_factor (extends prebrake window)
 ################################################################################
 ## END OF FILE
 ################################################################################
