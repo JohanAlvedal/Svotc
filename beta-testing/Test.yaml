@@ -26,7 +26,7 @@
 ##      2.2 Outdoor temperature (validated)
 ##      2.3 Current price (validated)
 ##      2.4 Dynamic target temperature
-##      2.5 Percentiles P30/P80 (optimized: 30 min cache)
+##      2.5 Percentiles P30/P80 (hela dagens 24 timpriser som referens, Ngenic-stil)
 ##      2.6 Raw price state (instant)
 ##      2.7 Forward look (minutes to brake)
 ##      2.8 **ENHANCED: Adaptive prebrake window & strength**
@@ -65,7 +65,7 @@
 ##   svotc_comfort_guard_deactivate_above_c:   0.3
 ##
 ## Price control:
-##   svotc_brake_aggressiveness:               2   # 30 min prebrake window (base)
+##   svotc_brake_aggressiveness:               2   # 30 min prebrake window (base, then scaled)
 ##   svotc_heat_aggressiveness:                2
 ##   svotc_brake_hold_offset_c:                6.0
 ##   svotc_thermal_mass_factor:                1.0  # NEW: Adjust after 1-2 weeks
@@ -581,7 +581,8 @@ template:
           {% endif %}
 
   # ---------------------------------------------------------------------------
-  # B) Trigger-based percentiles (P30/P80) - OPTIMIZED: 30 min cache
+  # B) Trigger-based percentiles (P30/P80) - uppdateras var 30:e min
+  #    Använder hela dagens alla 24 timpriser som referens (Ngenic-stil)
   # ---------------------------------------------------------------------------
   - trigger:
       - platform: time_pattern
@@ -601,26 +602,16 @@ template:
           {% if ent in ['unknown','unavailable','none',''] %}
             {{ none }}
           {% else %}
-            {# Endast raw_today #}
-            {% set combined = (state_attr(ent,'raw_today') | default([], true)) %}
-
-            {% set now_ts = as_timestamp(now()) %}
-            {# OBS: 6 timmar framåt #}
-            {% set end_ts = now_ts + (6 * 60 * 60) %}
-
-            {# FIX: använd namespace så listan överlever loopen #}
+            {% set source = state_attr(ent, 'raw_today') | default([], true) %}
             {% set ns = namespace(prices=[]) %}
-
-            {% for it in combined %}
+            {% for it in source %}
               {% if it is mapping %}
-                {% set s = it.get('start') | as_timestamp(none) %}
                 {% set v = it.get('value') | float(none) %}
-                {% if s is number and v is number and s >= now_ts and s < end_ts %}
+                {% if v is number %}
                   {% set ns.prices = ns.prices + [v] %}
                 {% endif %}
               {% endif %}
             {% endfor %}
-
             {% if ns.prices | length >= 6 %}
               {% set srt = ns.prices | sort %}
               {% set idx = ((srt | length - 1) * 0.30) | round(0, 'half_up') | int %}
@@ -639,26 +630,16 @@ template:
           {% if ent in ['unknown','unavailable','none',''] %}
             {{ none }}
           {% else %}
-            {# Endast raw_today #}
-            {% set combined = (state_attr(ent,'raw_today') | default([], true)) %}
-
-            {% set now_ts = as_timestamp(now()) %}
-            {# OBS: 6 timmar framåt #}
-            {% set end_ts = now_ts + (6 * 60 * 60) %}
-
-            {# FIX: använd namespace så listan överlever loopen #}
+            {% set source = state_attr(ent, 'raw_today') | default([], true) %}
             {% set ns = namespace(prices=[]) %}
-
-            {% for it in combined %}
+            {% for it in source %}
               {% if it is mapping %}
-                {% set s = it.get('start') | as_timestamp(none) %}
                 {% set v = it.get('value') | float(none) %}
-                {% if s is number and v is number and s >= now_ts and s < end_ts %}
+                {% if v is number %}
                   {% set ns.prices = ns.prices + [v] %}
                 {% endif %}
               {% endif %}
             {% endfor %}
-
             {% if ns.prices | length >= 6 %}
               {% set srt = ns.prices | sort %}
               {% set idx = ((srt | length - 1) * 0.80) | round(0, 'half_up') | int %}
@@ -735,15 +716,16 @@ template:
             {% endif %}
           {% endif %}
 
+
 ############################################################################
 # 2.10 Binary sensors (diagnostics & control)
 ############################################################################
   - binary_sensor:
-    ############################################################################
-    # 2.10a Comfort guard (with hysteresis)
-    #      Activates when indoor temp drops below (target - activate_below)
-    #      Deactivates when indoor temp rises above (target - deactivate_above)
-    ############################################################################
+      ############################################################################
+      # 2.10a Comfort guard (with hysteresis)
+      #      Activates when indoor temp drops below (target - activate_below)
+      #      Deactivates when indoor temp rises above (target - deactivate_above)
+      ############################################################################
       - name: "SVOTC Comfort guard active"
         unique_id: svotc_comfort_guard_active
         state: >
@@ -754,7 +736,6 @@ template:
             {% set mode = states('input_select.svotc_mode') %}
             {% set indoor = states('sensor.svotc_src_indoor') | float(none) %}
             {% set target = states('sensor.svotc_dynamic_target_temperature') | float(none) %}
-
             {# Simple (Ngenic-style) internal defaults #}
             {% set activate_below =
                 0.8 if mode == 'Simple'
@@ -764,15 +745,12 @@ template:
                 0.3 if mode == 'Simple'
                 else (states('input_number.svotc_comfort_guard_deactivate_above_c') | float(0.4))
             %}
-
             {% set was_on = is_state('binary_sensor.svotc_comfort_guard_active','on') %}
-
             {% if indoor is not number or target is not number %}
               {{ was_on }}
             {% else %}
               {% set activate_threshold = target - activate_below %}
               {% set deactivate_threshold = target - deactivate_above %}
-
               {% if was_on %}
                 {{ indoor < deactivate_threshold }}
               {% else %}
@@ -781,25 +759,25 @@ template:
             {% endif %}
           {% endif %}
 
-    ############################################################################
-    # 2.10b Inputs healthy (CORE) - does NOT depend on price
-    #       Only checks indoor & outdoor temperature sensors
-    ############################################################################
+      ############################################################################
+      # 2.10b Inputs healthy (CORE) - does NOT depend on price
+      #       Only checks indoor & outdoor temperature sensors
+      ############################################################################
       - name: "SVOTC Inputs healthy"
         unique_id: svotc_inputs_healthy
         state: >
           {{ states('sensor.svotc_src_indoor') not in ['unknown','unavailable','none',''] 
           and states('sensor.svotc_src_outdoor') not in ['unknown','unavailable','none',''] }}
 
-    ############################################################################
-    # 2.10c Price available (diagnostic only)
-    #       Indicates if price sensor is working
-    ############################################################################
+      ############################################################################
+      # 2.10c Price available (diagnostic only)
+      #       Indicates if price sensor is working
+      ############################################################################
       - name: "SVOTC Price available"
         unique_id: svotc_price_available
         state: >
           {{ states('sensor.svotc_src_current_price') not in ['unknown','unavailable','none',''] }}
-
+          
 ################################################################################
 ## 3. Automations (State Machines & Control Loops)
 ##
