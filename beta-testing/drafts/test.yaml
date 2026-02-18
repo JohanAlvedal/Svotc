@@ -26,11 +26,11 @@
 ##      2.2 Outdoor temperature (validated)
 ##      2.3 Current price (validated)
 ##      2.4 Dynamic target temperature
-##      2.5 Percentiles P30/P80 (alla dagens kvartsvärden som referens, Ngenic-stil)
-##      2.6 Raw price state (instant)
-##      2.7 Forward look (minutes to brake)
-##      2.8 Adaptive prebrake window & strength
-##      2.9 Virtual outdoor temperature
+##      2.5 Raw price state (instant)
+##      2.6 Adaptive prebrake window (min)
+##      2.7 Prebrake strength
+##      2.8 Virtual outdoor temperature
+##      2.9 Forward look (minutes to brake / near-brake)
 ##      2.10 Binary sensors (diagnostics & control)
 ##
 ##   3. Automations (State Machines)
@@ -148,6 +148,16 @@ input_number:
     mode: slider
     # 0 = No prebrake, 5 = Maximum (75 min prebrake window BASE, then scaled)
     # Controls how early the system starts reducing heat before expensive periods
+
+  svotc_bridge_hold_window_min:
+    name: "Bridge-hold window (min)"
+    min: 0
+    max: 180
+    step: 5
+    initial: 90
+    mode: box
+    # If next NEAR-brake (>= 0.95*P80) starts within this window,
+    # SVOTC will NOT ramp down between peaks (bridge-hold).
 
   svotc_heat_aggressiveness:
     name: "Heat aggressiveness"
@@ -472,7 +482,7 @@ template:
         state_class: measurement
         state: "{{ states('input_number.svotc_comfort_temperature') | float(21) | round(2) }}"
 
-      # 2.6 Raw price state (instant)
+      # 2.5 Raw price state (instant)
       - name: "SVOTC Raw price state"
         unique_id: svotc_raw_price_state
         state: >
@@ -494,7 +504,7 @@ template:
             {% endif %}
           {% endif %}
 
-      # 2.8 Adaptive prebrake window (considers outdoor temp + thermal mass)
+      # 2.6 Adaptive prebrake window (considers outdoor temp + thermal mass)
       - name: "SVOTC Prebrake window (min)"
         unique_id: svotc_prebrake_window_min
         unit_of_measurement: "min"
@@ -522,7 +532,7 @@ template:
           {# Apply thermal mass and temp factor #}
           {{ (base * thermal * temp_factor) | round(0) | int }}
 
-      # 2.8b Prebrake strength
+      # 2.7 Prebrake strength
       - name: "SVOTC Prebrake strength"
         unique_id: svotc_prebrake_strength
         state_class: measurement
@@ -535,7 +545,7 @@ template:
             0
           {% endif %}
 
-      # 2.9 Virtual outdoor temperature
+      # 2.8 Virtual outdoor temperature
       - name: "SVOTC Virtual outdoor temperature"
         unique_id: svotc_virtual_outdoor_temperature
         unit_of_measurement: "°C"
@@ -680,6 +690,67 @@ template:
                   {% set v = it.get('value') | float(none) %}
                   {% set s = it.get('start') | as_timestamp(none) %}
                   {% if v is number and s is number and s >= now_ts and v >= p80 %}
+                    {% set mins = (s - now_ts) / 60 %}
+                    {% if ns.best is none or mins < ns.best %}
+                      {% set ns.best = mins %}
+                    {% endif %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.best | round(1) if ns.best is not none else 999 }}
+            {% endif %}
+          {% endif %}
+
+      ##########################################################################
+      # 2.9 Forward look (minutes to NEXT NEAR-BRAKE)
+      #      "Near-brake" = within 5% of P80 (>= 0.95*P80) BUT NOT brake (< P80)
+      #      Used by Bridge-Hold to avoid ramping down between close peaks.
+      ##########################################################################
+      - name: "SVOTC Minutes to next near-brake start"
+        unique_id: svotc_minutes_to_next_near_brake_start
+        unit_of_measurement: "min"
+        state_class: measurement
+        availability: >
+          {% set ent = states('input_text.svotc_entity_price') %}
+          {{ ent not in ['unknown','unavailable','none','']
+             and states('sensor.svotc_p80') not in ['unknown','unavailable','none',''] }}
+
+        state: >
+          {% set ent = states('input_text.svotc_entity_price') %}
+          {% set p80 = states('sensor.svotc_p80') | float(none) %}
+
+          {% if ent in ['unknown','unavailable','none',''] or p80 is not number %}
+            999
+          {% else %}
+            {% set near = (p80 * 0.95) %}
+            {% set today = state_attr(ent, 'raw_today') | default([], true) %}
+            {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
+            {% set block = today + tomorrow %}
+
+            {% set now_ts = as_timestamp(now()) %}
+            {% set ns = namespace(best=none, in_near=false) %}
+
+            {# 1) Are we already in a near-brake period? (>=0.95*P80 but <P80) #}
+            {% for it in block %}
+              {% if it is mapping %}
+                {% set v = it.get('value') | float(none) %}
+                {% set s = it.get('start') | as_timestamp(none) %}
+                {% set e = it.get('end') | as_timestamp(none) %}
+                {% if v is number and s is number and e is number and s <= now_ts < e and (v >= near) and (v < p80) %}
+                  {% set ns.in_near = true %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+
+            {% if ns.in_near %}
+              0
+            {% else %}
+              {# 2) Find the next near-brake start (>=0.95*P80 but <P80) #}
+              {% for it in block %}
+                {% if it is mapping %}
+                  {% set v = it.get('value') | float(none) %}
+                  {% set s = it.get('start') | as_timestamp(none) %}
+                  {% if v is number and s is number and s >= now_ts and (v >= near) and (v < p80) %}
                     {% set mins = (s - now_ts) / 60 %}
                     {% if ns.best is none or mins < ns.best %}
                       {% set ns.best = mins %}
@@ -859,12 +930,6 @@ automation:
                 data:
                   value: "{{ pending }}"
 
-    ############################################################################
-    # 3.2 Brake phase controller
-    #     Manages brake phase transitions with precise timing
-    #     Phases: idle → ramping_up → holding → ramping_down → idle
-    #     Triggers: Every 1 minute OR when stable price/phase changes
-    ############################################################################
   - alias: "SVOTC Brake phase controller"
     id: svotc_brake_phase_controller
     mode: single
@@ -883,9 +948,17 @@ automation:
           phase_ts: "{{ as_timestamp(states('input_datetime.svotc_brake_phase_changed'), default=none) }}"
           elapsed_min: >
             {% if phase_ts is number %} {{ (as_timestamp(now()) - phase_ts) / 60 }} {% else %} 999 {% endif %}
+
           rampup: "{{ states('input_number.svotc_brake_rampup_duration_min') | float(30) }}"
           hold_min: "{{ states('input_number.svotc_brake_hold_duration_min') | float(1) }}"
           rampdown: "{{ states('input_number.svotc_brake_rampdown_duration_min') | float(45) }}"
+
+          # --- Bridge-hold (near-peak) ---
+          # If next near-brake (>= 0.95*P80) starts within bridge_window,
+          # do NOT ramp down between peaks.
+          ttn_near: "{{ states('sensor.svotc_minutes_to_next_near_brake_start') | float(999) }}"
+          bridge_window: "{{ states('input_number.svotc_bridge_hold_window_min') | float(90) }}"
+          near_active: "{{ ttn_near <= bridge_window }}"
 
       # ------------------------------------------------------------
       # A) WHEN price_state == brake
@@ -935,6 +1008,12 @@ automation:
             sequence:
               - stop: "Still within minimum hold time"
 
+          # BRIDGE-HOLD: upcoming near-peak soon -> do NOT start rampdown
+          # (This prevents ramp down between closely spaced peaks)
+          - conditions: "{{ price_state != 'brake' and phase in ['ramping_up','holding'] and near_active }}"
+            sequence:
+              - stop: "Bridge-hold: upcoming near-peak (>= 0.95*P80) soon"
+
           # Leaving brake from ramping_up or holding -> ramping_down
           - conditions: "{{ price_state != 'brake' and phase in ['ramping_up','holding'] }}"
             sequence:
@@ -945,6 +1024,18 @@ automation:
                 target: { entity_id: input_datetime.svotc_brake_phase_changed }
                 data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
               - stop: "Brake ended - starting ramping_down"
+
+          # BRIDGE-HOLD: cancel rampdown if near-peak is coming soon
+          # (Catches cases where rampdown already started, but another peak is near)
+          - conditions: "{{ price_state != 'brake' and phase == 'ramping_down' and near_active }}"
+            sequence:
+              - service: input_text.set_value
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "holding" }
+              - service: input_datetime.set_datetime
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+              - stop: "Bridge-hold: rampdown cancelled -> holding (near-peak soon)"
 
           # ramping_down -> idle when rampdown complete
           - conditions: "{{ price_state != 'brake' and phase == 'ramping_down' and elapsed_min >= rampdown }}"
