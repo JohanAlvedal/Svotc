@@ -74,9 +74,8 @@ homeassistant:
   packages: !include_dir_named packages
 ```
 
-### 3. Klistra in **svotc.clean.yaml**
+### 3. Klistra in **svotc_xxxx26.yaml**
 
-Detta är driftversionen utan kommentarer. Kopiera innehållet till den nya filen.
 
 ### 4. Starta om Home Assistant
 
