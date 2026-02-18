@@ -689,6 +689,7 @@ template:
           {% set ent = states('input_text.svotc_entity_price') %}
           {{ ent not in ['unknown','unavailable','none','']
              and states('sensor.svotc_p80') not in ['unknown','unavailable','none',''] }}
+
         state: >
           {% set ent = states('input_text.svotc_entity_price') %}
           {% set p80 = states('sensor.svotc_p80') | float(none) %}
@@ -698,15 +699,20 @@ template:
           {% else %}
             {% set today = state_attr(ent, 'raw_today') | default([], true) %}
             {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
-            {% set combined = today + tomorrow %}
+
+            {# Välj rätt dygn: idag fram till 23:00, annars imorgon #}
+            {% set use_today = (now().hour < 23 or tomorrow | length == 0) %}
+            {% set block = today if use_today else tomorrow %}
+
             {% set now_ts = as_timestamp(now()) %}
             {% set ns = namespace(best=none, in_expensive=false) %}
 
-            {% for it in combined %}
+            {# 1. Är vi redan i en dyr period? #}
+            {% for it in block %}
               {% set v = it.value | float(none) %}
-              {% set s = as_timestamp(it.start, default=none) if it.start is defined else none %}
-              {% set e = as_timestamp(it.end,   default=none) if it.end   is defined else none %}
-              {% if v is number and s is number and e is number and s <= now_ts < e and v > p80 %}
+              {% set s = as_timestamp(it.start, default=none) %}
+              {% set e = as_timestamp(it.end,   default=none) %}
+              {% if v is number and s is number and e is number and s <= now_ts < e and v >= p80 %}
                 {% set ns.in_expensive = true %}
               {% endif %}
             {% endfor %}
@@ -714,10 +720,11 @@ template:
             {% if ns.in_expensive %}
               0
             {% else %}
-              {% for it in combined %}
+              {# 2. Leta efter nästa dyr period #}
+              {% for it in block %}
                 {% set v = it.value | float(none) %}
-                {% set s = as_timestamp(it.start, default=none) if it.start is defined else none %}
-                {% if v is number and s is number and s >= now_ts and v > p80 %}
+                {% set s = as_timestamp(it.start, default=none) %}
+                {% if v is number and s is number and s >= now_ts and v >= p80 %}
                   {% set mins = (s - now_ts) / 60 %}
                   {% if ns.best is none or mins < ns.best %}
                     {% set ns.best = mins %}
