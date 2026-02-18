@@ -1004,6 +1004,9 @@ automation:
         {{ is_state('binary_sensor.svotc_comfort_guard_active','on')
            and is_state('input_boolean.svotc_comfort_guard_enabled','on') }}
 
+      # --- NEW: snap applied immediately in these modes ---
+      force_instant: "{{ mode in ['Off','PassThrough','ComfortOnly'] }}"
+
       # Apply learned efficiency to hold_offset
       hold_offset: >
         {% set base = 3.0 if mode == 'Simple'
@@ -1019,6 +1022,11 @@ automation:
         {{ 0.10 if mode == 'Simple'
            else (states('input_number.svotc_max_delta_per_step_c') | float(0.2)) }}
 
+      req_min: "{{ state_attr('input_number.svotc_requested_offset_c','min') | float(-10) }}"
+      req_max: "{{ state_attr('input_number.svotc_requested_offset_c','max') | float(10) }}"
+      app_min: "{{ state_attr('input_number.svotc_applied_offset_c','min') | float(-10) }}"
+      app_max: "{{ state_attr('input_number.svotc_applied_offset_c','max') | float(10) }}"
+
       # --- PRICE WARMUP / FREEZE ---
       price_ok: "{{ is_state('binary_sensor.svotc_price_available','on') }}"
       ttn: "{{ states('sensor.svotc_minutes_to_next_brake_start') | float(999) }}"
@@ -1027,8 +1035,7 @@ automation:
       p80_valid: "{{ states('sensor.svotc_p80') not in ['unknown','unavailable','none',''] }}"
       price_ready: "{{ price_ok and ttn_valid and p30_valid and p80_valid }}"
 
-      # FIX: Do NOT freeze if pre>0 (prebrake active) or already in brake state
-      # Freezing mid-brake would lock offset at wrong value
+      # Do NOT freeze if pre>0 (prebrake active) or already in brake state
       freeze_price: >
         {{ healthy
            and mode in ['Smart','Simple']
@@ -1037,21 +1044,12 @@ automation:
            and pre == 0
            and price_state != 'brake' }}
 
-      # NEW: when user selects Off / PassThrough / ComfortOnly -> snap applied immediately
-      # (no ramp-down, no freeze linger)
-      force_instant: "{{ mode in ['Off','PassThrough','ComfortOnly'] }}"
-
-      req_min: "{{ state_attr('input_number.svotc_requested_offset_c','min') | float(-10) }}"
-      req_max: "{{ state_attr('input_number.svotc_requested_offset_c','max') | float(10) }}"
-      app_min: "{{ state_attr('input_number.svotc_applied_offset_c','min') | float(-10) }}"
-      app_max: "{{ state_attr('input_number.svotc_applied_offset_c','max') | float(10) }}"
-
+      # --- Terms ---
       comfort_term: >
         {% if mode in ['Off','PassThrough'] %} 0
-        {% elif mode in ['Smart','Simple','ComfortOnly'] and guard %} {{ -(heat_aggr * 0.4) }}
+        {% elif guard %} {{ -(heat_aggr * 0.4) }}
         {% else %} 0 {% endif %}
 
-      # Price braking / prebrake: positive offset when pre>0 (guard overrides)
       price_term: >
         {% if mode not in ['Smart','Simple'] or guard %} 0
         {% else %} {{ hold_offset * pre }} {% endif %}
@@ -1082,15 +1080,15 @@ automation:
           {{ requested | clamp(app_min, app_max) | round(2) }}
         {% endif %}
 
+      # --- Reason code (priorities) ---
       reason: >
         {% if mode == 'Off' %} OFF
-        {% elif not healthy %} MISSING_INPUTS_FREEZE
         {% elif mode == 'PassThrough' %} PASS_THROUGH
-        {% elif freeze_price %} PRICE_DATA_WARMUP_FREEZE
-        {% elif guard and pre > 0 and mode in ['Smart','Simple'] %} MCP_BLOCKS_BRAKE
         {% elif guard %} COMFORT_GUARD
-        {% elif pre > 0 and mode in ['Smart','Simple'] %} PRICE_BRAKE
         {% elif mode == 'ComfortOnly' %} COMFORT_ONLY
+        {% elif not healthy %} MISSING_INPUTS_FREEZE
+        {% elif freeze_price %} PRICE_DATA_WARMUP_FREEZE
+        {% elif pre > 0 and mode in ['Smart','Simple'] %} PRICE_BRAKE
         {% else %} NEUTRAL {% endif %}
 
     action:
@@ -1107,8 +1105,9 @@ automation:
         data:
           datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
 
+      # If inputs are not healthy: hard reset outputs and still write a clean reason code
       - choose:
-          - conditions: "{{ not healthy and mode in ['Smart','Simple','ComfortOnly'] }}"
+          - conditions: "{{ not healthy }}"
             sequence:
               - service: input_number.set_value
                 target:
@@ -1124,7 +1123,7 @@ automation:
                 target:
                   entity_id: input_text.svotc_reason_code
                 data:
-                  value: "MISSING_INPUTS_FREEZE"
+                  value: "{{ reason }}"
               - stop: "Inputs not healthy - freezing at 0"
 
       - service: input_number.set_value
