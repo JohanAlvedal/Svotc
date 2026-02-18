@@ -102,7 +102,6 @@ input_select:
   svotc_mode:
     name: "SVOTC Mode"
     options: ["Off", "Smart", "Simple", "PassThrough", "ComfortOnly"]
-#    initial: "Smart"
     # Off          - System disabled, no offset applied
     # Smart        - Full automatic control (comfort + price)
     # Simple       - Ngenic-style preset
@@ -116,7 +115,6 @@ input_number:
     min: 15
     max: 25
     step: 0.1
-    #initial: 21.0
     mode: box
     # Target indoor temperature for comfort guard
 
@@ -125,7 +123,6 @@ input_number:
     min: 0.2
     max: 3.0
     step: 0.1
-    initial: 0.8
     mode: box
     # Activate comfort guard when indoor temp drops this much below target
 
@@ -134,7 +131,6 @@ input_number:
     min: 0.1
     max: 2.0
     step: 0.1
-    initial: 0.3
     mode: box
     # Deactivate comfort guard when indoor temp rises to this much below target
 
@@ -144,7 +140,6 @@ input_number:
     min: 0
     max: 5
     step: 1
-    initial: 2
     mode: slider
     # 0 = No prebrake, 5 = Maximum (75 min prebrake window BASE, then scaled)
     # Controls how early the system starts reducing heat before expensive periods
@@ -154,7 +149,6 @@ input_number:
     min: 0
     max: 180
     step: 5
-    initial: 90
     mode: box
     # If next NEAR-brake (>= 0.95*P80) starts within this window,
     # SVOTC will NOT ramp down between peaks (bridge-hold).
@@ -164,7 +158,6 @@ input_number:
     min: 0
     max: 5
     step: 1
-    initial: 2
     mode: slider
     # 0 = No extra heat, 5 = Maximum boost (−2.0°C offset)
     # Controls how much extra heat is added when comfort guard is active
@@ -174,7 +167,6 @@ input_number:
     min: 0
     max: 20
     step: 0.5
-#    initial: 6.0
     mode: box
     # Maximum offset during expensive periods (positive = less heat)
 
@@ -184,7 +176,6 @@ input_number:
     min: 0.5
     max: 2.0
     step: 0.1
-    initial: 1.0
     mode: slider
     # 0.5 = light house (quick heat/cool, well-insulated, small)
     # 1.0 = normal house
@@ -197,7 +188,6 @@ input_number:
     min: 0
     max: 120
     step: 1
-    initial: 8
     mode: box
     # How long price must stay above P30 before switching from cheap to neutral
 
@@ -206,7 +196,6 @@ input_number:
     min: 0
     max: 120
     step: 1
-    initial: 8
     mode: box
     # How long price must stay above P80 before switching from neutral to brake
 
@@ -215,7 +204,6 @@ input_number:
     min: 0
     max: 120
     step: 1
-    initial: 8
     mode: box
     # How long price must stay below P80 before switching from brake to neutral
 
@@ -224,7 +212,6 @@ input_number:
     min: 0
     max: 120
     step: 1
-    initial: 8
     mode: box
     # How long price must stay below P30 before switching from neutral to cheap
 
@@ -234,7 +221,6 @@ input_number:
     min: 1
     max: 180
     step: 1
-    initial: 20
     mode: box
     # Time to gradually increase offset from 0 to hold_offset
 
@@ -243,7 +229,6 @@ input_number:
     min: 1
     max: 120
     step: 1
-    initial: 15
     mode: box
     # Time to maintain maximum offset during expensive period
 
@@ -252,7 +237,6 @@ input_number:
     min: 1
     max: 180
     step: 1
-    initial: 25
     mode: box
     # Time to gradually decrease offset from hold_offset to 0
 
@@ -262,7 +246,6 @@ input_number:
     min: 0.05
     max: 1.0
     step: 0.01
-    initial: 0.20
     mode: box
     # Maximum change in offset per minute (prevents sudden jumps)
 
@@ -1421,62 +1404,83 @@ automation:
                   title: "SVOTC: OK again"
                   message: "(Has been OK for at least 2 minutes) Inputs + price data are healthy again."
 
-    ############################################################################
-    # 3.5 Startup initialization
-    #      Ensures critical helpers have valid values after restart
-    #      Runs once at Home Assistant startup
-    ############################################################################
-  - alias: "SVOTC Startup initialization"
-    id: svotc_startup_init
-    mode: single
+  # ---------------------------------------------------------------------------
+  # 3.5 STARTUP INITIALIZATION
+  # Körs vid uppstart och vid omladdning av YAML.
+  # Fyller i rekommenderade värden om de är tomma eller på default min-värde.
+  # ---------------------------------------------------------------------------
+  - alias: "SVOTC - Startup Initialization"
+    unique_id: svotc_startup_initialization
     trigger:
       - platform: homeassistant
         event: start
-
+      - platform: event
+        event_type: automation_reloaded
     action:
-      # Initialize timestamps if invalid
-      - choose:
-          - conditions: >
-              {{ states('input_datetime.svotc_last_price_state_changed') in ['unknown','unavailable'] }}
-            sequence:
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: input_datetime.svotc_last_price_state_changed
-                data:
-                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - sequence:
+          # --- Comfort Defaults ---
+          - if: "{{ states('input_number.svotc_comfort_temperature') | float(0) == 15.0 }}"
+            then:
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_comfort_temperature }
+                data: { value: 21.0 }
 
-      - choose:
-          - conditions: >
-              {{ states('input_datetime.svotc_brake_phase_changed') in ['unknown','unavailable'] }}
-            sequence:
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: input_datetime.svotc_brake_phase_changed
-                data:
-                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+          - if: "{{ states('input_number.svotc_comfort_guard_activate_below_c') | float(0) == 0.2 }}"
+            then:
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_comfort_guard_activate_below_c }
+                data: { value: 0.8 }
 
-      - choose:
-          - conditions: >
-              {{ states('input_datetime.svotc_engine_last_run') in ['unknown','unavailable'] }}
-            sequence:
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: input_datetime.svotc_engine_last_run
-                data:
-                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+          # --- Price Control Defaults ---
+          - if: "{{ states('input_number.svotc_brake_hold_offset_c') | float(0) == 0.0 }}"
+            then:
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_brake_hold_offset_c }
+                data: { value: 6.0 }
 
-      # Validate learned efficiency is in range
-      - variables:
-          current_eff: "{{ states('input_number.svotc_learned_brake_efficiency') | float(1.0) }}"
+          - if: "{{ states('input_number.svotc_bridge_hold_window_min') | float(0) == 0.0 }}"
+            then:
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_bridge_hold_window_min }
+                data: { value: 90 }
 
-      - choose:
-          - conditions: "{{ current_eff < 0.5 or current_eff > 1.5 }}"
-            sequence:
-              - service: input_number.set_value
+          # --- Dwell Time Defaults (8 min) ---
+          - if: "{{ states('input_number.svotc_price_dwell_neutral_to_brake_min') | float(0) == 0.0 }}"
+            then:
+              - action: input_number.set_value
                 target:
-                  entity_id: input_number.svotc_learned_brake_efficiency
-                data:
-                  value: 1.0
+                  entity_id:
+                    - input_number.svotc_price_dwell_cheap_to_neutral_min
+                    - input_number.svotc_price_dwell_neutral_to_brake_min
+                    - input_number.svotc_price_dwell_brake_to_neutral_min
+                    - input_number.svotc_price_dwell_neutral_to_cheap_min
+                data: { value: 8 }
+
+          # --- Brake Phase Duration Defaults ---
+          - if: "{{ states('input_number.svotc_brake_rampup_duration_min') | float(0) == 1.0 }}"
+            then:
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_brake_rampup_duration_min }
+                data: { value: 20 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_brake_hold_duration_min }
+                data: { value: 15 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_brake_rampdown_duration_min }
+                data: { value: 25 }
+
+          # --- System Protection Defaults ---
+          - if: "{{ states('input_number.svotc_max_delta_per_step_c') | float(0) == 0.05 }}"
+            then:
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_max_delta_per_step_c }
+                data: { value: 0.20 }
+
+      - action: system_log.write
+        data:
+          level: info
+          logger: custom_components.svotc
+          message: "SVOTC: Startup initialization complete. Defaults applied to unconfigured helpers."
 
 ################################################################################
 ## END OF FILE
