@@ -1,0 +1,140 @@
+#### Today ######################################
+- trigger:
+      - trigger: time_pattern
+        minutes: /10
+      - trigger: homeassistant
+        event: start
+    action:
+      - action: nordpool.get_prices_for_date
+        data:
+          config_entry: 01K6BFF0TVKT3M3RDYTQWVM38D #byt till din config entry!
+          date: "{{ now().date() }}"
+          areas: SE3
+          currency: SEK
+        response_variable: today_price
+    sensor:
+      - name: Today lowest price
+        unique_id: se3_today_low_price
+        state: >
+          {% set data = namespace(prices=[]) %}
+          {% for state in today_price['SE3'] %}
+            {% set data.prices = data.prices + [(state.price / 1000)] %}
+          {% endfor %}
+          {{min(data.prices)}}
+        attributes:
+          data: >
+            {% set data = namespace(prices=[]) %}
+            {% for state in today_price['SE3'] %}
+              {# Denna rad är den enda som är ändrad #}
+              {% set data.prices = data.prices + [{'start': (state.start | as_datetime | as_local).isoformat(), 'end': (state.end | as_datetime | as_local).isoformat(), 'price': state.price/1000}] %}
+            {% endfor %}
+            {{data.prices}}
+#### Tommorow ##################
+- trigger:
+      - trigger: time_pattern
+        minutes: /10
+      - trigger: homeassistant
+        event: start
+    action:
+      - action: nordpool.get_prices_for_date
+        data:
+          config_entry: 01K6BFF0TVKT3M3RDYTQWVM38D #byt till din config entry!
+          date: "{{ now().date() + timedelta(days=1) }}"
+          areas: SE3
+          currency: SEK
+        response_variable: tomorrow_price
+    sensor:
+      - name: Tomorrow lowest price
+        unique_id: se3_tomorrow_low_price
+        state: >
+          {% set data = namespace(prices=[]) %}
+          {% for state in tomorrow_price['SE3'] %}
+            {% set data.prices = data.prices + [(state.price / 1000)] %}
+          {% endfor %}
+          {{min(data.prices)}}
+        attributes:
+          data: >
+            {% set data = namespace(prices=[]) %}
+            {% for state in tomorrow_price['SE3'] %}
+              {# Denna rad är den enda som är ändrad #}
+              {% set data.prices = data.prices + [{'start': (state.start | as_datetime | as_local).isoformat(), 'end': (state.end | as_datetime | as_local).isoformat(), 'price': state.price/1000}] %}
+            {% endfor %}
+            {{data.prices}}
+     ###########################################################################
+      # Elpriskoefficient: Dynamisk prisnivå relativt dagsspann
+      ###########################################################################
+      - name: "Elpriskoefficient"
+        unique_id: elpriskoefficient
+        state_class: measurement
+        state: >
+          {% set price = states('sensor.elpris_total_inkl_elhandel_moms') | float(none) %}
+          {% set pmax  = state_attr('sensor.elpris_total_inkl_elhandel_moms', 'max') | float(none) %}
+          {% set pmin  = state_attr('sensor.elpris_total_inkl_elhandel_moms', 'min') | float(none) %}
+          {% if price is none or pmax is none or pmin is none or pmax <= 0 %}
+            {{ this.state | float(0) }}
+          {% else %}
+            {% set threshold = (pmax - pmin) * (1.3 * (pmax ** -0.7)) * (1 / (1 + pmin * 0.25)) + pmin %}
+            {% if threshold <= 0 %}
+              {{ this.state | float(0) }}
+            {% else %}
+              {{ (price / threshold) | round(2) }}
+            {% endif %}
+          {% endif %}
+      ###########################################################################
+      # Price band: 5 zoner med hysteresis
+      ###########################################################################
+      - name: "Nordpool price band"
+        unique_id: nordpool_price_band_dynamic_minmax
+        state: >
+          {% set price = states('sensor.elpris_total_inkl_elhandel_moms') | float(0) %}
+          {% set pmin  = state_attr('sensor.elpris_total_inkl_elhandel_moms', 'min') | float(price) %}
+          {% set pmax  = state_attr('sensor.elpris_total_inkl_elhandel_moms', 'max') | float(price) %}
+          {% set span  = pmax - pmin %}
+
+          {% if span <= 0 %}
+            normal
+          {% else %}
+            {% set x = (price - pmin) / span %}
+            {% set prev = this.state | default('normal') %}
+            {% set h = 0.02 %}
+
+            {% set t_vc = 0.15 %}
+            {% set t_c  = 0.35 %}
+            {% set t_e  = 0.65 %}
+            {% set t_ve = 0.85 %}
+
+            {% if prev == 'very_cheap' %}
+              {% set t_vc = t_vc + h %}
+            {% elif prev == 'cheap' %}
+              {% set t_vc = t_vc - h %}
+              {% set t_c  = t_c + h %}
+            {% elif prev == 'normal' %}
+              {% set t_c  = t_c - h %}
+              {% set t_e  = t_e + h %}
+            {% elif prev == 'expensive' %}
+              {% set t_e  = t_e - h %}
+              {% set t_ve = t_ve + h %}
+            {% elif prev == 'very_expensive' %}
+              {% set t_ve = t_ve - h %}
+            {% endif %}
+
+            {% if x <= t_vc %}very_cheap
+            {% elif x <= t_c %}cheap
+            {% elif x < t_e %}normal
+            {% elif x <= t_ve %}expensive
+            {% else %}very_expensive
+            {% endif %}
+          {% endif %}
+
+        attributes:
+          current_price: "{{ states('sensor.elpris_total_inkl_elhandel_moms') | float(0) }}"
+          today_min: "{{ state_attr('sensor.elpris_total_inkl_elhandel_moms', 'min') | float(0) }}"
+          today_max: "{{ state_attr('sensor.elpris_total_inkl_elhandel_moms', 'max') | float(0) }}"
+          normalized_0_1: >
+            {% set price = states('sensor.elpris_total_inkl_elhandel_moms') | float(0) %}
+            {% set pmin  = state_attr('sensor.elpris_total_inkl_elhandel_moms', 'min') | float(price) %}
+            {% set pmax  = state_attr('sensor.elpris_total_inkl_elhandel_moms', 'max') | float(price) %}
+            {% set span  = pmax - pmin %}
+            {{ ((price - pmin) / span) | round(3) if span > 0 else 0.5 }}
+          thresholds: "vc:0.15, c:0.35, e:0.65, ve:0.85"
+          hysteresis: "±0.02"
