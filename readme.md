@@ -1,6 +1,6 @@
 # SVOTC — Smart Virtual Outdoor Temperature Control
 
-### Stable Edition (2026)
+### Beta Edition (2026)
 
 SVOTC är ett stabilt och förutseende styrsystem för värmepumpar i Home Assistant.
 Det optimerar värmeproduktion genom att kombinera komfortskydd och prislogik, med mjuka övergångar och tydliga förklaringar (reason codes).
