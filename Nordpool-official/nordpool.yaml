@@ -288,6 +288,15 @@ template:
           {% endif %}
 
 ###############################################################################
+## 4. HJÄLPSENSOR - Binär status
+###############################################################################
+  - binary_sensor:
+      - name: "Elpris OK"
+        unique_id: elpris_ok
+        state: >
+          {% set k = states('sensor.elpriskoefficient') | float(none) %}
+          {{ (k is not none) and (k < 1.0) }}
+###############################################################################
 ## 4. RECORDER-TIPS – exkludera SVOTC-feed, behåll chart-historik
 ###############################################################################
 # recorder:
