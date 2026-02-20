@@ -1,6 +1,5 @@
 ###############################################################################
 ## SVOTC – Beta Edition
-## Made By Johan Ä + AI Enhancements
 ##
 ## WHAT CHANGED IN THIS VERSION:
 ##   (1) Engine: price_ready no longer depends on TTN (TTN=999 is OK)
