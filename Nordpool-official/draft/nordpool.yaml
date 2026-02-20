@@ -1,0 +1,261 @@
+###############################################################################
+## PACKAGE: SVOTC + Nordpool Price (SE3 example)
+###############################################################################
+
+###############################################################################
+## 1. INPUT_NUMBER – Elhandel-parametrar
+###############################################################################
+input_number:
+  elhandel_rorlig_kvart_paslag:
+    name: "Elhandel påslag (SEK/kWh)"
+    min: 0
+    max: 1
+    step: 0.001
+    unit_of_measurement: "SEK/kWh"
+    mode: box
+    icon: mdi:plus-circle
+
+  elhandel_rorlig_kvart_elcertifikat:
+    name: "Elhandel elcertifikat (SEK/kWh)"
+    min: 0
+    max: 1
+    step: 0.001
+    unit_of_measurement: "SEK/kWh"
+    mode: box
+    icon: mdi:certificate
+
+  elhandel_rorlig_kvart_moms:
+    name: "Elhandel moms (%)"
+    min: 0
+    max: 30
+    step: 0.1
+    unit_of_measurement: "%"
+    mode: box
+    icon: mdi:percent
+
+###############################################################################
+## 2. TEMPLATE – Nordpool + SVOTC-feed + Chart-feed
+###############################################################################
+template:
+  # ==========================================================================
+  # 2A) TRIGGER-BASERAD: Hämtar prislistor (today/tomorrow)
+  # ==========================================================================
+  - trigger:
+      - platform: time_pattern
+        minutes: "/10"
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id:
+          - input_number.elhandel_rorlig_kvart_paslag
+          - input_number.elhandel_rorlig_kvart_elcertifikat
+          - input_number.elhandel_rorlig_kvart_moms
+
+    action:
+      # BYT config_entry + area till din Nordpool-integration
+      - action: nordpool.get_prices_for_date
+        data:
+          config_entry: 01KHAXM5D239V0B77VNTCDJ3RG
+          date: "{{ now().date() }}"
+          areas: SE3
+          currency: SEK
+        response_variable: today_price
+
+      - action: nordpool.get_prices_for_date
+        data:
+          config_entry: 01KHAXM5D239V0B77VNTCDJ3RG
+          date: "{{ (now() + timedelta(days=1)).date() }}"
+          areas: SE3
+          currency: SEK
+        response_variable: tomorrow_price
+
+    sensor:
+      #########################################################################
+      # 2A.1 – Elpris spot + avgifter (vanlig sensor)
+      #########################################################################
+      - name: "Elpris spot + avgifter"
+        unique_id: elpris_spot_med_avgifter
+        device_class: monetary
+        unit_of_measurement: "SEK/kWh"
+        icon: mdi:flash
+
+        availability: >
+          {{ (today_price.get('SE3') or []) | length > 0 }}
+
+        state: >
+          {% set entries = (today_price.get('SE3') or []) %}
+          {% set now_ts = now().timestamp() %}
+          {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+          {% set el_cert  = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+          {% set el_moms  = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+          {% set ns = namespace(v=None) %}
+          {% for s in entries %}
+            {% set st = as_timestamp(s.start) %}
+            {% set en = as_timestamp(s.end) %}
+            {% if st <= now_ts < en %}
+              {% set spot = (s.price | float(0)) / 1000 %}
+              {% set ns.v = (spot + el_paslag + el_cert) * el_moms %}
+              {% break %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.v | round(3) if ns.v is not none else none }}
+
+        attributes:
+          min: >
+            {% set entries = (today_price.get('SE3') or []) %}
+            {% if entries %}
+              {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+              {% set el_cert  = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+              {% set el_moms  = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+              {% set spot_min = (entries | map(attribute='price') | map('float') | list | min) / 1000 %}
+              {{ ((spot_min + el_paslag + el_cert) * el_moms) | round(3) }}
+            {% endif %}
+
+          max: >
+            {% set entries = (today_price.get('SE3') or []) %}
+            {% if entries %}
+              {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+              {% set el_cert  = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+              {% set el_moms  = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+              {% set spot_max = (entries | map(attribute='price') | map('float') | list | max) / 1000 %}
+              {{ ((spot_max + el_paslag + el_cert) * el_moms) | round(3) }}
+            {% endif %}
+
+          raw_today: >
+            {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+            {% set el_cert  = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+            {% set el_moms  = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+            {% set entries = (today_price.get('SE3') or []) %}
+            {% set ns = namespace(r=[]) %}
+            {% for s in entries %}
+              {% set spot = (s.price | float(0)) / 1000 %}
+              {% set val = (spot + el_paslag + el_cert) * el_moms %}
+              {% set ns.r = ns.r + [{
+                'start': (s.start | as_datetime | as_local).isoformat(),
+                'end':   (s.end   | as_datetime | as_local).isoformat(),
+                'value': val | round(2)
+              }] %}
+            {% endfor %}
+            {{ ns.r }}
+
+          raw_tomorrow: >
+            {% set entries = (tomorrow_price.get('SE3') or []) %}
+            {% if not entries %}
+              []
+            {% else %}
+              {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+              {% set el_cert  = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+              {% set el_moms  = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+              {% set ns = namespace(r=[]) %}
+              {% for s in entries %}
+                {% set spot = (s.price | float(0)) / 1000 %}
+                {% set val = (spot + el_paslag + el_cert) * el_moms %}
+                {% set ns.r = ns.r + [{
+                  'start': (s.start | as_datetime | as_local).isoformat(),
+                  'end':   (s.end   | as_datetime | as_local).isoformat(),
+                  'value': val | round(2)
+                }] %}
+              {% endfor %}
+              {{ ns.r }}
+            {% endif %}
+
+      #########################################################################
+      # 2A.2 – SVOTC-price feed (ANVÄNDS AV SVOTC)
+      #########################################################################
+      - name: "Elpris (svotc)"
+        unique_id: elpris_svotc
+        device_class: monetary
+        unit_of_measurement: "SEK/kWh"
+        icon: mdi:cash-multiple
+
+        availability: >
+          {{ (today_price.get('SE3') or []) | length > 0 }}
+
+        state: >
+          {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+          {% set el_cert  = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+          {% set el_moms  = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+          {% set entries  = (today_price.get('SE3') or []) %}
+          {% set now_ts   = now().timestamp() %}
+          {% set ns = namespace(v=None) %}
+          {% for s in entries %}
+            {% set st = as_timestamp(s.start) %}
+            {% set en = as_timestamp(s.end) %}
+            {% if st <= now_ts < en %}
+              {% set spot = (s.price | float(0)) / 1000 %}
+              {% set ns.v = (spot + el_paslag + el_cert) * el_moms %}
+              {% break %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.v | round(3) if ns.v is not none else none }}
+
+        attributes:
+          unit: kWh
+          currency: SEK
+          country: Sweden
+          region: SE3
+
+          raw_today: >
+            {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+            {% set el_cert  = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+            {% set el_moms  = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+            {% set entries = (today_price.get('SE3') or []) %}
+            {% set ns = namespace(r=[]) %}
+            {% for s in entries %}
+              {% set spot = (s.price | float(0)) / 1000 %}
+              {% set val = (spot + el_paslag + el_cert) * el_moms %}
+              {% set ns.r = ns.r + [{
+                'start': (s.start | as_datetime | as_local).isoformat(),
+                'end':   (s.end   | as_datetime | as_local).isoformat(),
+                'value': val | round(2)
+              }] %}
+            {% endfor %}
+            {{ ns.r }}
+
+          raw_tomorrow: >
+            {% set entries = (tomorrow_price.get('SE3') or []) %}
+            {% if not entries %}
+              []
+            {% else %}
+              {% set el_paslag = states('input_number.elhandel_rorlig_kvart_paslag') | float(0) %}
+              {% set el_cert  = states('input_number.elhandel_rorlig_kvart_elcertifikat') | float(0) %}
+              {% set el_moms  = 1 + (states('input_number.elhandel_rorlig_kvart_moms') | float(0) / 100) %}
+              {% set ns = namespace(r=[]) %}
+              {% for s in entries %}
+                {% set spot = (s.price | float(0)) / 1000 %}
+                {% set val = (spot + el_paslag + el_cert) * el_moms %}
+                {% set ns.r = ns.r + [{
+                  'start': (s.start | as_datetime | as_local).isoformat(),
+                  'end':   (s.end   | as_datetime | as_local).isoformat(),
+                  'value': val | round(2)
+                }] %}
+              {% endfor %}
+              {{ ns.r }}
+            {% endif %}
+
+  # ==========================================================================
+  # 2B) VANLIGA TEMPLATE-SENSORER – inkl. CHART-FEED
+  # ==========================================================================
+  - sensor:
+      #########################################################################
+      # 2B.1 – Liten, ren sensor för grafer (loggas i recorder)
+      #########################################################################
+      - name: "Elpris för grafer"
+        unique_id: elpris_chart
+        unit_of_measurement: "SEK/kWh"
+        device_class: monetary
+        state: "{{ states('sensor.elpris_svotc') }}"
+
+###############################################################################
+## 3. RECORDER-TIPS – exkludera SVOTC-feed, behåll chart-historik
+###############################################################################
+# recorder:
+#   exclude:
+#     entities:
+#       - sensor.elpris_svotc
+#
+# Då:
+#   - SVOTC får raw_today/raw_tomorrow
+#   - sensor.elpris_chart loggas för historik
+#   - databasen slipper 16KB-varningar
+###############################################################################
