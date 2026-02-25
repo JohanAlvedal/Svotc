@@ -11,6 +11,7 @@
 ##   (7) Price floor: added input_number.svotc_price_floor_sek so brake requires (price > P80) AND (price > floor).
 ##   (8) Learning: default learned_brake_efficiency = 1.0 and softer daily adjustment curve.
 ##   (9) Reason codes: added PRICE_PREBRAKE (and optional PRICE_CHEAP) for clearer debugging.
+##  (10) Comfort: automatic overtemperature brake adds mild positive offset when indoor > target.
 ###############################################################################
 ## @1 HELPERS — UI / Controls
 ###############################################################################
@@ -252,7 +253,7 @@ input_text:
     name: "Reason code"
     # OFF / PASS_THROUGH / COMFORT_GUARD / COMFORT_ONLY / MISSING_INPUTS_FREEZE
     # PRICE_SCHEMA_INVALID / PRICE_DATA_WARMUP_FREEZE
-    # PRICE_PREBRAKE / PRICE_BRAKE / NEUTRAL
+    # PRICE_PREBRAKE / PRICE_BRAKE / OVERTEMP_BRAKE / NEUTRAL
     # DWELL_BOOTSTRAP_INIT / BRAKE_PHASE_BOOTSTRAP
 
 input_datetime:
@@ -976,6 +977,8 @@ automation:
 
           mode: "{{ states('input_select.svotc_mode') }}"
           healthy: "{{ is_state('binary_sensor.svotc_inputs_healthy','on') }}"
+          indoor: "{{ states('sensor.svotc_src_indoor') | float(none) }}"
+          target: "{{ states('sensor.svotc_dynamic_target_temperature') | float(none) }}"
           pre: "{{ states('sensor.svotc_prebrake_strength') | float(0) }}"
           price_state: "{{ states('input_text.svotc_last_price_state') }}"
           schema_ok: "{{ is_state('binary_sensor.svotc_price_schema_ok','on') }}"
@@ -1025,6 +1028,28 @@ automation:
             {% elif guard %} {{ (-boost_max) }}
             {% else %} 0 {% endif %}
 
+          # Automatic overtemperature braking (no extra user controls).
+          # If indoor is above target, request a mild positive offset to reduce heating.
+          # Uses internal deadband and scales gradually to avoid oscillation.
+          overtemp_term: >
+            {% if mode not in ['Smart','Simple'] or guard %}
+              0
+            {% elif indoor is not number or target is not number %}
+              0
+            {% else %}
+              {% set over = indoor - target %}
+              {% set deadband = 0.20 %}
+              {% set full_scale = 1.50 %}
+              {% set max_auto = [2.0, hold_offset * 0.5] | min %}
+              {% if over <= deadband or full_scale <= deadband %}
+                0
+              {% else %}
+                {% set x = (over - deadband) / (full_scale - deadband) %}
+                {% set x = ([[x, 0] | max, 1] | min) %}
+                {{ (max_auto * x) | round(3) }}
+              {% endif %}
+            {% endif %}
+
           # FIX: ramping_up får price_term (tidigare 0) + inga clamp-filter
           price_term: >
             {% if mode not in ['Smart','Simple'] or guard or (not price_ready) %}
@@ -1062,7 +1087,7 @@ automation:
 
           # FIX: ersätter |clamp(req_min, req_max)
           requested_calc: >
-            {% set x = comfort_term + price_term %}
+            {% set x = comfort_term + price_term + overtemp_term %}
             {{ ([[x, req_min] | max, req_max] | min) | round(2) }}
 
           requested: >
@@ -1115,6 +1140,7 @@ automation:
             {% elif pre > 0 and mode in ['Smart','Simple'] %} PRICE_PREBRAKE
             {% elif price_state == 'cheap' and mode in ['Smart','Simple'] %} PRICE_CHEAP
             {% elif states('input_text.svotc_brake_phase') in ['ramping_up','holding','ramping_down'] and mode in ['Smart','Simple'] %} PRICE_BRAKE
+            {% elif overtemp_term | float(0) > 0 and mode in ['Smart','Simple'] %} OVERTEMP_BRAKE
             {% else %} NEUTRAL {% endif %}
 
       - choose:
