@@ -11,7 +11,7 @@
 ##   (7) Price floor: added input_number.svotc_price_floor_sek so brake requires (price > P80) AND (price > floor).
 ##   (8) Learning: default learned_brake_efficiency = 1.0 and softer daily adjustment curve.
 ##   (9) Reason codes: added PRICE_PREBRAKE (and optional PRICE_CHEAP) for clearer debugging.
-##  (10) Comfort: automatic overtemperature brake adds mild positive offset when indoor > target.
+##  (10) Comfort: automatic overtemperature brake adds positive offset when indoor > target, scaled by comfort_boost_max.
 ###############################################################################
 ## @1 HELPERS — UI / Controls
 ###############################################################################
@@ -1040,7 +1040,9 @@ automation:
               {% set over = indoor - target %}
               {% set deadband = 0.20 %}
               {% set full_scale = 1.50 %}
-              {% set max_auto = [2.0, hold_offset * 0.5] | min %}
+              # Allow stronger overtemperature braking by reusing comfort_boost_max.
+              # Effective cap is still bounded by hold_offset to avoid overpowering price-brake limits.
+              {% set max_auto = [hold_offset, 2.0 + boost_max] | min %}
               {% if over <= deadband or full_scale <= deadband %}
                 0
               {% else %}
