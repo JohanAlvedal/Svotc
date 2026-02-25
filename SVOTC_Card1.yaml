@@ -1,5 +1,6 @@
 title: SVOTC Main
 icon: ""
+badges: []
 cards: []
 type: sections
 sections:
@@ -27,6 +28,8 @@ sections:
           - entity: input_boolean.svotc_comfort_guard_enabled
             name: Komfortskydd aktiverat
             icon: mdi:shield-home
+          - entity: automation.svotc_auto_tune_normal_house_defaults
+            secondary_info: last-triggered
           - type: section
             label: Prisoptimering
           - entity: input_number.svotc_prebrake_lead_time_min
@@ -472,46 +475,8 @@ sections:
 
           ---
 
+          **Version:** `{{ states('input_text.svotc_version') }}`
+
           *Uppdaterad: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}*
-        title: SVOTC – MAIN
-badges:
-  - type: entity
-    entity: person.johan
-    show_entity_picture: true
-  - type: custom:mushroom-template-badge
-    content: Laddbox
-    icon: mdi:ev-plug-type2
-    color: green
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/laddbox
-  - type: entity
-    show_name: false
-    show_state: true
-    show_icon: true
-    tap_action:
-      action: navigate
-      navigation_path: /dashboard-data/7
-    entity: sensor.elpris_spot_avgifter
-  - type: custom:mushroom-template-badge
-    icon: mdi:mushroom
-    color: red
-    content: Jul
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/jul
-  - type: custom:mushroom-template-badge
-    content: Tariff
-    icon: mdi:power-plug
-    color: blue
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/9
-  - type: custom:mushroom-template-badge
-    content: System
-    icon: mdi:server
-    color: green
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/system
+        title: SVOTC – MAIN (Statuskort)
 max_columns: 4
