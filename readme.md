@@ -1,3 +1,14 @@
+## Changes in this version
+
+- Engine: now runs every 30s and uses safe Jinja2 min/max clamping (no `|clamp()`).
+- Startup: added `input_boolean.svotc_initialized` so defaults are applied once (no reboot overwrite).
+- Bootstrap: added safe init for dwell + brake phase (`DWELL_BOOTSTRAP_INIT`, `BRAKE_PHASE_BOOTSTRAP`).
+- Price robustness: added `binary_sensor.svotc_price_schema_ok` + reason `PRICE_SCHEMA_INVALID`.
+- Smoother braking: bridge-hold now uses NEAR (>= 0.95×P80, incl. brake) to avoid short dips between peaks.
+- Safety: added `input_number.svotc_price_floor_sek` so brake requires both `price > P80` and `price > floor`.
+- Learning: default brake efficiency starts at 1.0 and daily tuning is less aggressive.
+- Debug: clearer reason codes (incl. `PRICE_PREBRAKE`, optional `PRICE_CHEAP`).
+
 # SVOTC — Smart Virtual Outdoor Temperature Control
 
 ### Beta Edition (2026)
