@@ -1040,9 +1040,10 @@ automation:
               {% set over = indoor - target %}
               {% set deadband = 0.20 %}
               {% set full_scale = 1.50 %}
-              # Allow stronger overtemperature braking by reusing comfort_boost_max.
-              # Effective cap is still bounded by hold_offset to avoid overpowering price-brake limits.
-              {% set max_auto = [hold_offset, 2.0 + boost_max] | min %}
+              # Keep overtemperature braking functional even if hold_offset is still 0 after upgrades.
+              # We still cap it conservatively so price-brake limits are not overpowered.
+              {% set base_cap = hold_offset if hold_offset > 0 else (1.0 + boost_max) %}
+              {% set max_auto = [base_cap, 2.0 + boost_max] | min %}
               {% if over <= deadband or full_scale <= deadband %}
                 0
               {% else %}
@@ -1140,9 +1141,9 @@ automation:
             {% elif not schema_ok %} PRICE_SCHEMA_INVALID
             {% elif freeze_price %} PRICE_DATA_WARMUP_FREEZE
             {% elif pre > 0 and mode in ['Smart','Simple'] %} PRICE_PREBRAKE
+            {% elif overtemp_term | float(0) > 0 and mode in ['Smart','Simple'] %} OVERTEMP_BRAKE
             {% elif price_state == 'cheap' and mode in ['Smart','Simple'] %} PRICE_CHEAP
             {% elif states('input_text.svotc_brake_phase') in ['ramping_up','holding','ramping_down'] and mode in ['Smart','Simple'] %} PRICE_BRAKE
-            {% elif overtemp_term | float(0) > 0 and mode in ['Smart','Simple'] %} OVERTEMP_BRAKE
             {% else %} NEUTRAL {% endif %}
 
       - choose:
