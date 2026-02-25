@@ -1344,6 +1344,7 @@ automation:
       - variables:
           violations: "{{ states('input_number.svotc_comfort_violations_24h') | float(0) }}"
           current_eff: "{{ states('input_number.svotc_learned_brake_efficiency') | float(1.0) }}"
+          current_thermal: "{{ states('input_number.svotc_thermal_mass_factor') | float(1.0) }}"
 
       - service: input_number.set_value
         target: { entity_id: input_number.svotc_learned_brake_efficiency }
@@ -1364,6 +1365,27 @@ automation:
               {{ ( [[x, 0.5] | max, 1.5] | min ) | round(2) }}
             {% else %}
               {{ eff | round(2) }}
+            {% endif %}
+
+      # Adaptive thermal model:
+      # - Frequent comfort violations => reduce thermal factor (faster reaction, less aggressive braking windows)
+      # - Very stable comfort => increase thermal factor slowly (more price optimization headroom)
+      - service: input_number.set_value
+        target: { entity_id: input_number.svotc_thermal_mass_factor }
+        data:
+          value: >
+            {% set t = current_thermal %}
+            {% if violations > 5 %}
+              {% set x = t - 0.2 %}
+              {{ ( [[x, 0.5] | max, 2.0] | min ) | round(2) }}
+            {% elif violations > 2 %}
+              {% set x = t - 0.1 %}
+              {{ ( [[x, 0.5] | max, 2.0] | min ) | round(2) }}
+            {% elif violations == 0 %}
+              {% set x = t + 0.1 %}
+              {{ ( [[x, 0.5] | max, 2.0] | min ) | round(2) }}
+            {% else %}
+              {{ t | round(2) }}
             {% endif %}
 
       - service: input_number.set_value
