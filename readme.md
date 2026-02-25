@@ -687,6 +687,6 @@ SOFTWARE.
 
 ---
 
-**Version:** 2.0.1 (2026-02-16)  
-**Senast uppdaterad:** 2026-02-15
+**Version:** (2026-02-25)  
+**Senast uppdaterad:** 2026-02-25
 **Licens:** MIT
