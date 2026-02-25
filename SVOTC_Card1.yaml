@@ -259,6 +259,27 @@ sections:
           - Offset: {{ app | round(2) }}°C
 
 
+          {% elif reason == 'OVERTEMP_BRAKE' %}
+
+          🌡️ Bromsar värme (inne över mål)
+
+          - Inne: {{ indoor | round(2) }}°C
+
+          - Mål: {{ target | round(2) }}°C
+
+          - Offset: {{ app | round(2) }}°C
+
+
+          {% elif reason == 'PRICE_CHEAP' %}
+
+          🟢 Billig el (ingen extra broms)
+
+          - Pris: {% if p_ok_val %}{{ p }}{% else %}—{% endif %} (P30: {% if
+          p30_ok_val %}{{ p30 }}{% else %}—{% endif %})
+
+          - Offset: {{ app | round(2) }}°C
+
+
           {% elif reason == 'COMFORT_GUARD' %}
 
           🛡️ Skyddar komfort (inne för låg)  
