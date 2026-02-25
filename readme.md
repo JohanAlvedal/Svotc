@@ -4,7 +4,7 @@
 - Startup: added `input_boolean.svotc_initialized` so defaults are applied once (no reboot overwrite).
 - Bootstrap: added safe init for dwell + brake phase (`DWELL_BOOTSTRAP_INIT`, `BRAKE_PHASE_BOOTSTRAP`).
 - Price robustness: added `binary_sensor.svotc_price_schema_ok` + reason `PRICE_SCHEMA_INVALID`.
-- Smoother braking: bridge-hold now uses NEAR (>= 0.95×P80, incl. brake) to avoid short dips between peaks.
+- Smoother braking: bridge-hold now uses a volatility-aware NEAR threshold to avoid short dips between peaks.
 - Safety: added `input_number.svotc_price_floor_sek` so brake requires both `price > P80` and `price > floor`.
 - Learning: default brake efficiency starts at 1.0 and daily tuning is less aggressive.
 - Debug: clearer reason codes (incl. `PRICE_PREBRAKE`, optional `PRICE_CHEAP`).
@@ -37,10 +37,11 @@ Systemet är byggt för att vara:
 
 ### Prisoptimering
 
-* Använder **P30/P80-percentiler** för att avgöra billiga/dyra perioder
+* Använder **P30/P80-percentiler från `raw_today`** för att avgöra billiga/dyra perioder (Ngenic-liknande dagsfokus)
 * **Pre-brake-logik** (forward-look) som bygger upp bromsning gradvis innan dyra timmar
 * **Brake-fasmaskin** (ramping up → holding → ramping down) för mjuka övergångar
 * Dwell-timers förhindrar prisfluktuationer från att orsaka instabilitet
+* **Bridge-hold (NEAR)** kan titta in i `raw_tomorrow` om det finns, men påverkar inte P30/P80-gränserna
 
 ### Modularitet
 
@@ -85,7 +86,7 @@ homeassistant:
   packages: !include_dir_named packages
 ```
 
-### 3. Klistra in **svotc_xxxx26.yaml**
+### 3. Klistra in rätt paketfil, t.ex. **svotc_v1.1.3-beta.yaml**
 
 
 ### 4. Starta om Home Assistant
@@ -93,6 +94,18 @@ homeassistant:
 ### 5. Gå till Inställningar → Enheter & tjänster → Helpers
 
 Där hittar du alla SVOTC-kontroller.
+
+### 6. Viktigt vid första start (`svotc_initialized`)
+
+För kompatibilitet är `input_boolean.svotc_initialized` satt till `on` från början.
+Gör så här för säker first-run-init:
+
+1. Sätt `input_boolean.svotc_initialized` till **off**
+2. Vänta 30–60 sekunder så init-automation hinner skriva standardvärden
+3. Verifiera att helpers fått rimliga defaultvärden
+4. Låt `svotc_initialized` gå tillbaka till **on** (automatiskt eller manuellt)
+
+Tips: Lägg gärna detta som punkt i din installationschecklista så det inte missas.
 
 ---
 
@@ -134,35 +147,42 @@ Du måste ange dessa tre entiteter:
 |-----|--------|----------|---------|
 | Inomhustemperatur | `input_text.svotc_entity_indoor` | `sensor.indoor_temp` | Numeriskt värde i °C |
 | Utomhustemperatur | `input_text.svotc_entity_outdoor` | `sensor.outdoor_temp` | Numeriskt värde i °C |
-| Nordpool-entitet | `input_text.svotc_entity_price` | `sensor.nordpool_kwh_se3` | Nordpool-integration med attribut `current_price`, `raw_today`, `raw_tomorrow` |
+| Nordpool-entitet | `input_text.svotc_entity_price` | `sensor.nordpool_kwh_se3` | Nordpool-integration med state=`current_price` och attribut `raw_today` (gärna även `raw_tomorrow`) |
 
-**OBS:** Nordpool-entiteten måste vara från **Nordpool-integrationen** eller kompatibel. Priset måste vara i SEK/kWh och ha attributen `raw_today` och `raw_tomorrow` för percentilberäkning.
+**OBS:** Nordpool-entiteten måste vara från **Nordpool-integrationen** eller kompatibel.
+
+- **P30/P80 beräknas endast från `raw_today`** (dagens priser).
+- `raw_tomorrow` används bara för forward-look/bridge-hold när morgondagens block finns tillgängliga.
 
 ### Rekommenderade inställningar
 
 | Parameter | Värde | Förklaring |
 |-----------|-------|------------|
 | Mode | **Smart** | Full autonom styrning |
-| Brake aggressiveness | **2** | 60 min prebrake window |
-| Heat aggressiveness | **2** | Balanserad värmetillsats |
+| Prebrake lead time | **30 min** | Grundfönster före dyrperiod |
+| Bridge-hold window | **45–90 min** | Undvik dip mellan nära pris-toppar |
 | Thermal mass factor | **1.0** | Normal villa, justera sedan |
 | Comfort temperature | **21.0°C** | Ditt önskade mål |
 | Comfort guard | **PÅ** | Alltid rekommenderat |
-| Brake hold offset | **6.0°C** | Maximal offset under dyra timmar |
+| Brake hold offset | **6.0°C** | Maximal offset under dyra perioder |
+| Minimum brake price | **0.10 SEK/kWh** | Hindrar bromsning vid extremt låga/negativa priser |
 
 ### Finjustering efter ditt hus
 
 **Lätt hus** (snabb värme/kyla, dålig isolering):
 - Thermal mass factor: **0.6–0.8**
-- Brake aggressiveness: **1–2**
+- Prebrake lead time: **15–30 min**
+- Brake hold offset: **4–6°C**
 
 **Normal villa:**
 - Thermal mass factor: **1.0**
-- Brake aggressiveness: **2**
+- Prebrake lead time: **30 min**
+- Brake hold offset: **6°C**
 
 **Tung villa** (bra isolering, långsam värme/kyla):
 - Thermal mass factor: **1.3–1.8**
-- Brake aggressiveness: **3–4**
+- Prebrake lead time: **40–60 min**
+- Brake hold offset: **6–8°C**
 
 ---
 
@@ -463,7 +483,7 @@ För bästa översikt, använd denna ordning:
 ```yaml
 entities:
   - entity: input_number.svotc_comfort_temperature
-  # - entity: input_number.svotc_brake_aggressiveness  ← Ta bort denna rad om du inte vill ändra den
+  # - entity: input_number.svotc_prebrake_lead_time_min  ← Ta bort denna rad om du inte vill ändra den
 ```
 
 ---
@@ -561,7 +581,7 @@ Inputs + price data är stabila igen.
 **Q: Varför rör sig inte offset?**  
 **A:** Kolla `input_text.svotc_reason_code`. Troligen:
 - `MISSING_INPUTS_FREEZE` → saknar sensorer, kontrollera entitetsmappning
-- `PRICE_DATA_WARMUP_FREEZE` → väntar på Nordpool-data (kräver today+tomorrow)
+- `PRICE_DATA_WARMUP_FREEZE` → väntar på tillräcklig prisdata (främst `raw_today`) innan prislogik släpps
 - `OFF` → systemet är avstängt, sätt mode till Smart
 
 **Q: Hur vet jag att det fungerar?**  
@@ -574,10 +594,10 @@ Inputs + price data är stabila igen.
 **Q: Vilken Nordpool-integration behöver jag?**  
 **A:** Den officiella **Nordpool-integrationen** från HACS eller core. Sensorn måste ha attributen:
 - `current_price`
-- `raw_today` (lista med timpriser)
-- `raw_tomorrow` (lista med timpriser)
+- `raw_today` (lista med prisblock för idag)
+- `raw_tomorrow` (valfritt men rekommenderat för bättre forward-look/bridge-hold)
 
-+**Tips:** Om du använder den officiella Nordpool-integrationen, kan du använda paketfilen från [Nordpool-official](https://github.com/custom-components/nordpool) för enklare konfiguration.
+**Tips:** Om du använder den officiella Nordpool-integrationen, kan du använda paketfilen från [Nordpool-official](https://github.com/custom-components/nordpool) för enklare konfiguration.
 
 **Q: Vilken hårdvara behöver jag för att koppla SVOTC till min värmepump?**  
 **A:** Det beror på din värmepump:
@@ -588,10 +608,11 @@ Inputs + price data är stabila igen.
 
 **Q: Systemet är för aggressivt / för försiktigt**  
 **A:** Justera i denna ordning:
-1. `svotc_brake_aggressiveness` (0-5) → påverkar prebrake window
-2. `svotc_thermal_mass_factor` (0.5-2.0) → anpassar till ditt hus tröghet
-3. `svotc_brake_hold_offset_c` (0-20) → max offset under dyra perioder
-4. Vänta 3-5 dagar för learning-algoritmen att konvergera
+1. `input_number.svotc_prebrake_lead_time_min` → hur tidigt prebrake ska börja
+2. `input_number.svotc_thermal_mass_factor` (0.5-2.0) → anpassa till husets tröghet
+3. `input_number.svotc_brake_hold_offset_c` (0-20) → max offset under dyra perioder
+4. `input_number.svotc_bridge_hold_window_min` → minska/öka brohållning mellan toppar
+5. Vänta 3-5 dagar om learning/autotune är aktiv innan ny större justering
 
 **Q: Kan jag inaktivera learning?**  
 **A:** Ja, ta bort automationen `SVOTC Learning: reset daily counter`. Då behåller systemet alltid det manuella värdet i `svotc_learned_brake_efficiency`.
