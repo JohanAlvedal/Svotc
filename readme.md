@@ -495,13 +495,17 @@ SVOTC kan (i learning-varianten) använda en enkel **självjustering** som anpas
 ### Hur det fungerar
 
 1. Varje gång **komfortskyddet aktiveras** räknas en “komfortavvikelse”.
-2. Vid **midnatt varje natt** analyseras senaste 24 timmarna:
+2. Vid **midnatt varje natt** analyseras senaste 24 timmarna med en finstegad kurva:
 
    * **>5 avvikelser** → systemet har varit för aggressivt → **minska brake-efficiency med 0.05**
-   * **<2 avvikelser** → systemet kan bromsa mer → **öka brake-efficiency med 0.02**
-   * **2–5 avvikelser** → balans → **behåll nuvarande värde**
+   * **3–5 avvikelser** → något för aggressivt → **minska brake-efficiency med 0.02**
+   * **0 avvikelser** → systemet kan bromsa mer → **öka brake-efficiency med 0.03**
+   * **1 avvikelse** → nära balans men kan bromsa lite mer → **öka brake-efficiency med 0.01**
+   * **2 avvikelser** → balans → **behåll nuvarande värde**
 3. Räknaren nollställs.
 4. Nästa dag används den uppdaterade effektiviteten i prisbromsningen.
+
+Värdet klampas alltid till intervallet **0.5–1.5**.
 
 ### Konvergens
 
