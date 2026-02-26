@@ -473,7 +473,7 @@ template:
             {% endfor %}
             {% if ns.prices | length >= 6 %}
               {% set srt = ns.prices | sort %}
-              {% set idx = ((srt | length - 1) * 0.30) | round(0, 'half_up') | int %}
+              {% set idx = ((srt | length - 1) * 0.30) | round(0, 'floor') | int %}
               {{ srt[idx] | round(3) }}
             {% else %}
               {{ none }}
@@ -501,7 +501,7 @@ template:
             {% endfor %}
             {% if ns.prices | length >= 6 %}
               {% set srt = ns.prices | sort %}
-              {% set idx = ((srt | length - 1) * 0.80) | round(0, 'half_up') | int %}
+              {% set idx = ((srt | length - 1) * 0.80) | round(0, 'floor') | int %}
               {{ srt[idx] | round(3) }}
             {% else %}
               {{ none }}
@@ -541,7 +541,9 @@ template:
           {% if ent in ['unknown','unavailable','none',''] or p80 is not number %}
             999
           {% else %}
-            {% set block = state_attr(ent, 'raw_today') | default([], true) %}
+            {% set today = state_attr(ent, 'raw_today') | default([], true) %}
+            {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
+            {% set block = today + tomorrow %}
             {% set now_ts = as_timestamp(now()) %}
             {% set ns = namespace(best=none, in_brake=false) %}
 
@@ -594,49 +596,54 @@ template:
           {% if ent in ['unknown','unavailable','none',''] or p80 is not number or p30 is not number %}
             999
           {% else %}
-            {# Volatilitetsspann: vid "platt" dygn (vanligt med 96 block) stänger vi av near helt #}
+            {# Volatilitetsspann: vid "platt" dygn stänger vi av near helt #}
             {% set span = [p80 - p30, 0] | max %}
             {% if span < 0.02 %}
               999
             {% else %}
-              {# Near = p80 minus 25% av spannet (justerar automatiskt för dygnets volatilitet) #}
+              {# Near = p80 minus 25% av spannet #}
               {% set near = p80 - (span * 0.25) %}
-              {# Near ska aldrig hamna under prisgolvet, annars kan bridge-hold trigga på "billiga" dygn #}
+              {# clamp: near får inte hamna under floor och måste vara < p80 #}
               {% set near = [near, floor] | max %}
-
-              {% set today = state_attr(ent, 'raw_today') | default([], true) %}
-              {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
-              {% set block = today + tomorrow %}
-              {% set now_ts = as_timestamp(now()) %}
-              {% set ns = namespace(best=none, in_near=false) %}
-
-              {% for it in block %}
-                {% if it is mapping %}
-                  {% set v = it.get('value') | float(none) %}
-                  {% set s = it.get('start') | as_timestamp(none) %}
-                  {% set e = it.get('end') | as_timestamp(none) %}
-                  {% if v is number and s is number and e is number and s <= now_ts < e and (v > near) %}
-                    {% set ns.in_near = true %}
-                  {% endif %}
-                {% endif %}
-              {% endfor %}
-
-              {% if ns.in_near %}
-                0
+              {% if near >= p80 %}
+                999
               {% else %}
+                {% set today = state_attr(ent, 'raw_today') | default([], true) %}
+                {% set tomorrow = state_attr(ent, 'raw_tomorrow') | default([], true) %}
+                {% set block = today + tomorrow %}
+                {% set now_ts = as_timestamp(now()) %}
+                {% set ns = namespace(best=none, in_near=false) %}
+
+                {# Är vi i ett NEAR-block just nu? #}
                 {% for it in block %}
                   {% if it is mapping %}
                     {% set v = it.get('value') | float(none) %}
                     {% set s = it.get('start') | as_timestamp(none) %}
-                    {% if v is number and s is number and s >= now_ts and (v > near) %}
-                      {% set mins = (s - now_ts) / 60 %}
-                      {% if ns.best is none or mins < ns.best %}
-                        {% set ns.best = mins %}
-                      {% endif %}
+                    {% set e = it.get('end') | as_timestamp(none) %}
+                    {% if v is number and s is number and e is number and s <= now_ts < e and (v > near) %}
+                      {% set ns.in_near = true %}
                     {% endif %}
                   {% endif %}
                 {% endfor %}
-                {{ ns.best | round(1) if ns.best is not none else 999 }}
+
+                {% if ns.in_near %}
+                  0
+                {% else %}
+                  {# Nästa start för kommande NEAR-block #}
+                  {% for it in block %}
+                    {% if it is mapping %}
+                      {% set v = it.get('value') | float(none) %}
+                      {% set s = it.get('start') | as_timestamp(none) %}
+                      {% if v is number and s is number and s >= now_ts and (v > near) %}
+                        {% set mins = (s - now_ts) / 60 %}
+                        {% if ns.best is none or mins < ns.best %}
+                          {% set ns.best = mins %}
+                        {% endif %}
+                      {% endif %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ ns.best | round(1) if ns.best is not none else 999 }}
+                {% endif %}
               {% endif %}
             {% endif %}
           {% endif %}
@@ -673,8 +680,25 @@ template:
       - name: "SVOTC Price available"
         unique_id: svotc_price_available
         state: >
-          {{ states('sensor.svotc_src_current_price') not in ['unknown','unavailable','none','']
-             and is_state('binary_sensor.svotc_price_schema_ok','on') }}
+          {% set ent = states('input_text.svotc_entity_price') %}
+          {% if ent in ['unknown','unavailable','none',''] %}
+            false
+          {% else %}
+            {% set rt = state_attr(ent, 'raw_today') %}
+            {% if rt is not iterable or rt is string or (rt | list | length) == 0 %}
+              false
+            {% else %}
+              {% set ns = namespace(ok=true) %}
+              {% set check_count = [rt | list | length, 3] | min %}
+              {% for i in range(check_count) %}
+                {% set x = (rt | list)[i] %}
+                {% if not (x is mapping and ('value' in x) and ('start' in x) and ('end' in x)) %}
+                  {% set ns.ok = false %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.ok and (rt | list | length) >= 6 }}
+            {% endif %}
+          {% endif %}
 
   - trigger:
       - platform: state
@@ -1024,10 +1048,17 @@ automation:
                and pre == 0 }}
 
           comfort_term: >
-            {% if mode in ['Off','PassThrough'] %} 0
-            {% elif guard %} {{ (-boost_max) }}
-            {% else %} 0 {% endif %}
-
+            {% set phase = states('input_text.svotc_brake_phase') %}
+            {% set in_brake = phase in ['ramping_up','holding','ramping_down'] %}
+            {% if mode in ['Off','PassThrough'] %}
+              0
+            {% elif guard and (not in_brake) %}
+              {{ (-boost_max) }}
+            {% elif guard and in_brake %}
+              0
+            {% else %}
+              0
+            {% endif %}
           # Automatic overtemperature braking (no extra user controls).
           # If indoor is above target, request a mild positive offset to reduce heating.
           # Uses internal deadband and scales gradually to avoid oscillation.
@@ -1053,36 +1084,43 @@ automation:
               {% endif %}
             {% endif %}
 
-          # FIX: ramping_up får price_term (tidigare 0) + inga clamp-filter
+          # FIX: Prebrake/ramping_up handoff (smooth max) + korrekt clamp
           price_term: >
             {% if mode not in ['Smart','Simple'] or guard or (not price_ready) %}
               0
             {% else %}
               {% set phase = states('input_text.svotc_brake_phase') %}
+              {% set phase_ts = as_timestamp(states('input_datetime.svotc_brake_phase_changed'), default=0) %}
+              {% set elapsed = (as_timestamp(now()) - phase_ts) / 60 %}
+              {% set rampup = states('input_number.svotc_brake_rampup_duration_min') | float(20) %}
+              {% set rampdown = states('input_number.svotc_brake_rampdown_duration_min') | float(25) %}
 
+              {# Ramp-term #}
+              {% set ramp_term = 0 %}
+              {% if phase == 'ramping_up' %}
+                {% set x = 1 if rampup <= 0 else (elapsed / rampup) %}
+                {% set x = [[x, 0] | max, 1] | min %}
+                {% set ramp_term = (hold_offset * x) | round(3) %}
+              {% endif %}
+
+              {# Prebrake-term (cap 60%) #}
+              {% set pre_term = 0 %}
               {% if pre > 0 %}
                 {% set pre_cap = 0.60 %}
-              {{ (hold_offset * ([pre, pre_cap] | min)) | round(3) }}
+                {% set pre_term = (hold_offset * ([pre, pre_cap] | min)) | round(3) %}
+              {% endif %}
 
-              {% elif phase == 'ramping_up' %}
-                {% set phase_ts = as_timestamp(states('input_datetime.svotc_brake_phase_changed'), default=0) %}
-                {% set elapsed = (as_timestamp(now()) - phase_ts) / 60 %}
-                {% set rampup = states('input_number.svotc_brake_rampup_duration_min') | float(20) %}
-                {% set x = 1 if rampup <= 0 else (elapsed / rampup) %}
-                {% set x = ([[x, 0] | max, 1] | min) %}
-                {{ (hold_offset * x) | round(3) }}
-
+              {# Smooth handoff: välj max när ramping_up pågår #}
+              {% if phase == 'ramping_up' %}
+                {{ [ramp_term, pre_term] | max }}
+              {% elif pre > 0 %}
+                {{ pre_term }}
               {% elif phase == 'holding' %}
                 {{ hold_offset | round(3) }}
-
               {% elif phase == 'ramping_down' %}
-                {% set phase_ts = as_timestamp(states('input_datetime.svotc_brake_phase_changed'), default=0) %}
-                {% set elapsed = (as_timestamp(now()) - phase_ts) / 60 %}
-                {% set rampdown = states('input_number.svotc_brake_rampdown_duration_min') | float(25) %}
                 {% set x = 0 if rampdown <= 0 else (1 - (elapsed / rampdown)) %}
-                {% set x = ([[x, 0] | max, 1] | min) %}
+                {% set x = [[x, 0] | max, 1] | min %}
                 {{ (hold_offset * x) | round(3) }}
-
               {% else %}
                 0
               {% endif %}
@@ -1455,13 +1493,16 @@ automation:
         target: { entity_id: input_number.svotc_bridge_hold_window_min }
         data: { value: 45 }
       - service: input_number.set_value
+        target: { entity_id: input_number.svotc_price_dwell_neutral_to_brake_min }
+        data: { value: 10 }
+
+      - service: input_number.set_value
         target:
           entity_id:
             - input_number.svotc_price_dwell_cheap_to_neutral_min
-            - input_number.svotc_price_dwell_neutral_to_brake_min
             - input_number.svotc_price_dwell_brake_to_neutral_min
             - input_number.svotc_price_dwell_neutral_to_cheap_min
-        data: { value: 3}
+        data: { value: 5 }
       - service: input_number.set_value
         target: { entity_id: input_number.svotc_brake_rampup_duration_min }
         data: { value: 8 }
@@ -1560,6 +1601,14 @@ automation:
           dwell_calc: >
             {% set x = 3 * thermal %}
             {{ ([[x, 2] | max, 6] | min) | round(0) | int }}
+            
+          dwell_neutral_to_brake_calc: >
+            {% set x = 10 * thermal %}
+            {{ ([[x, 10] | max, 18] | min) | round(0) | int }}
+
+          dwell_other_calc: >
+            {% set x = 5 * thermal %}
+            {{ ([[x, 4] | max, 10] | min) | round(0) | int }}
 
           bridge_calc: >
             {% set x = 45 * thermal %}
@@ -1586,10 +1635,13 @@ automation:
         data: { value: "{{ bridge_calc }}" }
 
       - service: input_number.set_value
+        target: { entity_id: input_number.svotc_price_dwell_neutral_to_brake_min }
+        data: { value: "{{ dwell_neutral_to_brake_calc }}" }
+
+      - service: input_number.set_value
         target:
           entity_id:
             - input_number.svotc_price_dwell_cheap_to_neutral_min
-            - input_number.svotc_price_dwell_neutral_to_brake_min
             - input_number.svotc_price_dwell_brake_to_neutral_min
             - input_number.svotc_price_dwell_neutral_to_cheap_min
-        data: { value: "{{ dwell_calc }}" }
+        data: { value: "{{ dwell_other_calc }}" }
