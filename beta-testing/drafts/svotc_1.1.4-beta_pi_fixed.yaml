@@ -27,9 +27,6 @@
 ##  FIX-6 (LOGIK 3.4 MEDIUM): span-gräns i near-sensor höjd 0.02 → 0.05 SEK
 ##         för att undvika near-trigger på nästan-platta vindkraftsdygn.
 ##
-section · YAML
-Copy
-
 ###############################################################################
 ## @1 HELPERS — UI / Controls
 ###############################################################################
