@@ -2,17 +2,7 @@
 ## SVOTC – Beta Edition
 ##
 ## WHAT CHANGED IN THIS VERSION:
-##   (1) Engine: runs every 30s and uses proper Jinja2 min/max clamping (no |clamp()).
-##   (2) Startup: added input_boolean.svotc_initialized so defaults apply only once (no reboot overwrite).
-##   (3) Dwell: bootstraps stable/pending to raw on first start (DWELL_BOOTSTRAP_INIT).
-##   (4) Brake phase: bootstraps invalid phase/timestamp to idle/now (BRAKE_PHASE_BOOTSTRAP).
-##   (5) Price schema: hardened binary_sensor.svotc_price_schema_ok (checks first 3 blocks + length>=6) and reason PRICE_SCHEMA_INVALID.
-##   (6) Bridge-hold: forward-look NEAR uses today+tomorrow and is referenced by sensor.svotc_minutes_to_next_near_start (bridge_active).
-##   (7) Price floor: added input_number.svotc_price_floor_sek so brake requires (price > P80) AND (price > floor) (works for 15-min data).
-##   (8) Forward look: TTN (minutes_to_next_brake_start) now uses today+tomorrow AND same brake criteria (v>p80 & v>floor) to avoid TTN=0 edge cases.
-##   (9) Prebrake/Brake handoff: engine price_term uses smooth handoff (max(pre_term, ramp_term) during ramping_up) to avoid 60% cap + step jumps.
-##  (10) Reason codes: added/kept PRICE_PREBRAKE (and optional PRICE_CHEAP) and ensured PRICE_BRAKE covers ramping_up/holding/ramping_down.
-##  (11) Comfort: automatic overtemperature brake adds positive offset when indoor > target, scaled and deadbanded to avoid oscillation.
+##   (1) Bugfixes.
 ###############################################################################
 ## @1 HELPERS — UI / Controls
 ###############################################################################
