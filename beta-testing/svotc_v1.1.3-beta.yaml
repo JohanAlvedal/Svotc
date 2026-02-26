@@ -1,5 +1,7 @@
 ###############################################################################
-## SVOTC – Beta Edition
+##  SVOTC – Beta Edition
+##
+##  @1.3.5  = svotc_version: name: "SVOTC Version"
 ##
 ## WHAT CHANGED IN THIS VERSION:
 ##   (1) Bugfixes.
@@ -226,7 +228,7 @@ input_text:
   svotc_notify_service:
     name: "SVOTC Notify service"
     # OPTIONAL: notify.mobile_app_<your_device> — leave empty for notify.notify
-  
+## @1.3.5 
   svotc_version:
     name: "SVOTC Version"
     initial: "1.1.4-beta"
@@ -277,7 +279,7 @@ input_boolean:
   # Slå AV manuellt via UI för att tillämpa defaults en gång, slår på sig själv igen efter init.
   svotc_initialized:
     name: "SVOTC initialized"
-    initial: true
+#    initial: true
     icon: mdi:check-decagram
 
   svotc_freeze_notified:
