@@ -3,7 +3,7 @@
 ##
 ## WHAT CHANGED IN THIS VERSION:
 ##   (1) Bugfixes.
-##   (2) max from 10 to 20 
+##   (2) max from 10 to 20 svotc_requested_offset_c:,  svotc_applied_offset_c:
 ###############################################################################
 ## @1 HELPERS — UI / Controls
 ###############################################################################
