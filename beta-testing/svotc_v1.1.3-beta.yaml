@@ -508,13 +508,9 @@ template:
             {% endif %}
           {% endif %}
 
-  # ---------------------------------------------------------------------------
-  # @2.D FORWARD LOOK — TTN (today only) + NEAR (today+tomorrow)
-  # FIX (15-min): TTN använder samma kriterium som broms (p>p80 & p>floor),
-  #               inte v>=p80 (som kan ge TTN=0 hela dagen när p80==baspris).
-  # FIX (15-min): NEAR baseras på (p80-p30) och stängs av vid låg volatilitet
-  #               för att undvika "bridge_active nästan alltid".
-  # ---------------------------------------------------------------------------
+###############################################################################
+## @2.D FORWARD LOOK — TTN + NEAR (today+tomorrow, 15-min safe)
+###############################################################################
   - trigger:
       - platform: time_pattern
         minutes: "/5"
@@ -525,6 +521,7 @@ template:
           - sensor.svotc_p30
           - sensor.svotc_p80
           - input_text.svotc_entity_price
+          - input_number.svotc_price_floor_sek
     sensor:
       - name: "SVOTC Minutes to next brake start"
         unique_id: svotc_minutes_to_next_brake_start
@@ -547,7 +544,7 @@ template:
             {% set now_ts = as_timestamp(now()) %}
             {% set ns = namespace(best=none, in_brake=false) %}
 
-            {# Är vi just nu i ett brake-block? (samma kriterium som raw_state: p>p80 & p>floor) #}
+            {# Är vi just nu i ett brake-block? #}
             {% for it in block %}
               {% if it is mapping %}
                 {% set v = it.get('value') | float(none) %}
@@ -562,7 +559,7 @@ template:
             {% if ns.in_brake %}
               0
             {% else %}
-              {# Annars: hitta nästa starttid för kommande brake-block #}
+              {# Nästa start för kommande brake-block #}
               {% for it in block %}
                 {% if it is mapping %}
                   {% set v = it.get('value') | float(none) %}
@@ -580,7 +577,7 @@ template:
           {% endif %}
 
       - name: "SVOTC Minutes to next near start"
-        unique_id: svotc_minutes_to_next_near_brake_start
+        unique_id: svotc_minutes_to_next_near_start
         unit_of_measurement: "min"
         state_class: measurement
         availability: >
@@ -596,14 +593,11 @@ template:
           {% if ent in ['unknown','unavailable','none',''] or p80 is not number or p30 is not number %}
             999
           {% else %}
-            {# Volatilitetsspann: vid "platt" dygn stänger vi av near helt #}
             {% set span = [p80 - p30, 0] | max %}
             {% if span < 0.02 %}
               999
             {% else %}
-              {# Near = p80 minus 25% av spannet #}
               {% set near = p80 - (span * 0.25) %}
-              {# clamp: near får inte hamna under floor och måste vara < p80 #}
               {% set near = [near, floor] | max %}
               {% if near >= p80 %}
                 999
@@ -614,7 +608,6 @@ template:
                 {% set now_ts = as_timestamp(now()) %}
                 {% set ns = namespace(best=none, in_near=false) %}
 
-                {# Är vi i ett NEAR-block just nu? #}
                 {% for it in block %}
                   {% if it is mapping %}
                     {% set v = it.get('value') | float(none) %}
@@ -629,7 +622,6 @@ template:
                 {% if ns.in_near %}
                   0
                 {% else %}
-                  {# Nästa start för kommande NEAR-block #}
                   {% for it in block %}
                     {% if it is mapping %}
                       {% set v = it.get('value') | float(none) %}
@@ -666,13 +658,18 @@ template:
             false
           {% else %}
             {% set rt = state_attr(ent, 'raw_today') %}
-            {% if rt is not iterable or rt is string %}
-              false
-            {% elif (rt | list | length) == 0 %}
+            {% if rt is not iterable or rt is string or (rt | list | length) == 0 %}
               false
             {% else %}
-              {% set x = (rt | list)[0] %}
-              {{ x is mapping and ('value' in x) and ('start' in x) and ('end' in x) }}
+              {% set ns = namespace(ok=true) %}
+              {% set check_count = [rt | list | length, 3] | min %}
+              {% for i in range(check_count) %}
+                {% set x = (rt | list)[i] %}
+                {% if not (x is mapping and ('value' in x) and ('start' in x) and ('end' in x)) %}
+                  {% set ns.ok = false %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.ok and (rt | list | length) >= 6 }}
             {% endif %}
           {% endif %}
 
@@ -864,8 +861,9 @@ automation:
           rampup: "{{ states('input_number.svotc_brake_rampup_duration_min') | float(30) }}"
           hold_min: "{{ states('input_number.svotc_brake_hold_duration_min') | float(1) }}"
           rampdown: "{{ states('input_number.svotc_brake_rampdown_duration_min') | float(45) }}"
-          # (6) Near (>= 0.95*P80, inkl. brake) används för bridge-hold
-          ttn_near: "{{ states('sensor.svotc_minutes_to_next_near_brake_start') | float(999) }}"
+
+          # Near (>= 0.95*P80-ish via near-threshold) används för bridge-hold
+          ttn_near: "{{ states('sensor.svotc_minutes_to_next_near_start') | float(999) }}"
           bridge_window: "{{ states('input_number.svotc_bridge_hold_window_min') | float(90) }}"
           bridge_active: "{{ (ttn_near <= bridge_window) }}"
 
