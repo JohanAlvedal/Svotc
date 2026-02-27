@@ -1,8 +1,6 @@
 ###############################################################################
 ## PACKAGE: SVOTC + Nordpool Price (SE3 example)
 ###############################################################################
-
-###############################################################################
 ## 1. INPUT_NUMBER – Elhandel-parametrar
 ###############################################################################
 input_number:
@@ -74,10 +72,9 @@ template:
       #########################################################################
       - name: "Elpris spot + avgifter"
         unique_id: elpris_spot_avgifter
-        device_class: monetary
+        state_class: measurement
         unit_of_measurement: "SEK/kWh"
         icon: mdi:flash
-
         availability: >
           {{ (today_price.get('SE3') or []) | length > 0 }}
 
@@ -164,6 +161,7 @@ template:
       - name: "Elpris (svotc)"
         unique_id: elpris_svotc
         device_class: monetary
+        state_class: measurement
         unit_of_measurement: "SEK/kWh"
         icon: mdi:cash-multiple
 
@@ -235,12 +233,17 @@ template:
   # ==========================================================================
   # 2B) VANLIGA TEMPLATE-SENSORER – inkl. CHART-FEED
   # ==========================================================================
+
   - sensor:
       - name: "Elpris för grafer"
         unique_id: elpris_chart
         unit_of_measurement: "SEK/kWh"
-        device_class: monetary
-        state: "{{ states('sensor.elpris_svotc') }}"
+        icon: mdi:currency-usd
+        state: >
+          {% set v = states('sensor.elpris_svotc') | float(none) %}
+          {{ v if v is not none else (this.state | float(0)) }}
+        availability: >
+          {{ states('sensor.elpris_svotc') not in ['unknown','unavailable','none'] }}
 
 ###############################################################################
 # 3. ANALYSSENSORER – Koefficient & prisband
@@ -249,20 +252,21 @@ template:
       - name: "Elpriskoefficient"
         unique_id: elpriskoefficient
         icon: mdi:chart-line
-        unit_of_measurement: ""
         state: >
           {% set price = states('sensor.elpris_spot_avgifter') | float(none) %}
           {% set pmax  = state_attr('sensor.elpris_spot_avgifter', 'max') | float(none) %}
           {% set pmin  = state_attr('sensor.elpris_spot_avgifter', 'min') | float(none) %}
           {% if price is none or pmax is none or pmin is none or pmax <= 0 %}
-            {{ this.state | default(0) }}
+            {{ this.state | float(0) }}
           {% else %}
             {% set threshold = (pmax - pmin) * (1.3 * (pmax ** -0.7)) * (1 / (1 + pmin * 0.25)) + pmin %}
             {{ (price / threshold) | round(3) }}
           {% endif %}
+        availability: >
+          {{ states('sensor.elpris_spot_avgifter') not in ['unknown','unavailable','none'] }}
 
       - name: "Nordpool price band"
-        unique_id: nordpool_price_band_dynamic_minmax
+        unique_id: nordpool_price_band
         icon: mdi:traffic-light
         state: >
           {% set price = states('sensor.elpris_spot_avgifter') | float(0) %}
@@ -296,6 +300,7 @@ template:
         state: >
           {% set k = states('sensor.elpriskoefficient') | float(none) %}
           {{ (k is not none) and (k < 1.0) }}
+
 ###############################################################################
 ## 4. RECORDER-TIPS – exkludera SVOTC-feed, behåll chart-historik
 ###############################################################################
