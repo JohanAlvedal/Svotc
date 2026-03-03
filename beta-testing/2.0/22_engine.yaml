@@ -1,0 +1,390 @@
+###############################################################################
+##  SVOTC – 22_engine.yaml
+##  @2.0.0-beta
+##
+##  Engine: runs every 30 s, computes and applies the virtual outdoor offset.
+##
+##  Offset composition (all terms in °C):
+##
+##    comfort_term   — negative (boost heating) when comfort guard is active
+##                     and brake is NOT running. Capped by comfort_boost_max.
+##                     Zero when in brake (guard releases priority to price).
+##
+##    cheap_term     — negative (pre-heat) during cheap price state.
+##                     Ngenic-style: load-shift heating INTO cheap periods.
+##                     Uses same comfort_boost_max cap as a depth limit.
+##                     Zero when guard is active (guard already boosting).
+##
+##    price_term     — positive (brake) during brake phase (ramping_up /
+##                     holding / ramping_down) and during prebrake.
+##                     Computed from phase FSM + elapsed time.
+##                     Zero when comfort guard is active.
+##
+##    overtemp_term  — positive (extra brake) when indoor > target + deadband.
+##                     Adds up to max_auto above price_term, but total
+##                     requested is clamped to hold_offset (no over-shoot).
+##
+##  requested_calc = comfort_term + cheap_term + price_term + overtemp_term
+##  Clamped: [req_min, hold_offset] when positive, [req_min, 0] when only
+##           negative terms are active. Final hard clamp to [req_min, req_max].
+##
+##  Learning behaviour (brake efficiency + cap):
+##
+##    Users may set a large brake depth (e.g. 15–20°C), but adaptive learning
+##    should not be able to "eat" the entire braking authority.
+##
+##    Therefore hold_offset is computed with a learning cap:
+##
+##      base = brake_hold_offset_c (Smart) or preset (Simple)
+##      eff  = learned_brake_efficiency (0.5–1.0 when learning enabled)
+##      cap  = learning_cap_c (default 10°C)
+##
+##      protected = max(0, base - cap)        (NOT affected by learning)
+##      learnable = min(base, cap)            (affected by eff)
+##
+##      hold_offset = protected + learnable * eff
+##
+##    Example:
+##      base=20°C, cap=10°C, eff=0.60  => hold_offset = 10 + 10*0.60 = 16°C
+##
+##    This preserves learning (reduces aggressiveness) while guaranteeing that
+##    high user-set brake depths remain meaningfully available at peaks.
+##
+##  Rate limiting: applied_offset tracks requested at max max_delta_per_step_c
+##  per 30-second tick, giving smooth ramps without step-changes.
+##
+##  Freeze behaviour: if price data becomes unavailable while braking,
+##  applied_offset ramps down toward 0 at max_delta/tick rather than
+##  snapping. Negative offsets are held (cheap/comfort boost is safe to keep).
+###############################################################################
+
+automation:
+  - alias: "SVOTC Engine"
+    id: svotc_engine
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+      - platform: time_pattern
+        seconds: "/30"
+      - platform: state
+        entity_id:
+          - input_select.svotc_mode
+          - input_text.svotc_brake_phase
+          - input_text.svotc_last_price_state
+          - binary_sensor.svotc_comfort_guard_active
+          - input_boolean.svotc_comfort_guard_enabled
+          - input_boolean.svotc_learning_enabled
+          - input_number.svotc_brake_hold_offset_c
+          - input_number.svotc_comfort_boost_max_c
+          - input_number.svotc_max_delta_per_step_c
+          - input_number.svotc_learned_brake_efficiency
+          - input_number.svotc_learning_cap_c
+          - binary_sensor.svotc_price_available
+          - binary_sensor.svotc_price_schema_ok
+
+    action:
+      # ── Throttle guard — skip if called faster than 30 s ─────────────────
+      - variables:
+          last_run_ts: "{{ as_timestamp(states('input_datetime.svotc_engine_last_run'), default=0) }}"
+          now_ts: "{{ as_timestamp(now()) }}"
+          since_last_s: "{{ now_ts - last_run_ts }}"
+
+      - choose:
+          - conditions: "{{ since_last_s < 28 }}"
+            sequence:
+              - stop: "Throttled — engine ran {{ since_last_s | round(0) }} s ago"
+
+      # ── Stamp last-run immediately to avoid double-fire ───────────────────
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.svotc_engine_last_run }
+        data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+
+      # ── Gather all inputs ─────────────────────────────────────────────────
+      - variables:
+          mode: "{{ states('input_select.svotc_mode') }}"
+          healthy: "{{ is_state('binary_sensor.svotc_inputs_healthy','on') }}"
+          indoor: "{{ states('sensor.svotc_src_indoor') | float(none) }}"
+          target: "{{ states('sensor.svotc_dynamic_target_temperature') | float(none) }}"
+          pre: "{{ states('sensor.svotc_prebrake_strength') | float(0) }}"
+          price_state: "{{ states('input_text.svotc_last_price_state') }}"
+          schema_ok: "{{ is_state('binary_sensor.svotc_price_schema_ok','on') }}"
+          price_ok: "{{ is_state('binary_sensor.svotc_price_available','on') }}"
+          learning_enabled: "{{ is_state('input_boolean.svotc_learning_enabled','on') }}"
+
+          guard: >
+            {{ is_state('binary_sensor.svotc_comfort_guard_active','on')
+               and is_state('input_boolean.svotc_comfort_guard_enabled','on') }}
+
+          force_instant: "{{ mode in ['Off','PassThrough'] }}"
+
+          # hold_offset: user's brake depth with "learning cap"
+          # - base = user brake depth (or Simple preset)
+          # - eff  = learned efficiency (<= 1.0) when learning enabled
+          # - cap  = only this portion (°C) is affected by eff; remainder is protected
+          hold_offset: >
+            {% set base = 3.0 if mode == 'Simple'
+               else (states('input_number.svotc_brake_hold_offset_c') | float(4.0)) %}
+            {% set eff  = 1.0 if not learning_enabled
+               else ([[states('input_number.svotc_learned_brake_efficiency') | float(1.0), 0.5] | max, 1.0] | min) %}
+            {% set cap_raw = states('input_number.svotc_learning_cap_c') | float(10.0) %}
+            {% set cap = [[cap_raw, 0] | max, base] | min %}
+            {% set protected = [base - cap, 0] | max %}
+            {% set learnable = [base, cap] | min %}
+            {{ (protected + (learnable * eff)) | round(2) }}
+
+          boost_max: >
+            {{ 0.8 if mode == 'Simple'
+               else (states('input_number.svotc_comfort_boost_max_c') | float(0.8)) }}
+
+          max_delta: >
+            {{ 0.10 if mode == 'Simple'
+               else (states('input_number.svotc_max_delta_per_step_c') | float(0.20)) }}
+
+          req_min: "{{ state_attr('input_number.svotc_requested_offset_c','min') | float(-10) }}"
+          req_max: "{{ state_attr('input_number.svotc_requested_offset_c','max') | float(20) }}"
+          app_min: "{{ state_attr('input_number.svotc_applied_offset_c','min') | float(-10) }}"
+          app_max: "{{ state_attr('input_number.svotc_applied_offset_c','max') | float(20) }}"
+
+          p30_valid: "{{ states('sensor.svotc_p30') not in ['unknown','unavailable','none',''] }}"
+          p80_valid: "{{ states('sensor.svotc_p80') not in ['unknown','unavailable','none',''] }}"
+          price_ready: "{{ price_ok and schema_ok and p30_valid and p80_valid }}"
+
+          # freeze_price: price data missing while we could be braking
+          # negative offsets (cheap/comfort) are safe to hold during freeze
+          freeze_price: >
+            {{ healthy
+               and mode in ['Smart','Simple']
+               and not guard
+               and not price_ready
+               and pre == 0 }}
+
+          phase: "{{ states('input_text.svotc_brake_phase') }}"
+          in_brake_phase: "{{ phase in ['ramping_up','holding','ramping_down'] }}"
+
+          phase_ts: >
+            {{ as_timestamp(states('input_datetime.svotc_brake_phase_changed'), default=none) }}
+          elapsed_min: >
+            {% if phase_ts is number %}
+              {{ ((as_timestamp(now()) - phase_ts) / 60) | round(2) }}
+            {% else %}
+              0
+            {% endif %}
+
+          rampup_min: "{{ states('input_number.svotc_brake_rampup_duration_min')  | float(8) }}"
+          rampdown_min: "{{ states('input_number.svotc_brake_rampdown_duration_min') | float(12) }}"
+
+          # ── TERM: comfort ───────────────────────────────────────────────
+          # Negative offset (more heat) when guard active and NOT in brake phase.
+          # During brake: guard suppresses comfort_term — price takes priority.
+          comfort_term: >
+            {% if mode in ['Off','PassThrough'] %}
+              0
+            {% elif guard and not in_brake_phase %}
+              {{ -boost_max | round(3) }}
+            {% else %}
+              0
+            {% endif %}
+
+          # ── TERM: cheap ─────────────────────────────────────────────────
+          # Ngenic-style pre-heat: apply negative offset during cheap periods.
+          # Loads the thermal mass while energy is cheap.
+          # Zero if comfort guard already active (guard is already boosting),
+          # zero during brake phases, zero if price data not ready.
+          cheap_term: >
+            {% if mode not in ['Smart','Simple'] %}
+              0
+            {% elif guard %}
+              0
+            {% elif not price_ready %}
+              0
+            {% elif in_brake_phase %}
+              0
+            {% elif price_state == 'cheap' %}
+              {{ -boost_max | round(3) }}
+            {% else %}
+              0
+            {% endif %}
+
+          # ── TERM: price (brake + prebrake) ──────────────────────────────
+          # Positive offset during brake phases and prebrake window.
+          # Ramp shape derived from FSM phase + elapsed time.
+          # Guard: zero when comfort guard is active.
+          # Guard: zero when phase_ts unknown (prevents step to hold_offset).
+          price_term: >
+            {% if mode not in ['Smart','Simple'] %}
+              0
+            {% elif guard %}
+              0
+            {% elif not price_ready %}
+              0
+            {% else %}
+              {% set ramp_term = 0 %}
+              {% if phase == 'ramping_up' %}
+                {% if phase_ts is not number %}
+                  {# Unknown timestamp — hold at 0 until FSM stabilises #}
+                  {% set ramp_term = 0 %}
+                {% elif rampup_min <= 0 %}
+                  {% set ramp_term = hold_offset %}
+                {% else %}
+                  {% set x = ([[elapsed_min / rampup_min, 0] | max, 1] | min) %}
+                  {% set ramp_term = (hold_offset * x) | round(3) %}
+                {% endif %}
+              {% endif %}
+
+              {% set pre_term = 0 %}
+              {% if pre > 0 %}
+                {% set x = ([[pre, 0] | max, 1] | min) %}
+                {% set pre_term = (hold_offset * x) | round(3) %}
+              {% endif %}
+
+              {% if phase == 'ramping_up' %}
+                {{ [ramp_term, pre_term] | max }}
+              {% elif pre > 0 and not in_brake_phase %}
+                {{ pre_term }}
+              {% elif phase == 'holding' %}
+                {{ hold_offset | round(3) }}
+              {% elif phase == 'ramping_down' %}
+                {% if phase_ts is not number %}
+                  0
+                {% elif rampdown_min <= 0 %}
+                  0
+                {% else %}
+                  {% set x = ([[1 - (elapsed_min / rampdown_min), 0] | max, 1] | min) %}
+                  {{ (hold_offset * x) | round(3) }}
+                {% endif %}
+              {% else %}
+                0
+              {% endif %}
+            {% endif %}
+
+          # ── TERM: overtemp ──────────────────────────────────────────────
+          # Proportional positive offset when indoor drifts above target.
+          # Prevents the house from over-heating during a cheap period or
+          # after a comfort-boost phase.
+          # Cap: [hold_offset] — total requested will be clamped there anyway,
+          # but we keep overtemp_term bounded for clarity.
+          # Zero if guard active (guard already resolving temperature issue).
+          overtemp_term: >
+            {% if mode not in ['Smart','Simple'] %}
+              0
+            {% elif guard %}
+              0
+            {% elif indoor is none or target is none %}
+              0
+            {% else %}
+              {% set over     = indoor - target %}
+              {% set deadband = 0.20 %}
+              {% set full_scale = 1.50 %}
+              {% if over <= deadband %}
+                0
+              {% else %}
+                {% set x = ([[( over - deadband) / (full_scale - deadband), 0] | max, 1] | min) %}
+                {# Cap overtemp contribution at hold_offset — no over-shoot #}
+                {% set cap = [hold_offset, 2.0] | min %}
+                {{ (cap * x) | round(3) }}
+              {% endif %}
+            {% endif %}
+
+          # ── REQUESTED offset ─────────────────────────────────────────────
+          # Sum of all terms, clamped to [req_min, hold_offset] on positive
+          # side (never exceed user's intended brake depth from price alone).
+          requested_calc: >
+            {% set x = (comfort_term | float(0))
+                     + (cheap_term   | float(0))
+                     + (price_term   | float(0))
+                     + (overtemp_term| float(0)) %}
+            {# Positive side: never exceed hold_offset #}
+            {% set pos_cap = [hold_offset | float(0), req_max] | min %}
+            {% set x_clamped = ([[x, req_min] | max, pos_cap] | min) %}
+            {{ x_clamped | round(2) }}
+
+          requested: >
+            {% if freeze_price %}
+              {# Price missing: freeze positive offset (ramp down handled below),
+                 allow negative offsets (comfort/cheap boost is safe) #}
+              {% set prev = states('input_number.svotc_applied_offset_c') | float(0) %}
+              {% if prev > 0 %}
+                0
+              {% else %}
+                {{ requested_calc | float(0) }}
+              {% endif %}
+            {% elif mode == 'Off' %}
+              0
+            {% elif mode == 'PassThrough' %}
+              0
+            {% elif mode == 'ComfortOnly' %}
+              {# Only comfort_term (negative offset) is active #}
+              {{ (comfort_term | float(0)) | round(2) }}
+            {% else %}
+              {{ requested_calc | float(0) }}
+            {% endif %}
+
+          # ── APPLIED offset (rate limited) ────────────────────────────────
+          prev_applied: "{{ states('input_number.svotc_applied_offset_c') | float(0) }}"
+          delta: "{{ (requested | float(0)) - prev_applied }}"
+
+          next_applied: >
+            {% set req = requested | float(0) %}
+            {% set prev = prev_applied | float(0) %}
+            {% set d = delta | float(0) %}
+            {% set md = max_delta | float(0.20) %}
+
+            {% if force_instant %}
+              {# Off / PassThrough: snap immediately to 0 #}
+              {% set x = 0.0 %}
+            {% elif freeze_price and prev > 0 %}
+              {# Ramp positive offset down toward 0 during price freeze #}
+              {% set x = [prev - md, 0] | max %}
+            {% elif d > md %}
+              {% set x = prev + md %}
+            {% elif d < -md %}
+              {% set x = prev - md %}
+            {% else %}
+              {% set x = req %}
+            {% endif %}
+            {{ ([[x, app_min] | max, app_max] | min) | round(2) }}
+
+          # ── REASON CODE ──────────────────────────────────────────────────
+          reason: >
+            {% if mode == 'Off' %}                                        OFF
+            {% elif mode == 'PassThrough' %}                              PASS_THROUGH
+            {% elif not healthy %}                                        MISSING_INPUTS_FREEZE
+            {% elif not schema_ok %}                                      PRICE_SCHEMA_INVALID
+            {% elif guard %}                                              COMFORT_GUARD
+            {% elif mode == 'ComfortOnly' %}                              COMFORT_ONLY
+            {% elif freeze_price %}                                       PRICE_DATA_FREEZE
+            {% elif price_state == 'cheap' and mode in ['Smart','Simple'] %} PRICE_CHEAP_BOOST
+            {% elif pre > 0 and mode in ['Smart','Simple'] %}             PRICE_PREBRAKE
+            {% elif overtemp_term | float(0) > 0.05 %}                    OVERTEMP_BRAKE
+            {% elif phase in ['ramping_up','holding','ramping_down'] %}   PRICE_BRAKE
+            {% else %}                                                    NEUTRAL
+            {% endif %}
+
+      # ── Hard stop if inputs are not healthy ───────────────────────────────
+      - choose:
+          - conditions: "{{ not healthy }}"
+            sequence:
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_requested_offset_c }
+                data: { value: 0 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_applied_offset_c }
+                data: { value: 0 }
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_reason_code }
+                data: { value: "MISSING_INPUTS_FREEZE" }
+              - stop: "Inputs not healthy — offset frozen at 0"
+
+      # ── Write outputs ─────────────────────────────────────────────────────
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_requested_offset_c }
+        data: { value: "{{ requested | float(0) }}" }
+
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_applied_offset_c }
+        data: { value: "{{ next_applied | float(0) }}" }
+
+      - action: input_text.set_value
+        target: { entity_id: input_text.svotc_reason_code }
+        data: { value: "{{ reason }}" }
