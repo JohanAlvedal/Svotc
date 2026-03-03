@@ -1,6 +1,5 @@
 title: SVOTC Main
 icon: ""
-badges: []
 cards: []
 type: sections
 sections:
@@ -60,6 +59,11 @@ sections:
           - entity: sensor.svotc_prebrake_window_min
             name: Förbromsfönster (min)
             icon: mdi:window-open
+          - entity: input_boolean.svotc_initialized
+            secondary_info: last-changed
+          - entity: automation.svotc_startup_initialization
+            secondary_info: last-triggered
+          - entity: input_text.svotc_reason_code
       - type: custom:mini-graph-card
         name: 📈 Offset-utveckling (24h)
         hours_to_show: 24
@@ -102,6 +106,7 @@ sections:
   - type: grid
     cards:
       - type: markdown
+        title: SVOTC – MAIN
         content: >
           {# =========================
              Förberedelser / safe values
@@ -111,7 +116,8 @@ sections:
 
           {% set mode = states('input_select.svotc_mode') %}
 
-          {% set reason = states('input_text.svotc_reason_code') %}
+          {# FIX: trim så " NEUTRAL " matchar 'NEUTRAL' i dina elif #} {% set
+          reason = states('input_text.svotc_reason_code') | trim %}
 
           {% set inputs_ok = is_state('binary_sensor.svotc_inputs_healthy',
           'on') %}
@@ -262,6 +268,23 @@ sections:
           - Offset: {{ app | round(2) }}°C
 
 
+          {% elif reason == 'PRICE_PREBRAKE' %}
+
+          🟡 Förbromsar (prebrake aktiv)
+
+          - Pris: {% if p_ok_val %}{{ p }}{% else %}—{% endif %} (P80: {% if
+          p80_ok_val %}{{ p80 }}{% else %}—{% endif %})
+
+          - Prebrake: {{ (pre * 100) | round(0) }}%
+
+          - Nästa dyrperiod: {% if ttn < 900 %}{{ next_hhmm }} (om {{ ttn |
+          round(0) }} min){% else %}—{% endif %}
+
+          - Fas: {{ phase }}
+
+          - Offset: {{ app | round(2) }}°C
+
+
           {% elif reason == 'COMFORT_GUARD' %}
 
           🛡️ Skyddar komfort (inne för låg)  
@@ -332,9 +355,8 @@ sections:
           | 🎯 Virtuell (→VP) | **{{
           states('sensor.svotc_virtual_outdoor_temperature') }}°C** | Offset: {{
           states('input_number.svotc_applied_offset_c') }}°C |
-
-
           **Offsetstatus:**  
+
 
           Begärd: **{{ req | round(2) }}°C**
 
@@ -478,5 +500,44 @@ sections:
           **Version:** `{{ states('input_text.svotc_version') }}`
 
           *Uppdaterad: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}*
-        title: SVOTC – MAIN (Statuskort)
+badges:
+  - type: entity
+    entity: person.johan
+    show_entity_picture: true
+  - type: custom:mushroom-template-badge
+    content: Laddbox
+    icon: mdi:ev-plug-type2
+    color: green
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/laddbox
+  - type: entity
+    show_name: false
+    show_state: true
+    show_icon: true
+    tap_action:
+      action: navigate
+      navigation_path: /dashboard-data/7
+    entity: sensor.elpris_spot_avgifter
+  - type: custom:mushroom-template-badge
+    icon: mdi:mushroom
+    color: red
+    content: Jul
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/jul
+  - type: custom:mushroom-template-badge
+    content: Tariff
+    icon: mdi:power-plug
+    color: blue
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/9
+  - type: custom:mushroom-template-badge
+    content: System
+    icon: mdi:server
+    color: green
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/system
 max_columns: 4
