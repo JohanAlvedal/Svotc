@@ -1,6 +1,6 @@
 ###############################################################################
 ##  SVOTC – 10_sensors.yaml
-##  @2.0.0-beta
+##  @2.0.1
 ##
 ##  All template sensors and binary sensors.
 ##  No service calls here — purely reactive/computed.
@@ -9,6 +9,18 @@
 ##    entity_price → P30/P80 → raw_price_state → TTN/NEAR
 ##    entity_indoor/outdoor → src_indoor/outdoor → comfort_guard_active
 ##    applied_offset + src_outdoor → virtual_outdoor_temperature
+##
+##  Changelog:
+##    FIX-7 (2.0.1): P30 and P80 sensors now fall back to svotc_p30_cached /
+##           svotc_p80_cached (written by 40_notify.yaml @C2) when raw_today
+##           has fewer than 12 data points. Cache is valid for 2 hours.
+##           This was the missing half of BUG-5: the cache was written but
+##           never read, so an active brake could be released at midnight
+##           simply because raw_today was momentarily too short.
+##    BUG-6 (2.0.1): Removed bare # comments from inside the state: > block
+##           of svotc_src_current_price. In Jinja2 block scalars, # is NOT a
+##           comment — it renders as literal text and corrupts the sensor state
+##           (HA logs "expected a number"). Comments moved outside the block.
 ###############################################################################
 
 template:
@@ -56,18 +68,19 @@ template:
       - name: "SVOTC Src Current Price"
         unique_id: svotc_src_current_price
         unit_of_measurement: "SEK/kWh"
-        state_class: measurement
+        # WEAK-4 FIX: floor lowered from -2 to -5 SEK/kWh.
+        # Nordpool SE4 has produced prices below -2 (e.g. winter 2023).
+        # The old guard caused price_available=false at legitimately very cheap
+        # prices, triggering a false freeze_price instead of cheap-boost.
+        # NOTE: # comments inside a Jinja2 block scalar are NOT YAML comments —
+        # they render as literal text and corrupt the sensor state. Always place
+        # explanatory comments outside the state: > block (SVOTC-BUG-6 fix).
         state: >
           {% set ent = states('input_text.svotc_entity_price') %}
           {% if ent in ['unknown','unavailable','none',''] %}
             {{ none }}
           {% else %}
             {% set p = states(ent) | float(none) %}
-            # WEAK-4 FIX: lowered floor from -2 to -5 SEK/kWh.
-            # Nordpool SE4 has produced prices below -2 (e.g. winter 2023).
-            # The old guard caused price_available=false at legitimately
-            # very cheap prices, triggering a false freeze_price instead
-            # of the correct cheap-boost behaviour.
             {{ p | round(3) if p is not none and -5 <= p <= 20 else none }}
           {% endif %}
         availability: >
@@ -77,9 +90,9 @@ template:
 
       - name: "SVOTC Dynamic target temperature"
         unique_id: svotc_dynamic_target_temperature
+        state_class: measurement
         unit_of_measurement: "°C"
         device_class: temperature
-        state_class: measurement
         state: >
           {{ states('input_number.svotc_comfort_temperature') | float(21) | round(2) }}
 
@@ -91,6 +104,7 @@ template:
   - sensor:
       - name: "SVOTC Raw price state"
         unique_id: svotc_raw_price_state
+#        entity_registry_visible_default: false   # ← internt FSM-input
         state: >
           {% set mode = states('input_select.svotc_mode') %}
           {% if mode in ['Off','PassThrough','ComfortOnly'] %}
@@ -128,7 +142,6 @@ template:
       - name: "SVOTC P30"
         unique_id: svotc_p30
         unit_of_measurement: "SEK/kWh"
-        state_class: measurement
         state: >
           {% set ent = states('input_text.svotc_entity_price') %}
           {% if ent in ['unknown','unavailable','none',''] %}
@@ -149,14 +162,20 @@ template:
               {% set idx = ((srt | length - 1) * 0.30) | round(0, 'floor') | int %}
               {{ srt[idx] | round(3) }}
             {% else %}
-              {{ none }}
+              {# FIX-7 (2.0.1): BUG-5 cache was written but never read.
+                 Fall back to last known good value (max 2h old) so the system
+                 survives the midnight window where raw_today has < 12 points.
+                 Without this fallback an active brake could be released at 00:00
+                 simply because raw_today is momentarily too short. #}
+              {% set age_s = (as_timestamp(now()) - as_timestamp(
+                   states('input_datetime.svotc_percentile_cache_updated'), 0)) %}
+              {{ states('input_number.svotc_p30_cached') if age_s < 7200 else none }}
             {% endif %}
           {% endif %}
 
       - name: "SVOTC P80"
         unique_id: svotc_p80
         unit_of_measurement: "SEK/kWh"
-        state_class: measurement
         state: >
           {% set ent = states('input_text.svotc_entity_price') %}
           {% if ent in ['unknown','unavailable','none',''] %}
@@ -177,7 +196,14 @@ template:
               {% set idx = ((srt | length - 1) * 0.80) | round(0, 'floor') | int %}
               {{ srt[idx] | round(3) }}
             {% else %}
-              {{ none }}
+              {# FIX-7 (2.0.1): BUG-5 cache was written but never read.
+                 Fall back to last known good value (max 2h old) so the system
+                 survives the midnight window where raw_today has < 12 points.
+                 Without this fallback an active brake could be released at 00:00
+                 simply because raw_today is momentarily too short. #}
+              {% set age_s = (as_timestamp(now()) - as_timestamp(
+                   states('input_datetime.svotc_percentile_cache_updated'), 0)) %}
+              {{ states('input_number.svotc_p80_cached') if age_s < 7200 else none }}
             {% endif %}
           {% endif %}
 
@@ -201,8 +227,8 @@ template:
     sensor:
       - name: "SVOTC Minutes to next brake start"
         unique_id: svotc_minutes_to_next_brake_start
-        unit_of_measurement: "min"
         state_class: measurement
+        unit_of_measurement: "min"
         availability: >
           {% set ent = states('input_text.svotc_entity_price') %}
           {{ ent not in ['unknown','unavailable','none','']
@@ -255,8 +281,9 @@ template:
 
       - name: "SVOTC Minutes to next near start"
         unique_id: svotc_minutes_to_next_near_start
-        unit_of_measurement: "min"
+#        entity_registry_visible_default: false   # ← internt bridge-hold input
         state_class: measurement
+        unit_of_measurement: "min"
         availability: >
           {% set ent = states('input_text.svotc_entity_price') %}
           {{ ent not in ['unknown','unavailable','none','']
@@ -326,8 +353,9 @@ template:
   - sensor:
       - name: "SVOTC Prebrake window (min)"
         unique_id: svotc_prebrake_window_min
-        unit_of_measurement: "min"
+#        entity_registry_visible_default: false   # ← internt räknevärde
         state_class: measurement
+        unit_of_measurement: "min"
         state: >
           {% set mode = states('input_select.svotc_mode') %}
           {% set base = 30 if mode == 'Simple'
@@ -366,9 +394,9 @@ template:
   - sensor:
       - name: "SVOTC Virtual outdoor temperature"
         unique_id: svotc_virtual_outdoor_temperature
+        state_class: measurement
         unit_of_measurement: "°C"
         device_class: temperature
-        state_class: measurement
         state: >
           {% set out = states('sensor.svotc_src_outdoor') | float(none) %}
           {% set off = states('input_number.svotc_applied_offset_c') | float(0) %}
@@ -393,6 +421,7 @@ template:
 
       - name: "SVOTC Price schema ok"
         unique_id: svotc_price_schema_ok
+#        entity_registry_visible_default: false   # ← internt valideringsresultat
         state: >
           {% set ent = states('input_text.svotc_entity_price') %}
           {% if ent in ['unknown','unavailable','none',''] %}
@@ -424,54 +453,7 @@ template:
              and (states(ent) | float(none)) is not none }}
 
   ###########################################################################
-  ## @H  OVERHEAT GUARD — trigger-based, mirrors comfort_guard but inverted
-  ##     Activates when indoor > target + 1.0 °C (hardcoded deadband).
-  ##     Releases when indoor < target + 0.5 °C (hardcoded hysteresis).
-  ##     Uses same comfort_guard_enabled toggle — no separate boolean needed.
-  ##     Priority in engine: above comfort_guard and cheap_boost.
-  ##     Requires svotc_src_indoor to be configured — silent no-op otherwise.
-  ###########################################################################
-  - trigger:
-      - platform: time_pattern
-        minutes: "/5"
-      - platform: homeassistant
-        event: start
-      - platform: state
-        entity_id:
-          - sensor.svotc_src_indoor
-          - sensor.svotc_dynamic_target_temperature
-          - input_boolean.svotc_comfort_guard_enabled
-          - input_select.svotc_mode
-    binary_sensor:
-      - name: "SVOTC Overheat guard active"
-        unique_id: svotc_overheat_guard_active
-        state: >
-          {% set enabled = is_state('input_boolean.svotc_comfort_guard_enabled','on') %}
-          {% if not enabled %}
-            false
-          {% else %}
-            {% set mode = states('input_select.svotc_mode') %}
-            {% if mode not in ['Smart','Simple','ComfortOnly'] %}
-              false
-            {% else %}
-              {% set indoor = states('sensor.svotc_src_indoor') | float(none) %}
-              {% set target = states('sensor.svotc_dynamic_target_temperature') | float(none) %}
-              {# Hardcoded thresholds — no user input needed #}
-              {% set act_delta   = 1.0 %}
-              {% set deact_delta = 0.5 %}
-              {% set was_on = this.state == 'on' %}
-              {% if indoor is none or target is none %}
-                {{ was_on }}
-              {% elif was_on %}
-                {{ indoor > (target + deact_delta) }}
-              {% else %}
-                {{ indoor > (target + act_delta) }}
-              {% endif %}
-            {% endif %}
-          {% endif %}
-
-  ###########################################################################
-  ## @I  COMFORT GUARD — trigger-based for hysteresis correctness
+  ## @H  COMFORT GUARD — trigger-based for hysteresis correctness
   ##     Triggers on all inputs that affect guard decision + /5 min heartbeat
   ##     to recover from HA restart without waiting for a state change.
   ###########################################################################
