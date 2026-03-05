@@ -1,6 +1,6 @@
 ###############################################################################
 ##  SVOTC – 22_engine.yaml
-##  @2.0.0-beta
+##  @2.0.1
 ##
 ##  Engine: runs every 30 s, computes and applies the virtual outdoor offset.
 ##
@@ -63,6 +63,18 @@
 ##           notify conditions in 40_notify.yaml.
 ##    BUG-3: condition svotc_initialized=on added — prevents race condition
 ##           at HA startup where engine could snap offset before init completes.
+##    FIX-1 (2.0.1): elapsed_min now guarded with | max(0) against DST clock
+##           jumps (mirrors WEAK-3 fix in 20_price_fsm.yaml).
+##    FIX-2 (2.0.1): freeze_price now excludes in_brake_phase — prevents a
+##           60-second Nordpool API blip from ramping down an active brake,
+##           causing a sawtooth pattern in applied_offset and compressor stress.
+##    PERF-1 (2.0.1): Selective write — engine still evaluates every 30 s but
+##           only writes to applied_offset (pump) when necessary:
+##             ramping  → every tick (rate-limited ramp must reach hold_offset
+##                        before the expensive price block starts)
+##             active   → max every 5 min heartbeat (holding/guard/boost)
+##             idle     → only on actual value change, or 1 h heartbeat
+##           Requires new input_datetime.svotc_engine_last_write in 00_helpers.
 ###############################################################################
 
 automation:
@@ -80,7 +92,6 @@ automation:
           - input_text.svotc_brake_phase
           - input_text.svotc_last_price_state
           - binary_sensor.svotc_comfort_guard_active
-          - binary_sensor.svotc_overheat_guard_active
           - input_boolean.svotc_comfort_guard_enabled
           - input_boolean.svotc_learning_enabled
           - input_boolean.svotc_cheap_boost_enabled
@@ -89,7 +100,7 @@ automation:
           - input_number.svotc_max_delta_per_step_c
           - input_number.svotc_learned_brake_efficiency
           - input_number.svotc_learning_cap_c
-          - binary_sensor.svotc_price_available    # for: 00:01:00 — see below
+          - binary_sensor.svotc_price_available # for: 00:01:00 — see below
           - binary_sensor.svotc_price_schema_ok
         # WEAK-5 FIX: price_available has no hysteresis and can flicker on/off
         # every ~15s during an unstable Nordpool API connection. Without a
@@ -143,10 +154,6 @@ automation:
             {{ is_state('binary_sensor.svotc_comfort_guard_active','on')
                and is_state('input_boolean.svotc_comfort_guard_enabled','on') }}
 
-          overheat: >
-            {{ is_state('binary_sensor.svotc_overheat_guard_active','on')
-               and is_state('input_boolean.svotc_comfort_guard_enabled','on') }}
-
           force_instant: "{{ mode in ['Off','PassThrough'] }}"
 
           # hold_offset: user's brake depth with "learning cap"
@@ -181,15 +188,6 @@ automation:
           p80_valid: "{{ states('sensor.svotc_p80') not in ['unknown','unavailable','none',''] }}"
           price_ready: "{{ price_ok and schema_ok and p30_valid and p80_valid }}"
 
-          # freeze_price: price data missing while we could be braking
-          # negative offsets (cheap/comfort) are safe to hold during freeze
-          freeze_price: >
-            {{ healthy
-               and mode in ['Smart','Simple']
-               and not guard
-               and not price_ready
-               and pre == 0 }}
-
           phase: "{{ states('input_text.svotc_brake_phase') }}"
           in_brake_phase: "{{ phase in ['ramping_up','holding','ramping_down'] }}"
 
@@ -197,13 +195,30 @@ automation:
             {{ as_timestamp(states('input_datetime.svotc_brake_phase_changed'), default=none) }}
           elapsed_min: >
             {% if phase_ts is number %}
-              {{ ((as_timestamp(now()) - phase_ts) / 60) | round(2) }}
+              {# FIX-1 (2.0.1): | max(0) guards against DST clock jumps where
+                 brake_phase_changed could appear to be in the future, producing
+                 a negative elapsed time. Mirrors the WEAK-3 fix in 20_price_fsm.yaml. #}
+              {{ ([((as_timestamp(now()) - phase_ts) / 60), 0] | max) | round(2) }}
             {% else %}
               0
             {% endif %}
 
           rampup_min: "{{ states('input_number.svotc_brake_rampup_duration_min')  | float(8) }}"
           rampdown_min: "{{ states('input_number.svotc_brake_rampdown_duration_min') | float(12) }}"
+
+          # freeze_price: price data missing while we could be braking.
+          # FIX-2 (2.0.1): added "and not in_brake_phase" — prevents freeze from
+          # triggering during an active brake when price API blips for 60+ seconds.
+          # Without this guard a short API outage causes applied_offset to ramp
+          # down and then back up (sawtooth), causing unnecessary compressor stress.
+          # Negative offsets (cheap/comfort) remain safe to hold during freeze.
+          freeze_price: >
+            {{ healthy
+               and mode in ['Smart','Simple']
+               and not guard
+               and not price_ready
+               and not in_brake_phase
+               and pre == 0 }}
 
           # ── TERM: comfort ───────────────────────────────────────────────
           # Negative offset (more heat) when guard active and NOT in brake phase.
@@ -296,9 +311,8 @@ automation:
           # Proportional positive offset when indoor drifts above target.
           # Prevents the house from over-heating during a cheap period or
           # after a comfort-boost phase.
-          # Deadband: 0.15 °C. Full scale reached at 1.00 °C above target.
-          # Cap: min(hold_offset, 5.0) — total is still clamped to hold_offset
-          # in requested_calc, but overtemp_term is bounded here for clarity.
+          # Cap: [hold_offset] — total requested will be clamped there anyway,
+          # but we keep overtemp_term bounded for clarity.
           # Zero if guard active (guard already resolving temperature issue).
           overtemp_term: >
             {% if mode not in ['Smart','Simple'] %}
@@ -321,32 +335,14 @@ automation:
               {% endif %}
             {% endif %}
 
-          # ── TERM: overheat ──────────────────────────────────────────────
-          # Full hold_offset broms när overheat_guard är aktiv.
-          # Aktiverar vid indoor > target + 1.0 °C (se 10_sensors.yaml @H).
-          # Ingen proportionalitet — antingen full broms eller noll.
-          # Rate-limiting i next_applied ger mjuk ramp upp/ner.
-          # Körs ovanpå pris och guard — ingen term kan blockera denna.
-          overheat_term: >
-            {% if mode not in ['Smart','Simple','ComfortOnly'] %}
-              0
-            {% elif not overheat %}
-              0
-            {% elif indoor is none or target is none %}
-              0
-            {% else %}
-              {{ hold_offset | round(3) }}
-            {% endif %}
-
           # ── REQUESTED offset ─────────────────────────────────────────────
           # Sum of all terms, clamped to [req_min, hold_offset] on positive
           # side (never exceed user's intended brake depth from price alone).
           requested_calc: >
-            {% set x = (comfort_term   | float(0))
-                     + (cheap_term     | float(0))
-                     + (price_term     | float(0))
-                     + (overtemp_term  | float(0))
-                     + (overheat_term  | float(0)) %}
+            {% set x = (comfort_term  | float(0))
+                     + (cheap_term    | float(0))
+                     + (price_term    | float(0))
+                     + (overtemp_term | float(0)) %}
             {# Positive side: never exceed hold_offset #}
             {% set pos_cap = [hold_offset | float(0), req_max] | min %}
             {% set x_clamped = ([[x, req_min] | max, pos_cap] | min) %}
@@ -398,7 +394,34 @@ automation:
             {% endif %}
             {{ ([[x, app_min] | max, app_max] | min) | round(2) }}
 
-          # ── REASON CODE ──────────────────────────────────────────────────
+          # ── WRITE MODE — controls how often outputs are actually written ──
+          # During active ramps every tick counts (offset must reach hold_offset
+          # before the expensive block starts). In holding or idle, the pump
+          # value is already correct and writing every 30 s is pure noise.
+          #
+          #   ramping   — write every tick (30 s): rate-limited ramp in progress
+          #   active    — write max every 5 min: holding/guard/boost, value stable
+          #   idle      — write only on actual change: neutral, offset = 0
+          #
+          # "Heartbeat" interval for active/idle: ensures the pump gets a
+          # confirmed value after HA restart or config reload even if no
+          # change has occurred. 300 s (5 min) is safe for all heat pump brands.
+          write_mode: >
+            {% if phase in ['ramping_up','ramping_down'] or pre > 0 %}
+              ramping
+            {% elif phase == 'holding' or guard or (cheap_term | float(0)) < -0.05 %}
+              active
+            {% else %}
+              idle
+            {% endif %}
+
+          value_changed: "{{ (next_applied | float(0)) != (prev_applied | float(0)) }}"
+
+          heartbeat_due: >
+            {% set last = as_timestamp(
+                 states('input_datetime.svotc_engine_last_write'), 0) %}
+            {% set interval = 300 if write_mode == 'active' else 3600 %}
+            {{ (as_timestamp(now()) - last) >= interval }}
           # BUG-1 FIX: padding spaces removed from each branch. The | trim
           # filter at set_value below is the defensive second layer — ensures
           # no trailing whitespace ever reaches input_text.svotc_reason_code,
@@ -412,8 +435,6 @@ automation:
               MISSING_INPUTS_FREEZE
             {% elif not schema_ok %}
               PRICE_SCHEMA_INVALID
-            {% elif overheat %}
-              OVERHEAT_GUARD
             {% elif guard %}
               COMFORT_GUARD
             {% elif mode == 'ComfortOnly' %}
@@ -447,6 +468,20 @@ automation:
                 data: { value: "MISSING_INPUTS_FREEZE" }
               - stop: "Inputs not healthy — offset frozen at 0"
 
+      # ── Skip write if nothing has changed and no heartbeat due ──────────────
+      # Ramping mode always writes (every tick needed to reach hold_offset in time).
+      # Active/idle: write only when value changed OR heartbeat interval elapsed.
+      # This prevents the pump from receiving identical commands every 30 s
+      # during steady-state, which is noisy and unnecessary given that outdoor
+      # temperature changes over hours, not seconds.
+      - choose:
+          - conditions: >
+              {{ write_mode != 'ramping'
+                 and not value_changed
+                 and not heartbeat_due }}
+            sequence:
+              - stop: "No change, no heartbeat due ({{ write_mode }}) — skipping write"
+
       # ── Write outputs ─────────────────────────────────────────────────────
       - action: input_number.set_value
         target: { entity_id: input_number.svotc_requested_offset_c }
@@ -463,3 +498,9 @@ automation:
       - action: input_text.set_value
         target: { entity_id: input_text.svotc_reason_code }
         data: { value: "{{ reason | trim }}" }
+
+      # Stamp last-write for heartbeat tracking (separate from last_run which
+      # stamps every tick including skipped ones).
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.svotc_engine_last_write }
+        data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
