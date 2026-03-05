@@ -1,6 +1,6 @@
 ###############################################################################
 ##  SVOTC – 00_helpers.yaml
-##  @2.0.1
+##  @2.0.2
 ##
 ##  All input_* helpers: UI controls, system state, timestamps, flags.
 ##  Nothing here executes logic — purely declarative.
@@ -19,7 +19,7 @@
 ##           svotc_percentile_cache_updated — used by 10_sensors.yaml to
 ##           survive the midnight raw_today gap without releasing an active
 ##           brake.
-##    FIX-18 (2.0.1): Added svotc_last_auto_mode_changed — cooldown timestamp
+##    FIX-18 (2.0.2): Added svotc_last_auto_mode_changed — cooldown timestamp
 ##           for Auto PassThrough ↔ Smart switching. Prevents oscillation when
 ##           outdoor temperature hovers near the 14°C summer threshold.
 ###############################################################################
@@ -313,7 +313,7 @@ input_text:
 
   svotc_version:
     name: "SVOTC Version"
-    initial: "2.0.1"
+    initial: "2.0.2"
 
   ###########################################################################
   ## INTERNAL STATE — read-only, managed by automations
@@ -372,7 +372,7 @@ input_datetime:
     has_date: true
     has_time: true
 
-  # FIX-18 (2.0.1): cooldown timestamp for Auto PassThrough ↔ Smart switching.
+  # FIX-18 (2.0.2): cooldown timestamp for Auto PassThrough ↔ Smart switching.
   # Written by both auto-switch automations in 40_notify.yaml after each mode
   # change. Checked in trigger templates to enforce a 2-hour cooldown so the
   # system cannot oscillate Smart→PassThrough→Smart around the 14°C threshold.
@@ -411,3 +411,4 @@ input_boolean:
     name: "Cheap boost enabled"
 #    initial: true 
     icon: mdi:cash-plus
+
