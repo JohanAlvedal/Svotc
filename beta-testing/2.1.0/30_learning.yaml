@@ -1,0 +1,453 @@
+###############################################################################
+##  SVOTC – 30_learning.yaml
+##  @2.1.0
+##
+##  Four automations:
+##
+##  1. svotc_learning_comfort_violations
+##     Increments comfort_violations_24h each time comfort guard activates.
+##
+##  2. svotc_learning_reset_daily  (00:00:00)
+##     Adjusts learned_brake_efficiency based on yesterday's violations.
+##     Logic:
+##       > 5 violations → reduce efficiency −0.05  (brake was too aggressive)
+##       > 2 violations → reduce efficiency −0.02
+##         1–2 violations → no change (acceptable)
+##         0 violations → increase efficiency +0.01  (small, conservative)
+##     Efficiency range: [0.5, 1.0].
+##
+##     Thermal mass factor:
+##       > 5 violations → INCREASE +0.1
+##       > 2 violations → INCREASE +0.05
+##       1–2 violations → no change
+##         0 violations → DECREASE −0.05
+##
+##     FIX-THERMAL-DRIFT (2.0.2): Added consecutive-zero-day counter
+##     (svotc_zero_violation_days). After N_RECOVERY consecutive zero-
+##     violation days, thermal_mass is decreased by an extra −0.05 (total
+##     −0.10) to prevent the factor from permanently ratcheting to 1.5.
+##     Counter resets on any non-zero violation day.
+##
+##  3. svotc_auto_tune_defaults  (/10 min)
+##     Derives brake timing parameters from hold_offset + thermal_mass_factor.
+##
+##  4. svotc_startup_initialization
+##     Runs once on HA start/reload when svotc_initialized = OFF.
+##
+##  5. svotc_prebrake_denom_watch  (/5 min)  — KRITISK-3 FIX
+##     Detects when prebrake_strength is disabled due to denom <= 0.
+##     Logs a system_log warning so the user is alerted that a step-change
+##     to hold_offset will occur at brake start (no prebrake ramp).
+##     Condition: mode Smart/Simple, prebrake_window > 0, strength == 0,
+##     minutes_to_next_brake_start <= prebrake_window.
+##
+##  Changelog:
+##    FIX-16 (2.0.1): svotc_comfort_boost_max_c init corrected to 0.8 °C.
+##    FIX-THERMAL-DRIFT (2.0.2): consecutive zero-day counter added to
+##           prevent thermal_mass_factor ratcheting to 1.5 permanently.
+##    KRITISK-3 (2.0.2): svotc_prebrake_denom_watch automation added.
+###############################################################################
+
+automation:
+  ##############################################################################
+  ## @1  COMFORT VIOLATION COUNTER
+  ##############################################################################
+  - alias: "SVOTC Learning: comfort violation counter"
+    id: svotc_learning_comfort_violations
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.svotc_comfort_guard_active
+        to: "on"
+    action:
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_comfort_violations_24h }
+        data:
+          value: >
+            {{ (states('input_number.svotc_comfort_violations_24h') | float(0) + 1)
+               | round(0) | int }}
+
+  ##############################################################################
+  ## @2  DAILY LEARNING RESET
+  ##############################################################################
+  - alias: "SVOTC Learning: daily reset and adjustment"
+    id: svotc_learning_reset_daily
+    mode: single
+    trigger:
+      - platform: time
+        at: "00:00:00"
+    condition:
+      - condition: state
+        entity_id: input_boolean.svotc_initialized
+        state: "on"
+    action:
+      - variables:
+          violations: "{{ states('input_number.svotc_comfort_violations_24h') | float(0) }}"
+          current_eff: "{{ states('input_number.svotc_learned_brake_efficiency') | float(1.0) }}"
+          current_thermal: "{{ states('input_number.svotc_thermal_mass_factor') | float(1.0) }}"
+          learning_on: "{{ is_state('input_boolean.svotc_learning_enabled','on') }}"
+          # FIX-THERMAL-DRIFT (2.0.2): consecutive zero-violation day counter.
+          # Stored in input_number.svotc_zero_violation_days (added to 00_helpers).
+          # After N_RECOVERY consecutive zero days, apply extra thermal decrease.
+          zero_days: "{{ states('input_number.svotc_zero_violation_days') | int(0) }}"
+          N_RECOVERY: 3
+
+      - choose:
+          - conditions: "{{ not learning_on }}"
+            sequence:
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_comfort_violations_24h }
+                data: { value: 0 }
+              - stop: "Learning disabled — only resetting counter"
+
+      - choose:
+          - conditions: "{{ violations > 48 }}"
+            sequence:
+              - action: system_log.write
+                data:
+                  level: warning
+                  logger: homeassistant.components.automation.svotc
+                  message: >
+                    SVOTC SENSOR_FAULT suspected: {{ violations | int }} comfort
+                    violations today (threshold: 48). Skipping learning adjustment.
+                    Check sensor.svotc_src_indoor for stuck or oscillating value.
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_comfort_violations_24h }
+                data: { value: 0 }
+              # Reset zero-day counter — faulty sensor day should not count
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_zero_violation_days }
+                data: { value: 0 }
+              - stop: "Possible sensor fault — learning adjustment skipped"
+
+      # ── Update zero-violation consecutive day counter ─────────────────────
+      # FIX-THERMAL-DRIFT: increment on zero-violation day, reset otherwise.
+      - choose:
+          - conditions: "{{ violations == 0 }}"
+            sequence:
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_zero_violation_days }
+                data:
+                  value: "{{ (zero_days + 1) | int }}"
+        default:
+          - action: input_number.set_value
+            target: { entity_id: input_number.svotc_zero_violation_days }
+            data: { value: 0 }
+
+      # ── Adjust brake efficiency ───────────────────────────────────────────
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_learned_brake_efficiency }
+        data:
+          value: >
+            {% set eff = current_eff %}
+            {% if violations > 5 %}
+              {% set x = eff - 0.05 %}
+            {% elif violations > 2 %}
+              {% set x = eff - 0.02 %}
+            {% elif violations == 0 %}
+              {% set x = eff + 0.01 %}
+            {% else %}
+              {% set x = eff %}
+            {% endif %}
+            {{ ([[x, 0.5] | max, 1.0] | min) | round(2) }}
+
+      # ── Adjust thermal mass factor ────────────────────────────────────────
+      # FIX-THERMAL-DRIFT (2.0.2): after N_RECOVERY consecutive zero-violation
+      # days, apply extra −0.05 decrease (total −0.10 on that day) to actively
+      # recover from ratcheting. This prevents permanent lock at 1.5.
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_thermal_mass_factor }
+        data:
+          value: >
+            {% set t = current_thermal %}
+            {% set zd = zero_days + (1 if violations == 0 else 0) %}
+            {% if violations > 5 %}
+              {% set x = t + 0.10 %}
+            {% elif violations > 2 %}
+              {% set x = t + 0.05 %}
+            {% elif violations == 0 %}
+              {# Base decrease -0.05; extra -0.05 every N_RECOVERY consecutive days #}
+              {% set extra = -0.05 if (zd % N_RECOVERY == 0 and zd > 0) else 0 %}
+              {% set x = t - 0.05 + extra %}
+            {% else %}
+              {% set x = t %}
+            {% endif %}
+            {{ ([[x, 0.5] | max, 1.5] | min) | round(2) }}
+
+      # ── Log thermal mass adjustment for traceability ──────────────────────
+      - action: system_log.write
+        data:
+          level: info
+          logger: homeassistant.components.automation.svotc
+          message: >
+            SVOTC daily learning: violations={{ violations | int }},
+            eff={{ states('input_number.svotc_learned_brake_efficiency') }},
+            thermal={{ states('input_number.svotc_thermal_mass_factor') }},
+            zero_days={{ states('input_number.svotc_zero_violation_days') | int }}
+
+      # ── Reset daily counter ───────────────────────────────────────────────
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_comfort_violations_24h }
+        data: { value: 0 }
+
+  ##############################################################################
+  ## @3  AUTO-TUNE
+  ##############################################################################
+  - alias: "SVOTC Auto-tune"
+    id: svotc_auto_tune_defaults
+    mode: single
+    trigger:
+      - platform: time_pattern
+        minutes: "/10"
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id:
+          - input_number.svotc_brake_hold_offset_c
+          - input_number.svotc_thermal_mass_factor
+        for: "00:00:10"
+    condition:
+      - condition: state
+        entity_id: input_boolean.svotc_initialized
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.svotc_learning_enabled
+        state: "on"
+      - condition: template
+        value_template: >
+          {{ states('input_select.svotc_mode') in ['Smart','Simple'] }}
+    action:
+      - variables:
+          hold: "{{ states('input_number.svotc_brake_hold_offset_c') | float(4.0) }}"
+          thermal: "{{ states('input_number.svotc_thermal_mass_factor') | float(1.0) }}"
+          window: "{{ states('sensor.svotc_prebrake_window_min') | float(25) }}"
+          full_lead: "{{ 0.0 }}"
+          build_min: "{{ [window - full_lead, 1] | max }}"
+
+          max_delta_calc: >
+            {% set steps = (build_min | float(1)) * 2 %}
+            {% set x = hold / steps %}
+            {{ ([[x, 0.10] | max, 0.50] | min) | round(2) }}
+
+          rampup_calc: >
+            {% set x = 8 * thermal %}
+            {{ ([[x, 4] | max, 14] | min) | round(0) | int }}
+
+          holdmin_calc: >
+            {% set x = 8 * thermal %}
+            {{ ([[x, 4] | max, 14] | min) | round(0) | int }}
+
+          rampdown_calc: >
+            {% set x = 12 * thermal %}
+            {{ ([[x, 8] | max, 30] | min) | round(0) | int }}
+
+          dwell_ntob_calc: >
+            {% set x = 10 * thermal %}
+            {{ ([[x, 10] | max, 20] | min) | round(0) | int }}
+
+          dwell_bton_calc: >
+            {% set x = 15 * thermal %}
+            {{ ([[x, 15] | max, 25] | min) | round(0) | int }}
+
+          dwell_other_calc: >
+            {% set x = 5 * thermal %}
+            {{ ([[x, 4] | max, 10] | min) | round(0) | int }}
+
+          bridge_calc: >
+            {% set x = 45 * thermal %}
+            {{ ([[x, 30] | max, 90] | min) | round(0) | int }}
+
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_max_delta_per_step_c }
+        data: { value: "{{ max_delta_calc }}" }
+
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_brake_rampup_duration_min }
+        data: { value: "{{ rampup_calc }}" }
+
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_brake_hold_duration_min }
+        data: { value: "{{ holdmin_calc }}" }
+
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_brake_rampdown_duration_min }
+        data: { value: "{{ rampdown_calc }}" }
+
+      - action: input_number.set_value
+        target:
+          { entity_id: input_number.svotc_price_dwell_neutral_to_brake_min }
+        data: { value: "{{ dwell_ntob_calc }}" }
+
+      - action: input_number.set_value
+        target:
+          { entity_id: input_number.svotc_price_dwell_brake_to_neutral_min }
+        data: { value: "{{ dwell_bton_calc }}" }
+
+      - action: input_number.set_value
+        target:
+          entity_id:
+            - input_number.svotc_price_dwell_cheap_to_neutral_min
+            - input_number.svotc_price_dwell_neutral_to_cheap_min
+        data: { value: "{{ dwell_other_calc }}" }
+
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_bridge_hold_window_min }
+        data: { value: "{{ bridge_calc }}" }
+
+  ##############################################################################
+  ## @4  STARTUP INITIALIZATION
+  ##############################################################################
+  - alias: "SVOTC Startup initialization"
+    id: svotc_startup_initialization
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+      - platform: event
+        event_type: automation_reloaded
+    condition:
+      - condition: template
+        value_template: >
+          {{ states('input_boolean.svotc_initialized') != 'on' }}
+    action:
+      # Comfort
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_comfort_temperature }
+        data: { value: 21.0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_comfort_guard_activate_below_c }
+        data: { value: 1 }
+      - action: input_number.set_value
+        target:
+          { entity_id: input_number.svotc_comfort_guard_deactivate_above_c }
+        data: { value: 0.5 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_comfort_boost_max_c }
+        data: { value: 0.8 }
+
+      # Cheap boost
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.svotc_cheap_boost_enabled }
+
+      # Price / brake
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_price_floor_sek }
+        data: { value: 0.10 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_prebrake_lead_time_min }
+        data: { value: 25 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_bridge_hold_window_min }
+        data: { value: 45 }
+
+      # Dwell
+      - action: input_number.set_value
+        target:
+          { entity_id: input_number.svotc_price_dwell_neutral_to_brake_min }
+        data: { value: 10 }
+      - action: input_number.set_value
+        target:
+          { entity_id: input_number.svotc_price_dwell_brake_to_neutral_min }
+        data: { value: 15 }
+      - action: input_number.set_value
+        target:
+          entity_id:
+            - input_number.svotc_price_dwell_cheap_to_neutral_min
+            - input_number.svotc_price_dwell_neutral_to_cheap_min
+        data: { value: 5 }
+
+      # Brake timing
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_brake_rampup_duration_min }
+        data: { value: 8 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_brake_hold_duration_min }
+        data: { value: 8 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_brake_rampdown_duration_min }
+        data: { value: 12 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_max_delta_per_step_c }
+        data: { value: 0.20 }
+
+      # Thermal / learning
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_thermal_mass_factor }
+        data: { value: 1.0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_learned_brake_efficiency }
+        data: { value: 1.0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_comfort_violations_24h }
+        data: { value: 0 }
+      # FIX-THERMAL-DRIFT (2.0.2): initialize zero-violation counter
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_zero_violation_days }
+        data: { value: 0 }
+
+      # System state
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_requested_offset_c }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.svotc_applied_offset_c }
+        data: { value: 0 }
+      - action: input_text.set_value
+        target: { entity_id: input_text.svotc_reason_code }
+        data: { value: "INIT" }
+
+      # Mark as initialized
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.svotc_initialized }
+
+      - action: system_log.write
+        data:
+          level: info
+          logger: custom_components.svotc
+          message: "SVOTC v2.0.2: Startup initialization complete."
+
+  ##############################################################################
+  ## @5  PREBRAKE DENOM WATCH — KRITISK-3 FIX
+  ##     Logs a warning when prebrake is silently disabled due to denom <= 0.
+  ##     This happens when prebrake_window <= full_lead (window too small
+  ##     relative to hold_offset ≥ 8°C). Without a prebrake ramp, the FSM
+  ##     will step from idle directly to hold_offset in one engine tick —
+  ##     potentially stressful for the heat pump compressor at high offsets.
+  ##     Runs every 5 min in Smart/Simple mode only.
+  ##############################################################################
+  - alias: "SVOTC Prebrake denom watch"
+    id: svotc_prebrake_denom_watch
+    mode: single
+    trigger:
+      - platform: time_pattern
+        minutes: "/5"
+    condition:
+      - condition: state
+        entity_id: input_boolean.svotc_initialized
+        state: "on"
+      - condition: template
+        value_template: >
+          {{ states('input_select.svotc_mode') in ['Smart','Simple'] }}
+      - condition: template
+        value_template: >
+          {# Only warn when there is actually a brake approaching #}
+          {% set window = states('sensor.svotc_prebrake_window_min') | float(0) %}
+          {% set mins   = states('sensor.svotc_minutes_to_next_brake_start') | float(999) %}
+          {% set hold   = states('input_number.svotc_brake_hold_offset_c') | float(0) %}
+          {% set full_lead = 0.0 if hold < 8 else 5.0 %}
+          {% set denom  = window - full_lead %}
+          {{ window > 0 and denom <= 0 and mins <= window }}
+    action:
+      - action: system_log.write
+        data:
+          level: warning
+          logger: homeassistant.components.automation.svotc
+          message: >
+            SVOTC PREBRAKE_DISABLED: prebrake_window={{
+              states('sensor.svotc_prebrake_window_min') }} min is too small
+            relative to hold_offset={{
+              states('input_number.svotc_brake_hold_offset_c') }}°C
+            (full_lead=5 min when hold>=8°C). Prebrake ramp is inactive —
+            offset will step to hold_offset without a gradual ramp at brake
+            start. To fix: increase prebrake_lead_time_min above 5 min, or
+            reduce brake_hold_offset_c below 8°C.
