@@ -1,6 +1,6 @@
 ###############################################################################
 ##  SVOTC – 10_sensors.yaml
-##  @2.0.0-beta
+##  @2.0.2-beta
 ##
 ##  All template sensors and binary sensors.
 ##  No service calls here — purely reactive/computed.
@@ -63,11 +63,11 @@ template:
             {{ none }}
           {% else %}
             {% set p = states(ent) | float(none) %}
-            # WEAK-4 FIX: lowered floor from -2 to -5 SEK/kWh.
-            # Nordpool SE4 has produced prices below -2 (e.g. winter 2023).
-            # The old guard caused price_available=false at legitimately
-            # very cheap prices, triggering a false freeze_price instead
-            # of the correct cheap-boost behaviour.
+            {# WEAK-4 FIX: lowered floor from -2 to -5 SEK/kWh. #}
+            {# Nordpool SE4 has produced prices below -2 (e.g. winter 2023). #}
+            {# The old guard caused price_available=false at legitimately #}
+            {# very cheap prices, triggering a false freeze_price instead #}
+            {# of the correct cheap-boost behaviour. #}
             {{ p | round(3) if p is not none and -5 <= p <= 20 else none }}
           {% endif %}
         availability: >
