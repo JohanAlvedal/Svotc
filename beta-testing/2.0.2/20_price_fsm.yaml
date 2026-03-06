@@ -1,6 +1,6 @@
 ###############################################################################
 ##  SVOTC – 20_price_fsm.yaml
-##  @2.0.0-beta
+##  @2.0.2-beta
 ##
 ##  Price FSM: two automations that run sequentially.
 ##
@@ -247,4 +247,5 @@ automation:
               - action: input_datetime.set_datetime
                 target: { entity_id: input_datetime.svotc_brake_phase_changed }
                 data:   { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+
               - stop: "Ramp-down complete — back to idle"
