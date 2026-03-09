@@ -1,14 +1,14 @@
-# 💥 Breaking Changes – SVOTC 2.0 (Beta)
+# 💥 Breaking Changes – SVOTC 2.1.1
 
 > ⚠️ **BETA-MJUKVARA — ANVÄND PÅ EGEN RISK**
 >
-> SVOTC 2.0 är i aktivt beta-test. Funktioner kan förändras utan förvarning, buggar kan förekomma och konfigurationen kan bryta framtida uppgraderingar. Använd inte i produktionsmiljöer utan att förstå riskerna. **Du ansvarar själv för eventuella konsekvenser på ditt värmesystem.**
+> SVOTC 2.1.1 är i aktivt beta-test. Funktioner kan förändras utan förvarning, buggar kan förekomma och konfigurationen kan bryta framtida uppgraderingar. Använd inte i produktionsmiljöer utan att förstå riskerna. **Du ansvarar själv för eventuella konsekvenser på ditt värmesystem.**
 
 ---
 
-## Filstruktur är nu uppdelad i separata filer
+## Filstruktur är nu uppdelad i separata filer (2.x)
 
-Den enskilt största förändringen i 2.0 är att **hela konfigurationen är splittad från en stor `svotc.yaml` till flera mindre filer**, organiserade i en gemensam mapp. Detta är en **obligatorisk förändring** — den gamla enkelfilen fungerar inte med 2.0.
+Den enskilt största förändringen i 2.x är att **hela konfigurationen är splittad från en stor `svotc.yaml` till flera mindre filer**, organiserade i en gemensam mapp. Detta är en **obligatorisk förändring** — den gamla enkelfilen fungerar inte med 2.x.
 
 ---
 
@@ -20,7 +20,7 @@ Den enskilt största förändringen i 2.0 är att **hela konfigurationen är spl
 └── svotc.yaml   ← en enda fil med all konfiguration
 ```
 
-### Ny struktur (2.0)
+### Ny struktur (2.x)
 ```
 /config/packages/svotc/
 ├── 00_helpers.yaml       ← Hjälpfunktioner och mallar
@@ -28,7 +28,7 @@ Den enskilt största förändringen i 2.0 är att **hela konfigurationen är spl
 ├── 20_price_fsm.yaml     ← Prislogik och tillståndsmaskin (P30/P80)
 ├── 22_engine.yaml        ← Core control loop och offset-logik
 ├── 30_learning.yaml      ← Självjusterande brake-efficiency
-└── 40_notify             ← Notifikationer och diagnostik
+└── 40_notify.yaml        ← Notifikationer och diagnostik
 ```
 
 ---
@@ -46,7 +46,7 @@ Den enskilt största förändringen i 2.0 är att **hela konfigurationen är spl
 ```
 
 ### 3. Kopiera in de nya filerna
-Hämta alla filer från [`beta-testing/2.0`](https://github.com/JohanAlvedal/Svotc/tree/main/beta-testing/2.0) och lägg dem i den nya mappen.
+Hämta alla filer från rätt 2.x-version (t.ex. [`beta-testing/2.0.2`](https://github.com/JohanAlvedal/Svotc/tree/main/beta-testing/2.0.2)) och lägg dem i den nya mappen.
 
 ### 4. Kontrollera din `configuration.yaml`
 Har du redan detta är du klar — annars lägg till:
@@ -68,7 +68,7 @@ Efter omstart, kontrollera:
 
 ---
 
-## Övriga ändringar i 2.0
+## Övriga ändringar i 2.x
 
 - **Buggfixar** från 1.x-serien
 - `svotc_requested_offset_c` och `svotc_applied_offset_c` har utökat max från **10°C → 20°C**
@@ -96,7 +96,7 @@ Rapportera buggar via [GitHub Issues](https://github.com/JohanAlvedal/Svotc/issu
 
 ---
 
-**Version:** 2.0 Beta (2026)  
+**Version:** 2.1.1 Beta (2026)
 **Licens:** MIT — fritt att använda och ändra, men utan garanti av något slag.
 
 # SVOTC — Smart Virtual Outdoor Temperature Control
