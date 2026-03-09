@@ -349,7 +349,7 @@ input_text:
 
   svotc_version:
     name: "SVOTC Version"
-    initial: "2.1.2"
+    initial: "2.1.3"
 
   ###########################################################################
   ## INTERNAL STATE — read-only, managed by automations
