@@ -1,16 +1,11 @@
 ###############################################################################
 ##  SVOTC – 40_notify.yaml
-##  @2.1.2
+##  @2.1.3
 ##
 ##  All notifications and system logging.
 ##  Triggers on health/schema/freeze state changes and guard disable events.
 ##
 ##  Changelog:
-##    FIX-21 (2.1.2): Added svotc_notify_high_brake_offset automation.
-##           Triggers when svotc_brake_hold_offset_c is set above 8°C.
-##           Warns that high offsets risk defrost disruption, long drain
-##           times, and compressor step-stress. Includes calculated drain
-##           time at current max_delta so the user understands the impact.
 ###############################################################################
 
 automation:
@@ -553,3 +548,4 @@ automation:
 
             Ngenic-referens: typiskt 4°C, max ~12°C i extremfall.
             Rekommendation: håll värdet ≤ 6–8°C för normal drift.
+
