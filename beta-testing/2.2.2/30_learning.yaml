@@ -1,6 +1,6 @@
 ###############################################################################
 ##  SVOTC – 30_learning.yaml
-##  @2.1.2
+##  @2.1.3
 ##
 ##  Four automations:
 ##
@@ -466,3 +466,4 @@ automation:
             offset will step to hold_offset without a gradual ramp at brake
             start. To fix: increase prebrake_lead_time_min above 5 min, or
             reduce brake_hold_offset_c below 8°C.
+
