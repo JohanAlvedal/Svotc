@@ -182,7 +182,7 @@ input_number:
     step: 1
     mode: box
     # Minimum time to stay in hold before ramp-down is allowed.
-
+    
   svotc_brake_rampdown_duration_min:
     name: "Brake ramp-down duration (min)"
     min: 1
@@ -349,7 +349,7 @@ input_text:
 
   svotc_version:
     name: "SVOTC Version"
-    initial: "2.1.3"
+    initial: "2.1.3-Beta"
 
   ###########################################################################
   ## INTERNAL STATE — read-only, managed by automations
