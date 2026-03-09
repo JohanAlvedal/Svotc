@@ -50,30 +50,12 @@
 ##      base=20°C, cap=10°C, eff=0.60  => hold_offset = 10 + 10*0.60 = 16°C
 ##
 ##  Rate limiting: applied_offset tracks requested at max max_delta_per_step_c
-##  per 30-second tick, giving smooth ramps without step-changes.
+##  per 60-second tick, giving smooth ramps without step-changes.
 ##
 ##  Freeze behaviour: if price data becomes unavailable while braking,
 ##  applied_offset ramps down toward 0 at max_delta/tick rather than
 ##  snapping. Negative offsets are held (cheap/comfort boost is safe to keep).
 ##
-##    FIX-TICK (2.1.0): Periodic ticker changed from 30 s to 60 s.
-##           Halves engine invocations during idle/ramp. Ramp resolution
-##           unchanged — auto-tune max_delta_calc divisor updated from
-##           * 2 to * 1 in 30_learning.yaml to compensate.
-##           Throttle guard threshold updated from 28 s to 58 s.
-##    FIX-23 (2.1.2): hold_offset split into hold_offset (price-responsive)
-##           and hold_offset_fixed (always 3.0 in Simple, = hold_offset in
-##           Smart). overheat_term now uses hold_offset_fixed so the overheat
-##           comfort guard is not price-proportional in Simple mode.
-##    FIX-24 (2.1.2): Simple mode hold_offset is now proportional to how
-##           expensive the current price is relative to today's price spread:
-##             excess = price - P80
-##             span   = P80 - P30  (today's price range)
-##             scale  = clamp(excess / span, 0, 1)
-##             hold   = base + max_add * scale   (base=3°C, max_add=5°C)
-##           Result: 3°C at P80, up to 8°C at extreme prices. Falls back to
-##           3°C when P30/P80/price are unavailable (null-guard). Defrost cap
-##           (FIX-22, svotc_defrost_virt_max_c) still applies on top.
 ##    FIX-25 (2.1.3): comfort_term remains active during brake when comfort
 ##           guard is ON (unless overheat guard is active), preserving
 ##           comfort-priority behavior in both Smart and Simple modes.
@@ -527,3 +509,4 @@ automation:
       - action: input_text.set_value
         target: { entity_id: input_text.svotc_reason_code }
         data: { value: "{{ reason | trim }}" }
+
