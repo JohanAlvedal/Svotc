@@ -1,0 +1,232 @@
+###############################################################################
+##  SVOTC – 20_price_fsm.yaml
+##  @2.1.1
+##
+##  Price FSM: two automations that run sequentially.
+##  (No changes from 2.0.2-beta — all FSM fixes were in other files.)
+###############################################################################
+
+automation:
+  - alias: "SVOTC Price dwell"
+    id: svotc_price_dwell
+    mode: single
+    trigger:
+      - platform: time_pattern
+        minutes: "/1"
+      - platform: state
+        entity_id: sensor.svotc_raw_price_state
+    action:
+      - variables:
+          allowed: ["off", "cheap", "neutral", "brake"]
+          raw: "{{ states('sensor.svotc_raw_price_state') }}"
+          stable: "{{ states('input_text.svotc_last_price_state') }}"
+          pending: "{{ states('input_text.svotc_pending_price_state') }}"
+          raw_valid: "{{ raw     in allowed }}"
+          stable_valid: "{{ stable  in allowed }}"
+          pending_valid: "{{ pending in allowed }}"
+
+      - choose:
+          - conditions: "{{ not raw_valid }}"
+            sequence:
+              - stop: "raw_price_state invalid — holding current stable state"
+
+      - choose:
+          - conditions: "{{ not stable_valid }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_last_price_state }
+                data: { value: "{{ raw }}" }
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_pending_price_state }
+                data: { value: "{{ raw }}" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.svotc_pending_state_since }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_reason_code }
+                data: { value: "DWELL_BOOTSTRAP" }
+              - stop: "Dwell bootstrapped — stable and pending set to raw"
+
+      - choose:
+          - conditions: "{{ raw != pending }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_pending_price_state }
+                data: { value: "{{ raw }}" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.svotc_pending_state_since }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+
+      - variables:
+          ts: >
+            {{ as_timestamp(states('input_datetime.svotc_pending_state_since'), default=none) }}
+          elapsed_min: >
+            {% if ts is number %}
+              {{ ((as_timestamp(now()) - ts) / 60) | round(2) }}
+            {% else %}
+              999
+            {% endif %}
+          dwell_needed_min: >
+            {% if stable == pending %}
+              0
+            {% elif stable == 'cheap' and pending == 'neutral' %}
+              {{ states('input_number.svotc_price_dwell_cheap_to_neutral_min') | float(5) }}
+            {% elif stable == 'cheap' and pending == 'brake' %}
+              {{ states('input_number.svotc_price_dwell_neutral_to_brake_min') | float(10) }}
+            {% elif stable == 'neutral' and pending == 'brake' %}
+              {{ states('input_number.svotc_price_dwell_neutral_to_brake_min') | float(10) }}
+            {% elif stable == 'brake' and pending == 'neutral' %}
+              {{ states('input_number.svotc_price_dwell_brake_to_neutral_min') | float(15) }}
+            {% elif stable == 'brake' and pending == 'cheap' %}
+              {{ states('input_number.svotc_price_dwell_brake_to_neutral_min') | float(15) }}
+            {% elif stable == 'neutral' and pending == 'cheap' %}
+              {{ states('input_number.svotc_price_dwell_neutral_to_cheap_min') | float(5) }}
+            {% else %}
+              0
+            {% endif %}
+
+      - choose:
+          - conditions: >
+              {{ pending_valid
+                 and pending != stable
+                 and (elapsed_min | float(0)) >= (dwell_needed_min | float(0)) }}
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_last_price_state }
+                data: { value: "{{ pending }}" }
+
+  - alias: "SVOTC Brake phase controller"
+    id: svotc_brake_phase_controller
+    mode: single
+    trigger:
+      - platform: time_pattern
+        minutes: "/1"
+      - platform: state
+        entity_id:
+          - input_text.svotc_last_price_state
+          - input_text.svotc_brake_phase
+      - platform: homeassistant
+        event: start
+    action:
+      - variables:
+          price_state: "{{ states('input_text.svotc_last_price_state') }}"
+          phase: "{{ states('input_text.svotc_brake_phase') }}"
+          phase_valid: "{{ phase in ['idle','ramping_up','holding','ramping_down'] }}"
+          phase_ts: "{{ as_timestamp(states('input_datetime.svotc_brake_phase_changed'), default=none) }}"
+          elapsed_min: >
+            {% if phase_ts is number %}
+              {{ ((as_timestamp(now()) - phase_ts) / 60) | round(2) }}
+            {% else %}
+              0
+            {% endif %}
+          rampup: "{{ states('input_number.svotc_brake_rampup_duration_min')   | float(8) }}"
+          hold_min: "{{ states('input_number.svotc_brake_hold_duration_min')      | float(8) }}"
+          rampdown: "{{ states('input_number.svotc_brake_rampdown_duration_min')  | float(12) }}"
+          ttn_near: "{{ states('sensor.svotc_minutes_to_next_near_start') | float(999) }}"
+          bridge_window: "{{ states('input_number.svotc_bridge_hold_window_min') | float(45) }}"
+          bridge_active: "{{ ttn_near > 0 and ttn_near <= bridge_window }}"
+
+      - choose:
+          - conditions: "{{ not phase_valid }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "idle" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_reason_code }
+                data: { value: "BRAKE_PHASE_BOOTSTRAP" }
+              - stop: "Brake phase bootstrapped to idle"
+
+      - choose:
+          - conditions: "{{ price_state == 'brake' and phase == 'idle' }}"
+            sequence:
+              - variables:
+                  pre_strength: "{{ states('sensor.svotc_prebrake_strength') | float(0) }}"
+                  synthetic_elapsed_min: >
+                    {{ (pre_strength * (states('input_number.svotc_brake_rampup_duration_min') | float(8))) | round(1) }}
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "ramping_up" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data:
+                  datetime: >
+                    {{ (now() - timedelta(minutes=(synthetic_elapsed_min | float(0))))
+                       .strftime('%Y-%m-%d %H:%M:%S') }}
+              - stop: "Brake started — idle to ramping_up (prebrake-adjusted)"
+
+          - conditions: "{{ price_state == 'brake' and phase == 'ramping_down' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "ramping_up" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+              - stop: "Brake returned — ramping_down cancelled, back to ramping_up"
+
+          - conditions: "{{ price_state == 'brake' and phase == 'ramping_up' and elapsed_min >= rampup }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "holding" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+              - stop: "Ramp-up complete — now holding"
+
+      - choose:
+          - conditions: >
+              {{ price_state != 'brake'
+                 and phase == 'holding'
+                 and elapsed_min < hold_min }}
+            sequence:
+              - stop: "Within minimum hold time — not releasing yet"
+
+          - conditions: >
+              {{ price_state != 'brake'
+                 and phase in ['ramping_up','holding']
+                 and bridge_active }}
+            sequence:
+              - stop: "Bridge-hold active — next NEAR block approaching, holding"
+
+          - conditions: >
+              {{ price_state != 'brake'
+                 and phase in ['ramping_up','holding'] }}
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "ramping_down" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+              - stop: "Brake ended — starting ramp-down"
+
+          - conditions: >
+              {{ price_state != 'brake'
+                 and phase == 'ramping_down'
+                 and bridge_active }}
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "holding" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+              - stop: "Bridge-hold: ramp-down cancelled — holding"
+
+          - conditions: >
+              {{ price_state != 'brake'
+                 and phase == 'ramping_down'
+                 and elapsed_min >= rampdown }}
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.svotc_brake_phase }
+                data: { value: "idle" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.svotc_brake_phase_changed }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+              - stop: "Ramp-down complete — back to idle"
