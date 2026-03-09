@@ -1,6 +1,6 @@
 ###############################################################################
 ##  SVOTC – 10_sensors.yaml
-##  @2.1.1
+##  @2.1.3
 ##
 ##  All template sensors and binary sensors.
 ##  No service calls here — purely reactive/computed.
@@ -147,11 +147,11 @@ template:
               {% set idx = ((srt | length - 1) * 0.30) | round(0, 'floor') | int %}
               {{ srt[idx] | round(3) }}
             {% else %}
-              {# BUG-5 FIX: fallback to cache if written within last 2 hours #}
+              {# BUG-5 FIX: fallback to cache if written within last 4 hours #}
               {% set cache_ts = as_timestamp(
                    states('input_datetime.svotc_percentile_cache_updated'), 0) %}
               {% set cache_age_s = as_timestamp(now()) - cache_ts %}
-              {% if cache_age_s < 7200 %}
+              {% if cache_age_s < 14400 %}
                 {{ states('input_number.svotc_p30_cached') | float(none) }}
               {% else %}
                 {{ none }}
@@ -184,11 +184,11 @@ template:
               {% set idx = ((srt | length - 1) * 0.80) | round(0, 'floor') | int %}
               {{ srt[idx] | round(3) }}
             {% else %}
-              {# BUG-5 FIX: fallback to cache if written within last 2 hours #}
+              {# BUG-5 FIX: fallback to cache if written within last 4 hours #}
               {% set cache_ts = as_timestamp(
                    states('input_datetime.svotc_percentile_cache_updated'), 0) %}
               {% set cache_age_s = as_timestamp(now()) - cache_ts %}
-              {% if cache_age_s < 7200 %}
+              {% if cache_age_s < 14400 %}
                 {{ states('input_number.svotc_p80_cached') | float(none) }}
               {% else %}
                 {{ none }}

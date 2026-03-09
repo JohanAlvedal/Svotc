@@ -1,6 +1,6 @@
 ###############################################################################
 ##  SVOTC – 00_helpers.yaml
-##  @2.1.2
+##  @2.1.3
 ##
 ##  All input_* helpers: UI controls, system state, timestamps, flags.
 ##  Nothing here executes logic — purely declarative.
@@ -12,6 +12,12 @@
 ##    Any brake depth above the cap remains "protected" and is not reduced.
 ##
 ##  Changelog:
+##    FIX-23 (2.1.3): svotc_initialized no longer forces initial: false.
+##           Lets Home Assistant restore state across restart so startup
+##           defaults are not reapplied after first successful initialization.
+##    FIX-24 (2.1.3): Percentile cache fallback window extended to 4 hours
+##           (coordinated with 10_sensors.yaml) to bridge midnight data gaps
+##           on 15-minute Nordpool feeds.
 ##    FIX-19 (2.1.2): svotc_brake_hold_offset_c max reduced 15 → 10°C.
 ##           High offsets risk breaking the heat pump's defrost logic and
 ##           cause excessively long drain times. Hard max 10°C enforced here;
@@ -316,8 +322,8 @@ input_number:
   ##   Stores last known good percentile values so the system survives the
   ##   midnight window where raw_today has < 12 data points.
   ##   Written by 40_notify.yaml (cache writer automation).
-  ##   Read by 10_sensors.yaml P30/P80 sensors as fallback (< 2h old).
-  ##   Invalidated automatically after 2 hours via svotc_percentile_cache_updated.
+  ##   Read by 10_sensors.yaml P30/P80 sensors as fallback (< 4h old).
+  ##   Invalidated automatically after 4 hours via svotc_percentile_cache_updated.
   ###########################################################################
   svotc_p30_cached:
     name: "P30 cached (last known good)"
@@ -410,7 +416,7 @@ input_datetime:
     has_date: true
     has_time: true
 
-  # BUG-5 FIX: timestamp for P30/P80 cache — used to invalidate after 2 hours
+  # BUG-5 FIX: timestamp for P30/P80 cache — used to invalidate after 4 hours
   svotc_percentile_cache_updated:
     name: "Percentile cache last updated"
     has_date: true
@@ -431,10 +437,9 @@ input_datetime:
 input_boolean:
   svotc_initialized:
     name: "SVOTC initialized"
-    initial: false
     icon: mdi:check-decagram
-    # Starts false. Startup automation sets to true after writing defaults.
-    # Reset to false to force re-initialization on next HA start.
+    # Restore-safe by design: first install initializes because state != 'on'.
+    # Reset to false manually to force re-initialization on next HA start.
 
   svotc_comfort_guard_enabled:
     name: "Comfort guard enabled"
