@@ -1,9 +1,8 @@
 ###############################################################################
 ##  SVOTC – 20_price_fsm.yaml
-##  @2.1.1
+##  @2.1.3
 ##
 ##  Price FSM: two automations that run sequentially.
-##  (No changes from 2.0.2-beta — all FSM fixes were in other files.)
 ###############################################################################
 
 automation:
