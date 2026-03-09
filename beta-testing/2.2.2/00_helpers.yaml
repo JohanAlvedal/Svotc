@@ -18,20 +18,6 @@
 ##    FIX-24 (2.1.3): Percentile cache fallback window extended to 4 hours
 ##           (coordinated with 10_sensors.yaml) to bridge midnight data gaps
 ##           on 15-minute Nordpool feeds.
-##    FIX-19 (2.1.2): svotc_brake_hold_offset_c max reduced 15 → 10°C.
-##           High offsets risk breaking the heat pump's defrost logic and
-##           cause excessively long drain times. Hard max 10°C enforced here;
-##           22_engine.yaml also clamps base to 10 as a second safety layer.
-##    FIX-20 (2.1.2): svotc_bridge_hold_window_min max reduced 180 → 60 min.
-##           Default also corrected to 20 min (was 45). A window > 60 min
-##           causes the system to bridge separate price peaks as one
-##           continuous brake, holding a high offset for hours unnecessarily.
-##           Recommended: 20 min (covers one 15-min Nordpool gap + margin).
-##    FIX-22 (2.1.2): Added svotc_defrost_virt_max_c. Caps the virtual
-##           outdoor temperature to prevent the heat pump from receiving a
-##           signal that could disrupt defrost cycles when outdoor is cold.
-##           Default 8°C: if outdoor < 8°C, hold_offset is capped so that
-##           virtual_outdoor ≤ svotc_defrost_virt_max_c.
 ###############################################################################
 
 input_select:
