@@ -252,17 +252,18 @@ automation:
 
           bridge_calc: >
             {% set x = 45 * thermal %}
-            {{ ([[x, 30] | max, 90] | min) | round(0) | int }}
+            {{ ([[x, 30] | max, 60] | min) | round(0) | int }}
 
-      - action: input_number.set_value
-        target: { entity_id: input_number.svotc_max_delta_per_step_c }
-        data: { value: "{{ max_delta_calc }}" }
-        # FIX-23 (2.1.2): ramp + delta writes only in Smart mode.
-        # In Simple, engine hard-codes these values; writing to the helpers
-        # is harmless but pollutes the dashboard with misleading values.
+      # FIX-23 (2.1.2): ramp + delta writes only in Smart mode.
+      # In Simple, engine hard-codes these values; writing to the helpers
+      # is harmless but pollutes the dashboard with misleading values.
       - choose:
           - conditions: "{{ states('input_select.svotc_mode') == 'Smart' }}"
             sequence:
+              - action: input_number.set_value
+                target: { entity_id: input_number.svotc_max_delta_per_step_c }
+                data: { value: "{{ max_delta_calc }}" }
+
               - action: input_number.set_value
                 target:
                   { entity_id: input_number.svotc_brake_rampup_duration_min }
