@@ -1,48 +1,20 @@
 ###############################################################################
-##  SVOTC – 00_helpers.yaml
-##  @2.0.2
-##
-##  All input_* helpers: UI controls, system state, timestamps, flags.
-##  Nothing here executes logic — purely declarative.
-##
-##  Notes:
-##  - Brake depth is configured with svotc_brake_hold_offset_c.
-##  - Adaptive learning may reduce braking via svotc_learned_brake_efficiency
-##    (0.5–1.0), but only up to svotc_learning_cap_c (default 10°C).
-##    Any brake depth above the cap remains "protected" and is not reduced.
-##
-##  Changelog:
-##    BUG-4: svotc_cheap_boost_enabled initial: true uncommented — entity was
-##           starting as 'unknown' causing cheap boost to be silently disabled
-##           until startup initialization ran.
-##    BUG-5: Added svotc_p30_cached, svotc_p80_cached and
-##           svotc_percentile_cache_updated — used by 10_sensors.yaml to
-##           survive the midnight raw_today gap without releasing an active
-##           brake.
-##    FIX-18 (2.0.2): Added svotc_last_auto_mode_changed — cooldown timestamp
-##           for Auto PassThrough ↔ Smart switching. Prevents oscillation when
-##           outdoor temperature hovers near the 14°C summer threshold.
+## SVOTC Core v1 - 00_helpers.yaml
+## User-facing controls and small internal state helpers.
 ###############################################################################
 
 input_select:
-  ###########################################################################
-  ## MODE
-  ###########################################################################
   svotc_mode:
-    name: "SVOTC Mode"
-    options: ["Off", "Smart", "Simple", "PassThrough", "ComfortOnly"]
-    # Off          – System disabled, offset forced to 0
-    # Smart        – Full automatic (comfort + price + learning)
-    # Simple       – Ngenic-style conservative presets, no user tuning needed
-    # PassThrough  – No offset, monitoring only
-    # ComfortOnly  – Comfort guard active, no price control
+    name: SVOTC Mode
+    options:
+      - "Off"
+      - "Smart"
+      - "PassThrough"
+    icon: mdi:tune
 
 input_number:
-  ###########################################################################
-  ## COMFORT
-  ###########################################################################
   svotc_comfort_temperature:
-    name: "Comfort temperature (target)"
+    name: Comfort temperature target
     min: 15
     max: 25
     step: 0.1
@@ -50,365 +22,145 @@ input_number:
     unit_of_measurement: "°C"
 
   svotc_comfort_guard_activate_below_c:
-    name: "Comfort guard activate (°C below target)"
+    name: Comfort guard activate (below target)
     min: 0.2
     max: 3.0
     step: 0.1
     mode: box
-    # Guard activates when indoor drops this far below target.
-    # Default 0.8 °C.
+    unit_of_measurement: "°C"
 
-  svotc_comfort_guard_deactivate_above_c:
-    name: "Comfort guard release (°C below target)"
+  svotc_comfort_guard_release_below_c:
+    name: Comfort guard release (below target)
     min: 0.1
     max: 2.0
     step: 0.1
     mode: box
-    # Guard releases when indoor rises to: target − this value.
-    # Must be < activate threshold. Default 0.4 °C.
+    unit_of_measurement: "°C"
+
+  svotc_overtemp_brake_activate_above_c:
+    name: Overtemperature brake activate (above target)
+    min: 0.2
+    max: 3.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+
+  svotc_overtemp_brake_release_above_c:
+    name: Overtemperature brake release (above target)
+    min: 0.1
+    max: 2.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
 
   svotc_comfort_boost_max_c:
-    name: "Comfort boost max (°C)"
+    name: Comfort guard boost max
     min: 0
     max: 5
     step: 0.1
-    mode: slider
+    mode: box
     unit_of_measurement: "°C"
-    icon: mdi:fire
-    # Max negative offset applied during comfort guard (boost heating).
-    # Also used as cheap-period pre-heat depth. Default 0.8 °C.
-    # Ngenic-style: keep ≤ 1.0 to avoid over-heating.
 
-  ###########################################################################
-  ## PRICE / BRAKE
-  ###########################################################################
   svotc_brake_hold_offset_c:
-    name: "Brake hold offset (°C)"
+    name: Brake hold offset
     min: 0
     max: 15
     step: 0.5
     mode: box
     unit_of_measurement: "°C"
-    # Positive offset applied during expensive periods ("fool" the heat pump
-    # into thinking it is warmer outside → less heat output).
-    # Ngenic reference: ≈ 4 °C typical. Hard max 8 °C to avoid breaking
-    # the heat curve. Default 4 °C.
+
+  svotc_cheap_boost_offset_c:
+    name: Cheap boost offset
+    min: 0
+    max: 3
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
 
   svotc_price_floor_sek:
-    name: "Minimum brake price (SEK/kWh)"
+    name: Minimum brake price
     min: 0
-    max: 2.0
+    max: 2
     step: 0.05
-    initial: 0.10
-    mode: slider
+    mode: box
     unit_of_measurement: "SEK/kWh"
-    icon: mdi:currency-eur
-    # Brake requires price > P80 AND price > this floor.
-    # Prevents braking on wind-power / negative-price days.
-    # Set 0 to disable. Default 0.10 SEK/kWh.
 
-  svotc_prebrake_lead_time_min:
-    name: "Prebrake lead time (min)"
-    min: 0
-    max: 60
-    step: 5
-    mode: slider
-    unit_of_measurement: "min"
-    icon: mdi:timer-outline
-    # How many minutes before a brake block SVOTC starts ramping up offset.
-    # Auto-tune will adjust this via thermal_mass_factor. Default 25 min.
-
-  svotc_bridge_hold_window_min:
-    name: "Bridge-hold window (min)"
-    min: 0
-    max: 180
-    step: 5
-    mode: box
-    unit_of_measurement: "min"
-    # If next NEAR block starts within this window, do NOT ramp down between
-    # peaks — avoids pointless oscillation. Default 45 min.
-
-  ###########################################################################
-  ## DWELL  (flicker filter: raw → stable price state)
-  ###########################################################################
-  svotc_price_dwell_cheap_to_neutral_min:
-    name: "Dwell cheap → neutral (min)"
-    min: 0
-    max: 120
-    step: 1
-    mode: box
-
-  svotc_price_dwell_neutral_to_brake_min:
-    name: "Dwell neutral → brake (min)"
-    min: 0
-    max: 120
-    step: 1
-    mode: box
-    # Recommended ≥ 10 min for 15-min Nordpool data (absorbs single-block
-    # flicker without triggering a full brake cycle).
-
-  svotc_price_dwell_brake_to_neutral_min:
-    name: "Dwell brake → neutral (min)"
-    min: 0
-    max: 120
-    step: 1
-    mode: box
-    # Recommended ≥ 15 min for 15-min data (prevents yo-yo on alternating
-    # blocks around P80).
-
-  svotc_price_dwell_neutral_to_cheap_min:
-    name: "Dwell neutral → cheap (min)"
-    min: 0
-    max: 120
-    step: 1
-    mode: box
-
-  ###########################################################################
-  ## BRAKE PHASE TIMING
-  ###########################################################################
-  svotc_brake_rampup_duration_min:
-    name: "Brake ramp-up duration (min)"
-    min: 1
-    max: 14
-    step: 1
-    mode: box
-    # Hard max 14 min so ramp-up completes within one 15-min price block.
-    # Auto-tune sets this from thermal_mass_factor. Default 8 min.
-
-  svotc_brake_hold_duration_min:
-    name: "Brake hold minimum duration (min)"
-    min: 1
-    max: 60
-    step: 1
-    mode: box
-    # Minimum time to stay in hold before ramp-down is allowed.
-
-  svotc_brake_rampdown_duration_min:
-    name: "Brake ramp-down duration (min)"
-    min: 1
-    max: 60
-    step: 1
-    mode: box
-
-  ###########################################################################
-  ## THERMAL
-  ###########################################################################
-  svotc_thermal_mass_factor:
-    name: "Thermal mass factor"
-    min: 0.5
-    max: 1.5
-    step: 0.05
-    mode: slider
-    # 0.5 = light/fast house  /  1.0 = normal  /  1.5 = heavy/slow house.
-    # Scales ramp and dwell durations via auto-tune.
-    # Learning adjusts this: more comfort violations → increase (house needs
-    # longer ramps), zero violations → allow small decrease.
-
-  ###########################################################################
-  ## RATE LIMITING
-  ###########################################################################
   svotc_max_delta_per_step_c:
-    name: "Max delta per engine tick (°C)"
-    min: 0.05
-    max: 1.0
-    step: 0.01
-    mode: box
-    # Maximum offset change per 30-second engine tick.
-    # Auto-tune derives this from hold_offset and prebrake window.
-
-  ###########################################################################
-  ## SYSTEM STATE — read-only, managed by engine
-  ###########################################################################
-  svotc_requested_offset_c:
-    name: "Requested offset (engine target)"
-    min: -10
-    max: 20
-    step: 0.01
+    name: Max offset change per step
+    min: 0.1
+    max: 3.0
+    step: 0.1
     mode: box
     unit_of_measurement: "°C"
+
+  svotc_price_dwell_minutes:
+    name: Price state dwell
+    min: 0
+    max: 120
+    step: 1
+    mode: box
+    unit_of_measurement: min
+
+  svotc_requested_offset_c:
+    name: SVOTC Requested Offset
+    min: -20
+    max: 20
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-up
 
   svotc_applied_offset_c:
-    name: "Applied offset (rate-limited)"
-    min: -10
+    name: SVOTC Applied Offset
+    min: -20
     max: 20
-    step: 0.01
+    step: 0.1
     mode: box
     unit_of_measurement: "°C"
+    icon: mdi:thermometer-lines
 
-  ###########################################################################
-  ## LEARNING STATE — managed by learning automation
-  ###########################################################################
-  svotc_comfort_violations_24h:
-    name: "Comfort violations (24 h counter)"
-    min: 0
-    max: 200
-    step: 1
-    initial: 0
-    mode: box
+input_boolean:
+  svotc_cheap_boost_enabled:
+    name: Enable cheap boost
+    icon: mdi:piggy-bank
 
-  svotc_learned_brake_efficiency:
-    name: "Learned brake efficiency"
-    min: 0.5
-    max: 1.0
-    step: 0.05
-    initial: 1.0
-    mode: box
-    # Learning can only reduce this (1.0 = no reduction, 0.5 = max reduction).
-    # Protects against learning inflating hold_offset beyond user's intent.
-    # Hard max 1.0: learning never makes braking MORE aggressive than set.
+  svotc_comfort_guard_latch:
+    name: SVOTC Comfort Guard Latch
 
-  svotc_learning_cap_c:
-    name: "Learning cap (°C)"
-    min: 0
-    max: 20
-    step: 0.5
-    initial: 10
-    mode: box
-    unit_of_measurement: "°C"
-    # Only this portion of brake_hold_offset is affected by learned_brake_efficiency.
-    # Anything above the cap remains "protected" and is not reduced by learning.
+  svotc_overtemp_latch:
+    name: SVOTC Overtemp Latch
 
-  ###########################################################################
-  ## P30/P80 CACHE — BUG-5 FIX
-  ##   Stores last known good percentile values so the system survives the
-  ##   midnight window where raw_today has < 12 data points.
-  ##   Written by 10_sensors.yaml (@C). Read by P30/P80 sensors as fallback.
-  ##   Invalidated automatically after 2 hours via svotc_percentile_cache_updated.
-  ###########################################################################
-  svotc_p30_cached:
-    name: "P30 cached (last known good)"
-    min: -2.0
-    max: 20.0
-    step: 0.001
-    initial: 0
-    mode: box
-    unit_of_measurement: "SEK/kWh"
-    icon: mdi:cash-minus
-
-  svotc_p80_cached:
-    name: "P80 cached (last known good)"
-    min: -2.0
-    max: 20.0
-    step: 0.001
-    initial: 0
-    mode: box
-    unit_of_measurement: "SEK/kWh"
-    icon: mdi:cash-plus
-
-###############################################################################
-## CONFIGURATION — set once, rarely changed
-###############################################################################
 input_text:
-  svotc_entity_indoor:
-    name: "Indoor temperature entity ID"
+  svotc_source_indoor_temp:
+    name: Source entity - indoor temperature
+    max: 255
 
-  svotc_entity_outdoor:
-    name: "Outdoor temperature entity ID"
+  svotc_source_outdoor_temp:
+    name: Source entity - outdoor temperature
+    max: 255
 
-  svotc_entity_price:
-    name: "Nordpool price entity ID"
-
-  svotc_notify_service:
-    name: "Notify service (e.g. notify.mobile_app_phone)"
-
-  svotc_version:
-    name: "SVOTC Version"
-    initial: "2.0.2"
-
-  ###########################################################################
-  ## INTERNAL STATE — read-only, managed by automations
-  ###########################################################################
-  svotc_last_price_state:
-    name: "Stable price state"
-    # Values: off | cheap | neutral | brake
-
-  svotc_pending_price_state:
-    name: "Pending price state (dwell buffer)"
-
-  svotc_brake_phase:
-    name: "Brake phase"
-    # Values: idle | ramping_up | holding | ramping_down
+  svotc_source_price:
+    name: Source entity - electricity price
+    max: 255
 
   svotc_reason_code:
-    name: "Engine reason code"
+    name: SVOTC Reason
+    max: 64
 
-###############################################################################
-## TIMESTAMPS — read-only, managed by automations
-###############################################################################
+  svotc_price_state_raw:
+    name: SVOTC Price State Raw
+    max: 16
+
+  svotc_price_state_pending:
+    name: SVOTC Price State Pending
+    max: 16
+
+  svotc_price_state_stable:
+    name: SVOTC Price State Stable
+    max: 16
+
 input_datetime:
-  svotc_pending_state_since:
-    name: "Pending state since (dwell timer)"
+  svotc_price_pending_since:
+    name: SVOTC Price Pending Since
     has_date: true
     has_time: true
-
-  svotc_brake_phase_changed:
-    name: "Brake phase last changed"
-    has_date: true
-    has_time: true
-
-  svotc_engine_last_run:
-    name: "Engine last run"
-    has_date: true
-    has_time: true
-
-  # Timestamp of the last actual write to applied_offset (pump output).
-  # Separate from engine_last_run which stamps every tick including skipped ones.
-  # Used by selective-write logic to enforce heartbeat interval (5 min active,
-  # 1 h idle) so the pump gets a confirmed value after HA restart even if
-  # the offset has not changed.
-  svotc_engine_last_write:
-    name: "Engine last write to pump"
-    has_date: true
-    has_time: true
-
-  svotc_freeze_since:
-    name: "Price freeze since"
-    has_date: true
-    has_time: true
-
-  # BUG-5 FIX: timestamp for P30/P80 cache — used to invalidate after 2 hours
-  svotc_percentile_cache_updated:
-    name: "Percentile cache last updated"
-    has_date: true
-    has_time: true
-
-  # FIX-18 (2.0.2): cooldown timestamp for Auto PassThrough ↔ Smart switching.
-  # Written by both auto-switch automations in 40_notify.yaml after each mode
-  # change. Checked in trigger templates to enforce a 2-hour cooldown so the
-  # system cannot oscillate Smart→PassThrough→Smart around the 14°C threshold.
-  svotc_last_auto_mode_changed:
-    name: "Last auto mode change (PassThrough ↔ Smart)"
-    has_date: true
-    has_time: true
-
-###############################################################################
-## FLAGS
-###############################################################################
-input_boolean:
-  svotc_initialized:
-    name: "SVOTC initialized"
-    initial: false
-    icon: mdi:check-decagram
-    # Starts false. Startup automation sets to true after writing defaults.
-    # Reset to false to force re-initialization on next HA start.
-
-  svotc_comfort_guard_enabled:
-    name: "Comfort guard enabled"
-    initial: true
-    icon: mdi:shield-home
-
-  svotc_learning_enabled:
-    name: "Learning enabled"
-    initial: true
-    icon: mdi:brain
-    # When OFF: efficiency fixed at 1.0, auto-tune does not write parameters.
-
-  svotc_freeze_notified:
-    name: "Price freeze notification sent"
-    icon: mdi:bell-alert
-
-  svotc_cheap_boost_enabled:
-    name: "Cheap boost enabled"
-#    initial: true 
-    icon: mdi:cash-plus
-

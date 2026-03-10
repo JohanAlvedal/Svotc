@@ -1,0 +1,260 @@
+###############################################################################
+## SVOTC Core v1 - 20_engine.yaml
+## Single-engine design:
+## 1) Stabilize raw price state with one simple dwell timer.
+## 2) Calculate requested/applied offset with strict priority order.
+###############################################################################
+
+automation:
+  - id: svotc_core_v1_init
+    alias: SVOTC Core v1 - Initialize defaults
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.svotc_price_state_pending
+        data:
+          value: "neutral"
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.svotc_price_state_stable
+        data:
+          value: "neutral"
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.svotc_reason_code
+        data:
+          value: "NEUTRAL"
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.svotc_price_pending_since
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      # Always start with clean hysteresis latches.
+      - service: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.svotc_comfort_guard_latch
+            - input_boolean.svotc_overtemp_latch
+
+  - id: svotc_core_v1_price_dwell
+    alias: SVOTC Core v1 - Price state dwell
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: sensor.svotc_price_state_raw_sensor
+      - platform: time_pattern
+        minutes: "/1"
+    variables:
+      raw: "{{ states('sensor.svotc_price_state_raw_sensor') }}"
+      pending: "{{ states('input_text.svotc_price_state_pending') }}"
+      stable: "{{ states('input_text.svotc_price_state_stable') }}"
+      since_raw: "{{ states('input_datetime.svotc_price_pending_since') }}"
+      since_ts: "{{ as_timestamp(since_raw, 0) }}"
+      elapsed_min: "{{ ((as_timestamp(now()) - since_ts) / 60) | float(0) }}"
+      dwell_min: "{{ states('input_number.svotc_price_dwell_minutes') | float(10) }}"
+    action:
+      - choose:
+          # Ignore invalid raw values and keep current state.
+          - conditions:
+              - condition: template
+                value_template: "{{ raw not in ['cheap','neutral','brake'] }}"
+            sequence: []
+
+          # New candidate state: start a fresh pending timer.
+          - conditions:
+              - condition: template
+                value_template: "{{ raw != pending }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.svotc_price_state_pending
+                data:
+                  value: "{{ raw }}"
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.svotc_price_pending_since
+                data:
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+          # Candidate has been stable long enough: promote to stable state.
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ raw == pending and pending != stable and elapsed_min >= dwell_min }}
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.svotc_price_state_stable
+                data:
+                  value: "{{ pending }}"
+
+  - id: svotc_core_v1_engine
+    alias: SVOTC Core v1 - Main engine
+    mode: single
+    trigger:
+      - platform: time_pattern
+        minutes: "/1"
+      - platform: state
+        entity_id:
+          - input_select.svotc_mode
+          - binary_sensor.svotc_inputs_healthy
+          - sensor.svotc_indoor_temperature
+          - sensor.svotc_outdoor_temperature
+          - sensor.svotc_current_price
+          - input_text.svotc_price_state_stable
+          - input_boolean.svotc_cheap_boost_enabled
+          - input_number.svotc_comfort_temperature
+          - input_number.svotc_comfort_guard_activate_below_c
+          - input_number.svotc_comfort_guard_release_below_c
+          - input_number.svotc_overtemp_brake_activate_above_c
+          - input_number.svotc_overtemp_brake_release_above_c
+          - input_number.svotc_comfort_boost_max_c
+          - input_number.svotc_brake_hold_offset_c
+          - input_number.svotc_cheap_boost_offset_c
+          - input_number.svotc_max_delta_per_step_c
+    variables:
+      mode: "{{ states('input_select.svotc_mode') }}"
+      healthy: "{{ is_state('binary_sensor.svotc_inputs_healthy', 'on') }}"
+      stable_price_state: "{{ states('input_text.svotc_price_state_stable') }}"
+
+      indoor: "{{ states('sensor.svotc_indoor_temperature') | float(default=none) }}"
+      target: "{{ states('input_number.svotc_comfort_temperature') | float(21) }}"
+
+      comfort_on_delta: "{{ states('input_number.svotc_comfort_guard_activate_below_c') | float(0.8) }}"
+      comfort_off_delta: "{{ states('input_number.svotc_comfort_guard_release_below_c') | float(0.4) }}"
+      over_on_delta: "{{ states('input_number.svotc_overtemp_brake_activate_above_c') | float(0.8) }}"
+      over_off_delta: "{{ states('input_number.svotc_overtemp_brake_release_above_c') | float(0.4) }}"
+
+      comfort_latched: "{{ is_state('input_boolean.svotc_comfort_guard_latch', 'on') }}"
+      over_latched: "{{ is_state('input_boolean.svotc_overtemp_latch', 'on') }}"
+
+      comfort_should_on: "{{ indoor is not none and indoor <= (target - comfort_on_delta) }}"
+      comfort_should_off: "{{ indoor is not none and indoor >= (target - comfort_off_delta) }}"
+      over_should_on: "{{ indoor is not none and indoor >= (target + over_on_delta) }}"
+      over_should_off: "{{ indoor is not none and indoor <= (target + over_off_delta) }}"
+
+      comfort_active: >
+        {{ comfort_should_on or (comfort_latched and not comfort_should_off) }}
+      overtemp_active: >
+        {{ over_should_on or (over_latched and not over_should_off) }}
+
+      comfort_boost: "{{ states('input_number.svotc_comfort_boost_max_c') | float(1.0) }}"
+      max_brake: "{{ states('input_number.svotc_brake_hold_offset_c') | float(4.0) }}"
+      cheap_boost: "{{ states('input_number.svotc_cheap_boost_offset_c') | float(0.5) }}"
+      cheap_enabled: "{{ is_state('input_boolean.svotc_cheap_boost_enabled', 'on') }}"
+
+      requested_unclamped: >
+        {% if mode == 'Off' %}
+          0
+        {% elif mode == 'PassThrough' %}
+          0
+        {% elif not healthy %}
+          0
+        {% elif comfort_active %}
+          {{ -1 * comfort_boost }}
+        {% elif overtemp_active %}
+          {{ max_brake }}
+        {% elif stable_price_state == 'brake' %}
+          {{ max_brake }}
+        {% elif stable_price_state == 'cheap' and cheap_enabled %}
+          {{ -1 * cheap_boost }}
+        {% else %}
+          0
+        {% endif %}
+
+      reason: >
+        {% if mode == 'Off' %}
+          OFF
+        {% elif mode == 'PassThrough' %}
+          PASS_THROUGH
+        {% elif not healthy %}
+          FAIL_SAFE
+        {% elif comfort_active %}
+          COMFORT_GUARD
+        {% elif overtemp_active %}
+          OVERTEMP_BRAKE
+        {% elif stable_price_state == 'brake' %}
+          PRICE_BRAKE
+        {% elif stable_price_state == 'cheap' and cheap_enabled %}
+          PRICE_CHEAP
+        {% else %}
+          NEUTRAL
+        {% endif %}
+
+      requested: "{{ [max_brake, [requested_unclamped | float(0), -1 * comfort_boost] | max] | min | round(2) }}"
+      current_requested: "{{ states('input_number.svotc_requested_offset_c') | float(0) }}"
+      current_applied: "{{ states('input_number.svotc_applied_offset_c') | float(0) }}"
+      current_reason: "{{ states('input_text.svotc_reason_code') }}"
+      max_step: "{{ states('input_number.svotc_max_delta_per_step_c') | float(0.5) }}"
+      delta: "{{ (requested | float(0)) - current_applied }}"
+      step: "{{ [max_step, [delta, -1 * max_step] | max] | min }}"
+      new_applied: "{{ (current_applied + step) | round(2) }}"
+    action:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ comfort_active and not comfort_latched }}"
+            sequence:
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.svotc_comfort_guard_latch
+          - conditions:
+              - condition: template
+                value_template: "{{ (not comfort_active) and comfort_latched }}"
+            sequence:
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.svotc_comfort_guard_latch
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ overtemp_active and not over_latched }}"
+            sequence:
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.svotc_overtemp_latch
+          - conditions:
+              - condition: template
+                value_template: "{{ (not overtemp_active) and over_latched }}"
+            sequence:
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.svotc_overtemp_latch
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ (requested | float(0)) != current_requested }}"
+            sequence:
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.svotc_requested_offset_c
+                data:
+                  value: "{{ requested }}"
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ (new_applied | float(0)) != current_applied }}"
+            sequence:
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.svotc_applied_offset_c
+                data:
+                  value: "{{ new_applied }}"
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ reason != current_reason }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.svotc_reason_code
+                data:
+                  value: "{{ reason }}"
