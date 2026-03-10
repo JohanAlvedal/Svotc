@@ -221,10 +221,17 @@ automation:
           full_lead: "{{ 0.0 }}"
           build_min: "{{ [window - full_lead, 1] | max }}"
 
+          rampdown_calc: >
+            {% set x = 12 * thermal %}
+            {{ ([[x, 8] | max, 30] | min) | round(0) | int }}
+
           max_delta_calc: >
-            {% set steps = (build_min | float(1)) * 1 %}
-            {% set x = hold / steps %}
-            {{ ([[x, 0.10] | max, 0.50] | min) | round(2) }}
+            {# Build-up need: reach hold during prebrake build window #}
+            {% set build_need = hold / (build_min | float(1)) %}
+            {# Drain-down need: release hold during configured rampdown #}
+            {% set drain_need = hold / (rampdown_calc | float(1)) %}
+            {% set x = [build_need, drain_need] | max %}
+            {{ ([[x, 0.12] | max, 0.50] | min) | round(2) }}
 
           rampup_calc: >
             {% set x = 8 * thermal %}
@@ -233,10 +240,6 @@ automation:
           holdmin_calc: >
             {% set x = 8 * thermal %}
             {{ ([[x, 4] | max, 14] | min) | round(0) | int }}
-
-          rampdown_calc: >
-            {% set x = 12 * thermal %}
-            {{ ([[x, 8] | max, 30] | min) | round(0) | int }}
 
           dwell_ntob_calc: >
             {% set x = 10 * thermal %}
