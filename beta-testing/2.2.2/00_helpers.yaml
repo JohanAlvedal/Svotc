@@ -87,8 +87,7 @@ input_number:
     unit_of_measurement: "°C"
     # Positive offset applied during expensive periods ("fool" the heat pump
     # into thinking it is warmer outside → less heat output).
-    # Ngenic reference: ≈ 4 °C typical.
-    # FIX-19 (2.1.2): Hard max 10°C. Higher values risk disrupting defrost
+    # Ngenic reference: ≈ 4 °C typical
     # logic and cause multi-hour drain times at max_delta=0.10. Default 4°C.
 
   svotc_price_floor_sek:
@@ -182,7 +181,7 @@ input_number:
     step: 1
     mode: box
     # Minimum time to stay in hold before ramp-down is allowed.
-    
+
   svotc_brake_rampdown_duration_min:
     name: "Brake ramp-down duration (min)"
     min: 1
@@ -279,29 +278,6 @@ input_number:
     unit_of_measurement: "°C"
     # Only this portion of brake_hold_offset is affected by learned_brake_efficiency.
     # Anything above the cap remains "protected" and is not reduced by learning.
-
-  ###########################################################################
-  ## DEFROST PROTECTION — FIX-22
-  ##   Caps the virtual outdoor temperature sent to the heat pump when outdoor
-  ##   is cold. Prevents the heat pump from receiving a signal that would
-  ##   interfere with its defrost logic.
-  ##
-  ##   Engine applies this AFTER learning:
-  ##     if outdoor < svotc_defrost_virt_max_c:
-  ##       hold_offset = min(hold_offset, svotc_defrost_virt_max_c - outdoor)
-  ##   Effect: virtual_outdoor never exceeds svotc_defrost_virt_max_c.
-  ##   Guard is inactive when outdoor >= svotc_defrost_virt_max_c (no risk).
-  ##   Set to 20 to effectively disable. Default 8°C.
-  ###########################################################################
-  svotc_defrost_virt_max_c:
-    name: "Defrost virtual outdoor cap (°C)"
-    min: 0
-    max: 20
-    step: 0.5
-    initial: 8
-    mode: box
-    unit_of_measurement: "°C"
-    icon: mdi:snowflake-thermometer
 
   ###########################################################################
   ## P30/P80 CACHE — BUG-5 FIX
