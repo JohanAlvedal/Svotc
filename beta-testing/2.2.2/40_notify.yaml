@@ -1,11 +1,13 @@
 ###############################################################################
 ##  SVOTC – 40_notify.yaml
-##  @2.1.3
+##  @2.1.4
 ##
 ##  All notifications and system logging.
 ##  Triggers on health/schema/freeze state changes and guard disable events.
 ##
 ##  Changelog:
+##    FIX-29 (2.1.4): removed all defrost/virtual-outdoor-cap references.
+##    FIX-30 (2.1.4): high brake offset warning rewritten without defrost logic.
 ###############################################################################
 
 automation:
@@ -127,12 +129,10 @@ automation:
                       - action: input_datetime.set_datetime
                         target: { entity_id: input_datetime.svotc_freeze_since }
                         data:
-                          {
-                            datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}",
-                          }
+                          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
                       - action: input_boolean.turn_off
                         target:
-                          { entity_id: input_boolean.svotc_freeze_notified }
+                          entity_id: input_boolean.svotc_freeze_notified
               - stop: "Freeze entry logged"
 
           - conditions: >
@@ -149,7 +149,8 @@ automation:
                     SVOTC FREEZE END: from={{ trigger.from_state.state }}
                     to={{ states('input_text.svotc_reason_code') }} | {{ snapshot }}
               - action: input_boolean.turn_off
-                target: { entity_id: input_boolean.svotc_freeze_notified }
+                target:
+                  entity_id: input_boolean.svotc_freeze_notified
               - stop: "Freeze exit logged"
 
           - conditions: >
@@ -173,7 +174,8 @@ automation:
 
                     Snapshot: {{ snapshot }}
               - action: input_boolean.turn_on
-                target: { entity_id: input_boolean.svotc_freeze_notified }
+                target:
+                  entity_id: input_boolean.svotc_freeze_notified
               - stop: "Freeze stuck-brake notified"
 
           - conditions: >
@@ -228,9 +230,9 @@ automation:
                     Normal operation resumed. reason={{ reason }}
               - stop: "Recovery notified"
 
-  ###############################################################################
+  #########################################################################
   ## @C2  PERCENTILE CACHE WRITER — BUG-5 FIX
-  ###############################################################################
+  #########################################################################
   - alias: "SVOTC Percentile cache writer"
     id: svotc_percentile_cache_writer
     mode: single
@@ -290,16 +292,22 @@ automation:
             {{ srt[idx] | round(3) }}
 
       - action: input_number.set_value
-        target: { entity_id: input_number.svotc_p30_cached }
-        data: { value: "{{ fresh_p30 }}" }
+        target:
+          entity_id: input_number.svotc_p30_cached
+        data:
+          value: "{{ fresh_p30 }}"
 
       - action: input_number.set_value
-        target: { entity_id: input_number.svotc_p80_cached }
-        data: { value: "{{ fresh_p80 }}" }
+        target:
+          entity_id: input_number.svotc_p80_cached
+        data:
+          value: "{{ fresh_p80 }}"
 
       - action: input_datetime.set_datetime
-        target: { entity_id: input_datetime.svotc_percentile_cache_updated }
-        data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+        target:
+          entity_id: input_datetime.svotc_percentile_cache_updated
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
 
   #########################################################################
   ## @40.N.1 Auto PassThrough (stabil + peak-check)
@@ -362,9 +370,6 @@ automation:
              and phase in ['idle','ramping_down']
              and cooldown_ok }}
 
-    # FIX-RACE (2.0.2): Re-validate critical conditions at execution time.
-    # Prevents PassThrough activation if a brake started between trigger
-    # fire and action run (race window of a few seconds).
     condition:
       - condition: template
         value_template: >
@@ -411,8 +416,10 @@ automation:
           option: "PassThrough"
 
       - action: input_datetime.set_datetime
-        target: { entity_id: input_datetime.svotc_last_auto_mode_changed }
-        data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+        target:
+          entity_id: input_datetime.svotc_last_auto_mode_changed
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
 
   #########################################################################
   ## @40.N.2 Auto tillbaka till Smart (stabil)
@@ -431,7 +438,6 @@ automation:
         value_template: >
           {% set mode = states('input_select.svotc_mode') %}
           {% set outdoor = states('sensor.svotc_src_outdoor') | float(0) %}
-          # FIX-FLOAT (2.0.2): use float(none) + null-guard (was float(999)).
           {% set price = states('sensor.svotc_src_current_price') | float(none) %}
           {% set p30 = states('sensor.svotc_p30') | float(none) %}
 
@@ -440,7 +446,6 @@ automation:
           {% set schema_ok = is_state('binary_sensor.svotc_price_schema_ok','on') %}
 
           {% set summer = outdoor >= 14.0 %}
-          # Null-guard: if price or p30 unavailable, treat as not supercheap
           {% set supercheap = price is not none
                               and p30 is not none
                               and price <= (p30 * 0.85) %}
@@ -476,8 +481,10 @@ automation:
           option: "Smart"
 
       - action: input_datetime.set_datetime
-        target: { entity_id: input_datetime.svotc_last_auto_mode_changed }
-        data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+        target:
+          entity_id: input_datetime.svotc_last_auto_mode_changed
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
 
       - action: "{{ notify_svc }}"
         data:
@@ -486,15 +493,15 @@ automation:
             ✅ Tillbaka till Smart (normal-läge stabilt i 30 min).
             Ute: {{ outdoor|round(1) }}°C,
             pris: {{ price|round(3) if price is not none else 'N/A' }} SEK/kWh.
+
   #########################################################################
-  ## @40.N.3  FIX-21 (2.1.2): High brake offset warning
+  ## @40.N.3 High brake offset warning
   ##
   ## Triggers when the user sets svotc_brake_hold_offset_c above 8°C.
   ## At that level:
-  ##   - Defrost cycles may be disrupted (heat pump "sees" it is warm out)
   ##   - Drain time at max_delta=0.10 = hold/0.10 minutes (e.g. 10°C → 100 min)
   ##   - Compressor experiences a large step-change if prebrake is inactive
-  ## The notification includes a calculated drain time so the impact is clear.
+  ##   - Strong braking may reduce comfort if the house has low thermal inertia
   #########################################################################
   - id: svotc_notify_high_brake_offset
     alias: "SVOTC: High brake offset warning"
@@ -520,14 +527,6 @@ automation:
           new_offset: "{{ trigger.to_state.state | float(0) }}"
           max_delta: "{{ states('input_number.svotc_max_delta_per_step_c') | float(0.10) }}"
           drain_min: "{{ (new_offset / max_delta) | round(0) | int }}"
-          defrost_cap: "{{ states('input_number.svotc_defrost_virt_max_c') | float(8.0) }}"
-          outdoor: "{{ states('sensor.svotc_src_outdoor') | float(0) }}"
-          effective: >
-            {% if outdoor < defrost_cap %}
-              {{ [new_offset, [defrost_cap - outdoor, 0] | max] | min | round(1) }}
-            {% else %}
-              {{ new_offset | round(1) }}
-            {% endif %}
 
       - action: "{{ notify_svc }}"
         data:
@@ -535,17 +534,13 @@ automation:
           message: >-
             ⚠️ brake_hold_offset_c = {{ new_offset }}°C — över rekommenderat max (8°C).
 
-            Effektivt värde efter defrost-cap: {{ effective }}°C
-            (defrost_virt_max={{ defrost_cap }}°C, ute={{ outdoor }}°C)
-
             Beräknad dräneringstid: {{ drain_min }} min
             ({{ new_offset }}°C ÷ {{ max_delta }}°C/min vid nuvarande max_delta)
 
             Risker vid högt bromsdjup:
-            • Avfrostningscykler kan störas (värmepumpen "tror" att det är varmt ute)
             • Kompressorn utsätts för ett stort steghopp om prebrake är inaktivt
             • Offset tar lång tid att rampa ned efter dyrt prisblock
+            • Komforten kan påverkas mer i hus med låg värmetröghet
 
             Ngenic-referens: typiskt 4°C, max ~12°C i extremfall.
             Rekommendation: håll värdet ≤ 6–8°C för normal drift.
-
