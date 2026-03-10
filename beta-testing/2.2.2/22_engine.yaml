@@ -122,8 +122,10 @@ automation:
     action:
       - variables:
           last_run_ts: "{{ as_timestamp(states('input_datetime.svotc_engine_last_run'), default=0) }}"
+          last_write_ts: "{{ as_timestamp(states('input_datetime.svotc_engine_last_write'), default=0) }}"
           now_ts: "{{ as_timestamp(now()) }}"
           since_last_s: "{{ now_ts - last_run_ts }}"
+          since_write_s: "{{ now_ts - last_write_ts }}"
 
       - choose:
           - conditions: "{{ since_last_s < 58 }}"
@@ -453,6 +455,16 @@ automation:
           write_applied: "{{ (applied_new - applied_old) | abs > 0.05 }}"
           write_reason: "{{ reason_new != reason_old }}"
 
+          heartbeat_active: >
+            {{ (applied_new | abs > 0.05)
+               or (requested_new | abs > 0.05)
+               or freeze_price
+               or in_brake_phase
+               or (pre > 0) }}
+          heartbeat_interval_s: "{{ 300 if heartbeat_active else 3600 }}"
+          force_heartbeat_write: "{{ since_write_s >= (heartbeat_interval_s | float(3600)) }}"
+          write_applied_effective: "{{ write_applied or force_heartbeat_write }}"
+
       - choose:
           - conditions: "{{ not healthy }}"
             sequence:
@@ -469,6 +481,9 @@ automation:
                       - action: input_number.set_value
                         target: { entity_id: input_number.svotc_applied_offset_c }
                         data: { value: 0 }
+                      - action: input_datetime.set_datetime
+                        target: { entity_id: input_datetime.svotc_engine_last_write }
+                        data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
 
               - choose:
                   - conditions: "{{ reason_old != 'MISSING_INPUTS_FREEZE' }}"
@@ -487,11 +502,14 @@ automation:
                 data: { value: "{{ requested_new }}" }
 
       - choose:
-          - conditions: "{{ write_applied }}"
+          - conditions: "{{ write_applied_effective }}"
             sequence:
               - action: input_number.set_value
                 target: { entity_id: input_number.svotc_applied_offset_c }
                 data: { value: "{{ applied_new }}" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.svotc_engine_last_write }
+                data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
 
       - choose:
           - conditions: "{{ write_reason }}"
