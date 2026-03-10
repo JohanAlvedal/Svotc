@@ -1,0 +1,27 @@
+###############################################################################
+## SVOTC Core v1 - 30_notify.yaml
+## Optional critical notification: persistent fail-safe for visibility.
+###############################################################################
+
+automation:
+  - id: svotc_core_v1_notify_fail_safe
+    alias: SVOTC Core v1 - Notify fail-safe active
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_text.svotc_reason_code
+        to: "FAIL_SAFE"
+        for:
+          minutes: 5
+    action:
+      - service: persistent_notification.create
+        data:
+          title: "SVOTC Core v1: FAIL_SAFE active"
+          message: >
+            SVOTC has been in FAIL_SAFE for at least 5 minutes.
+            Requested offset is forced to 0 and applied offset is ramping toward 0.
+
+            Check these configured source entities:
+            - {{ states('input_text.svotc_source_indoor_temp') }}
+            - {{ states('input_text.svotc_source_outdoor_temp') }}
+            - {{ states('input_text.svotc_source_price') }}
