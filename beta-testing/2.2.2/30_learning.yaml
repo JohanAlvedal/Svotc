@@ -395,11 +395,6 @@ automation:
         target: { entity_id: input_number.svotc_zero_violation_days }
         data: { value: 0 }
 
-      # FIX-22 (2.1.2): initialize defrost virtual outdoor cap
-      - action: input_number.set_value
-        target: { entity_id: input_number.svotc_defrost_virt_max_c }
-        data: { value: 8.0 }
-
       # System state
       - action: input_number.set_value
         target: { entity_id: input_number.svotc_requested_offset_c }
@@ -466,4 +461,3 @@ automation:
             offset will step to hold_offset without a gradual ramp at brake
             start. To fix: increase prebrake_lead_time_min above 5 min, or
             reduce brake_hold_offset_c below 8°C.
-
