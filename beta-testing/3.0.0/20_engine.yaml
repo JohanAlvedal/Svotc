@@ -32,15 +32,16 @@ automation:
     trigger:
       - platform: time_pattern
         minutes: "/1"
+
       - platform: state
         entity_id:
           - input_select.svotc_mode
-          - binary_sensor.svotc_inputs_healthy
           - sensor.svotc_indoor_temperature
-          - sensor.svotc_current_price
+          - input_number.svotc_comfort_temperature
+          - input_number.svotc_max_delta_per_step_c
+          - binary_sensor.svotc_inputs_healthy
           - sensor.svotc_forward_price_state
           - input_boolean.svotc_cheap_boost_enabled
-          - input_number.svotc_comfort_temperature
           - input_number.svotc_comfort_guard_activate_below_c
           - input_number.svotc_comfort_guard_release_below_c
           - input_number.svotc_overtemp_brake_activate_above_c
@@ -48,7 +49,7 @@ automation:
           - input_number.svotc_comfort_boost_max_c
           - input_number.svotc_brake_hold_offset_c
           - input_number.svotc_cheap_boost_offset_c
-          - input_number.svotc_max_delta_per_step_c
+
     variables:
       mode: "{{ states('input_select.svotc_mode') }}"
       healthy: "{{ is_state('binary_sensor.svotc_inputs_healthy', 'on') }}"
@@ -56,6 +57,7 @@ automation:
 
       indoor: "{{ states('sensor.svotc_indoor_temperature') | float(default=none) }}"
       target: "{{ states('input_number.svotc_comfort_temperature') | float(21) }}"
+      comfort_ready: "{{ indoor is not none }}"
 
       comfort_on_delta: "{{ states('input_number.svotc_comfort_guard_activate_below_c') | float(0.8) }}"
       comfort_off_delta: "{{ states('input_number.svotc_comfort_guard_release_below_c') | float(0.4) }}"
@@ -72,6 +74,7 @@ automation:
 
       comfort_active: >
         {{ comfort_should_on or (comfort_latched and not comfort_should_off) }}
+
       overtemp_active: >
         {{ over_should_on or (over_latched and not over_should_off) }}
 
@@ -80,11 +83,35 @@ automation:
       cheap_boost: "{{ states('input_number.svotc_cheap_boost_offset_c') | float(0.5) }}"
       cheap_enabled: "{{ is_state('input_boolean.svotc_cheap_boost_enabled', 'on') }}"
 
+      # Standalone hardcoded Comfort mode regulator
+      comfort_error: >
+        {% if indoor is not none %}
+          {{ (target - indoor) | round(2) }}
+        {% else %}
+          0
+        {% endif %}
+
+      comfort_simple_requested: >
+        {% set e = comfort_error | float(0) %}
+        {% if indoor is none %}
+          0
+        {% elif e > 0.2 %}
+          {{ (-1 * (e * 2)) | round(2) }}
+        {% elif e < -0.2 %}
+          {{ (-1 * (e * 2)) | round(2) }}
+        {% else %}
+          0
+        {% endif %}
+
       requested_unclamped: >
         {% if mode == 'Off' %}
           0
         {% elif mode == 'PassThrough' %}
           0
+        {% elif mode == 'Comfort' and not comfort_ready %}
+          0
+        {% elif mode == 'Comfort' %}
+          {{ comfort_simple_requested }}
         {% elif not healthy %}
           0
         {% elif comfort_active %}
@@ -104,6 +131,14 @@ automation:
           OFF
         {% elif mode == 'PassThrough' %}
           PASS_THROUGH
+        {% elif mode == 'Comfort' and not comfort_ready %}
+          COMFORT_SENSOR_MISSING
+        {% elif mode == 'Comfort' and (comfort_simple_requested | float(0)) < 0 %}
+          COMFORT_HEAT
+        {% elif mode == 'Comfort' and (comfort_simple_requested | float(0)) > 0 %}
+          COMFORT_BRAKE
+        {% elif mode == 'Comfort' %}
+          COMFORT_IDLE
         {% elif not healthy %}
           FAIL_SAFE
         {% elif comfort_active %}
@@ -123,7 +158,11 @@ automation:
         {% endif %}
 
       requested: >
-        {{ [max_brake, [requested_unclamped | float(0), -1 * comfort_boost] | max] | min | round(2) }}
+        {% if mode == 'Comfort' %}
+          {{ [5, [requested_unclamped | float(0), -5] | max] | min | round(2) }}
+        {% else %}
+          {{ [max_brake, [requested_unclamped | float(0), -1 * comfort_boost] | max] | min | round(2) }}
+        {% endif %}
 
       current_requested: "{{ states('input_number.svotc_requested_offset_c') | float(0) }}"
       current_applied: "{{ states('input_number.svotc_applied_offset_c') | float(0) }}"
@@ -137,14 +176,14 @@ automation:
       - choose:
           - conditions:
               - condition: template
-                value_template: "{{ comfort_active and not comfort_latched }}"
+                value_template: "{{ mode != 'Comfort' and comfort_active and not comfort_latched }}"
             sequence:
               - service: input_boolean.turn_on
                 target:
                   entity_id: input_boolean.svotc_comfort_guard_latch
           - conditions:
               - condition: template
-                value_template: "{{ (not comfort_active) and comfort_latched }}"
+                value_template: "{{ mode != 'Comfort' and (not comfort_active) and comfort_latched }}"
             sequence:
               - service: input_boolean.turn_off
                 target:
@@ -153,14 +192,14 @@ automation:
       - choose:
           - conditions:
               - condition: template
-                value_template: "{{ overtemp_active and not over_latched }}"
+                value_template: "{{ mode != 'Comfort' and overtemp_active and not over_latched }}"
             sequence:
               - service: input_boolean.turn_on
                 target:
                   entity_id: input_boolean.svotc_overtemp_latch
           - conditions:
               - condition: template
-                value_template: "{{ (not overtemp_active) and over_latched }}"
+                value_template: "{{ mode != 'Comfort' and (not overtemp_active) and over_latched }}"
             sequence:
               - service: input_boolean.turn_off
                 target:
