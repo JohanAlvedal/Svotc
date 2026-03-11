@@ -21,49 +21,56 @@ sections:
           - entity: input_number.svotc_comfort_guard_activate_below_c
             name: Aktivera komfortskydd (under mål)
             icon: mdi:shield-alert
-          - entity: input_number.svotc_comfort_guard_deactivate_above_c
-            name: Avaktivera komfortskydd (nära mål)
+          - entity: input_number.svotc_comfort_guard_release_below_c
+            name: Släpp komfortskydd (nära mål)
             icon: mdi:shield-check
-          - entity: input_boolean.svotc_comfort_guard_enabled
-            name: Komfortskydd aktiverat
+          - entity: input_number.svotc_comfort_boost_max_c
+            name: Komfortboost max
+            icon: mdi:fire
+          - entity: input_boolean.svotc_comfort_guard_latch
+            name: Komfortskydd aktivt
             icon: mdi:shield-home
-          - entity: automation.svotc_auto_tune_normal_house_defaults
-            secondary_info: last-triggered
+          - type: section
+            label: Övertemperatur
+          - entity: input_number.svotc_overtemp_brake_activate_above_c
+            name: Aktivera överbroms (över mål)
+            icon: mdi:thermometer-high
+          - entity: input_number.svotc_overtemp_brake_release_above_c
+            name: Släpp överbroms
+            icon: mdi:thermometer-chevron-down
+          - entity: input_boolean.svotc_overtemp_latch
+            name: Övertemperatur aktiv
+            icon: mdi:radiator-disabled
           - type: section
             label: Prisoptimering
-          - entity: input_number.svotc_prebrake_lead_time_min
-            name: Förbromsning – starta före (min)
-            icon: mdi:timer-sand
-          - entity: input_number.svotc_comfort_boost_max_c
-            name: Komfortboost – max (°C)
-            icon: mdi:fire
+          - entity: input_boolean.svotc_cheap_boost_enabled
+            name: Billigpris-boost aktiverad
+            icon: mdi:piggy-bank
+          - entity: input_number.svotc_cheap_boost_offset_c
+            name: Billigpris-boost offset
+            icon: mdi:thermometer-chevron-down
           - entity: input_number.svotc_brake_hold_offset_c
-            name: Max bromsoffset (°C)
-            icon: mdi:thermometer-minus
+            name: Max bromsoffset
+            icon: mdi:thermometer-plus
+          - entity: input_number.svotc_price_floor_sek
+            name: Minsta bromspris
+            icon: mdi:cash
           - type: section
             label: Systemhälsa
           - entity: binary_sensor.svotc_inputs_healthy
-            name: Temperatursensorer OK
-            icon: mdi:thermometer-check
-          - entity: binary_sensor.svotc_price_available
-            name: Prisdata tillgänglig
-            icon: mdi:cash-check
-          - entity: binary_sensor.svotc_comfort_guard_active
-            name: Komfortskydd aktivt
-            icon: mdi:shield-alert-outline
+            name: Indata OK
+            icon: mdi:check-decagram
           - type: section
-            label: Timing
-          - entity: sensor.svotc_minutes_to_next_brake_start
-            name: Minuter till nästa dyr period
-            icon: mdi:timer-outline
-          - entity: sensor.svotc_prebrake_window_min
-            name: Förbromsfönster (min)
-            icon: mdi:window-open
-          - entity: input_boolean.svotc_initialized
-            secondary_info: last-changed
-          - entity: automation.svotc_startup_initialization
-            secondary_info: last-triggered
-          - entity: input_text.svotc_reason_code
+            label: Offset
+          - entity: input_number.svotc_requested_offset_c
+            name: Begärd offset
+            icon: mdi:thermometer-chevron-up
+          - entity: input_number.svotc_applied_offset_c
+            name: Tillämpad offset
+            icon: mdi:thermometer-lines
+          - entity: input_number.svotc_max_delta_per_step_c
+            name: Max ändring per steg
+            icon: mdi:chart-timeline-variant
       - type: custom:mini-graph-card
         name: 📈 Offset-utveckling (24h)
         hours_to_show: 24
@@ -94,7 +101,7 @@ sections:
           legend: true
           icon: false
         entities:
-          - entity: sensor.svotc_src_outdoor
+          - entity: sensor.svotc_outdoor_temperature
             name: Utomhus (verklig)
             color: "#3498db"
             show_state: true
@@ -102,31 +109,32 @@ sections:
             name: Virtuell ute (→VP)
             color: "#9b59b6"
             show_state: true
-    column_span: 1
+    columns: 1
+    square: false
   - type: grid
     cards:
       - type: markdown
         title: SVOTC – MAIN
-        content: >
+        content: >-
           {# =========================
-             Förberedelser / safe values
+             SVOTC 3.0.0 / Core v1
+             Safe values - current file set
              ========================= #}
 
           {# Grundstatus #}
 
           {% set mode = states('input_select.svotc_mode') %}
 
-          {# FIX: trim så " NEUTRAL " matchar 'NEUTRAL' i dina elif #} {% set
-          reason = states('input_text.svotc_reason_code') | trim %}
+          {% set reason = states('input_text.svotc_reason_code') | trim %}
+
+          {% set version =
+          state_attr('sensor.svotc_virtual_outdoor_temperature', 'version') %}
 
           {% set inputs_ok = is_state('binary_sensor.svotc_inputs_healthy',
           'on') %}
 
-          {% set price_ok = is_state('binary_sensor.svotc_price_available',
-          'on') %}
 
-
-          {# Temperatur/offset #}
+          {# Temperatur / offset #}
 
           {% set req = states('input_number.svotc_requested_offset_c') |
           float(0) %}
@@ -137,100 +145,66 @@ sections:
           {% set delta = req - app %}
 
 
+          {% set indoor_s = states('sensor.svotc_indoor_temperature') %}
+
+          {% set outdoor_s = states('sensor.svotc_outdoor_temperature') %}
+
+          {% set target_s = states('input_number.svotc_comfort_temperature') %}
+
+
+          {% set indoor = indoor_s | float(0) %}
+
+          {% set target = target_s | float(21) %}
+
+
           {# Pris #}
 
-          {% set p_s = states('sensor.svotc_current_price') %}
+          {% set price_s = states('sensor.svotc_current_price') %}
 
-          {% set p80_s = states('sensor.svotc_p80') %}
+          {% set price = price_s | float(0) %}
 
-          {% set p = p_s | float(0) %}
+          {% set price_ok = price_s not in
+          ['unknown','unavailable','none','None',''] %}
 
-          {% set p80 = p80_s | float(0) %}
-
-          {% set p_ok_val = p_s not in ['unknown','unavailable','none',''] %}
-
-          {% set p80_ok_val = p80_s not in ['unknown','unavailable','none','']
-          %}
+          {% set forward = states('sensor.svotc_forward_price_state') %}
 
 
-          {# Prebrake #}
+          {# Guard / latches #}
 
-          {% set ttn = states('sensor.svotc_minutes_to_next_brake_start') |
-          float(999) %}
+          {% set comfort_latch =
+          is_state('input_boolean.svotc_comfort_guard_latch', 'on') %}
 
-          {% set win = states('sensor.svotc_prebrake_window_min') | float(0) %}
-
-          {% set pre = states('sensor.svotc_prebrake_strength') | float(0) %}
-
-          {% set starts_in = (ttn - win) if (ttn < 900 and win > 0) else none %}
+          {% set overtemp_latch = is_state('input_boolean.svotc_overtemp_latch',
+          'on') %}
 
 
-          {# Komfortskydd #}
+          {% set comfort_on_delta =
+          states('input_number.svotc_comfort_guard_activate_below_c') |
+          float(0.8) %}
 
-          {% set guard_on =
-          is_state('binary_sensor.svotc_comfort_guard_active','on') %}
+          {% set comfort_off_delta =
+          states('input_number.svotc_comfort_guard_release_below_c') |
+          float(0.4) %}
 
-          {% set guard_enabled =
-          is_state('input_boolean.svotc_comfort_guard_enabled','on') %}
+          {% set over_on_delta =
+          states('input_number.svotc_overtemp_brake_activate_above_c') |
+          float(0.8) %}
 
-          {% set target = states('sensor.svotc_dynamic_target_temperature') |
-          float(0) %}
-
-          {% set indoor = states('sensor.svotc_src_indoor') | float(0) %}
-
-          {% set act =
-          states('input_number.svotc_comfort_guard_activate_below_c') | float(0)
-          %}
-
-          {% set deact =
-          states('input_number.svotc_comfort_guard_deactivate_above_c') |
-          float(0) %}
-
-          {% set ignite_at = (target - act) | round(2) %}
-
-          {% set release_at = (target - deact) | round(2) %}
+          {% set over_off_delta =
+          states('input_number.svotc_overtemp_brake_release_above_c') |
+          float(0.4) %}
 
 
-          {# Bromsfas #}
+          {% set comfort_on_at = (target - comfort_on_delta) | round(2) %}
 
-          {% set phase = states('input_text.svotc_brake_phase') %}
+          {% set comfort_off_at = (target - comfort_off_delta) | round(2) %}
 
-          {% set phase_ts =
-          as_timestamp(states('input_datetime.svotc_brake_phase_changed'),
-          default=none) %}
+          {% set over_on_at = (target + over_on_delta) | round(2) %}
 
-          {% set phase_age = ((as_timestamp(now()) - phase_ts) / 60) if phase_ts
-          is number else none %}
-
-          {% set rampup = states('input_number.svotc_brake_rampup_duration_min')
-          | float(0) %}
-
-          {% set hold = states('input_number.svotc_brake_hold_duration_min') |
-          float(0) %}
-
-          {% set rampdown =
-          states('input_number.svotc_brake_rampdown_duration_min') | float(0) %}
+          {% set over_off_at = (target + over_off_delta) | round(2) %}
 
 
-          {# Prisstatus #}
-
-          {% set price_state = states('input_text.svotc_last_price_state') %}
-
-          {% set raw = states('sensor.svotc_raw_price_state') %}
-
-
-          {# Tid till nästa dyrperiod som klockslag #}
-
-          {% set mins = ttn %}
-
-          {% set now_ts = as_timestamp(now()) %}
-
-          {% set next_ts = (now_ts + (mins * 60)) if (mins is number and mins <
-          900 and mins > 0) else none %}
-
-          {% set next_hhmm = (next_ts | timestamp_custom('%H:%M', true)) if
-          next_ts is not none else '—' %}
-
+          {% set virt = states('sensor.svotc_virtual_outdoor_temperature') %}
 
 
           #### 📊 Statusöversikt
@@ -248,6 +222,7 @@ sections:
 
           ---
 
+
           #### 🧠 Sammanfattning (varför?)
 
 
@@ -256,54 +231,81 @@ sections:
 
           {% if reason == 'PRICE_BRAKE' %}
 
-          💡 Bromsar värme (dyr el / prebrake)  
+          💡 Bromsar värme eftersom prisläget är dyrt nu  
 
-          - Pris: {% if p_ok_val %}{{ p }}{% else %}—{% endif %} (P80: {% if
-          p80_ok_val %}{{ p80 }}{% else %}—{% endif %})
+          - Pris: {% if price_ok %}{{ price }}{% else %}—{% endif %}
 
-          - Prebrake: {{ (pre * 100) | round(0) }}%
+          - Forward state: `{{ forward }}`
 
-          - Fas: {{ phase }}
+          - Begärd offset: {{ req | round(2) }}°C
 
-          - Offset: {{ app | round(2) }}°C
+          - Tillämpad offset: {{ app | round(2) }}°C
 
 
           {% elif reason == 'PRICE_PREBRAKE' %}
 
-          🟡 Förbromsar (prebrake aktiv)
+          🟠 Förbromsar inför kommande dyrperiod  
 
-          - Pris: {% if p_ok_val %}{{ p }}{% else %}—{% endif %} (P80: {% if
-          p80_ok_val %}{{ p80 }}{% else %}—{% endif %})
+          - Pris nu: {% if price_ok %}{{ price }}{% else %}—{% endif %}
 
-          - Prebrake: {{ (pre * 100) | round(0) }}%
+          - Forward state: `{{ forward }}`
 
-          - Nästa dyrperiod: {% if ttn < 900 %}{{ next_hhmm }} (om {{ ttn |
-          round(0) }} min){% else %}—{% endif %}
+          - Begärd offset: {{ req | round(2) }}°C
 
-          - Fas: {{ phase }}
+          - Tillämpad offset: {{ app | round(2) }}°C
 
-          - Offset: {{ app | round(2) }}°C
+
+          {% elif reason == 'PRICE_HOLD' %}
+
+          🟡 Håller kvar broms genom kort mellanlucka  
+
+          - Pris nu: {% if price_ok %}{{ price }}{% else %}—{% endif %}
+
+          - Forward state: `{{ forward }}`
+
+          - Begärd offset: {{ req | round(2) }}°C
+
+          - Tillämpad offset: {{ app | round(2) }}°C
+
+
+          {% elif reason == 'PRICE_CHEAP' %}
+
+          🟢 Billig el — systemet förvärmer  
+
+          - Pris: {% if price_ok %}{{ price }}{% else %}—{% endif %}
+
+          - Forward state: `{{ forward }}`
+
+          - Begärd offset: {{ req | round(2) }}°C
+
+          - Tillämpad offset: {{ app | round(2) }}°C
 
 
           {% elif reason == 'COMFORT_GUARD' %}
 
-          🛡️ Skyddar komfort (inne för låg)  
+          🛡️ Komfort prioriteras — inne är för kallt  
 
-          - Inne: {{ indoor | round(2) }}°C (aktiverar vid {{ ignite_at }}°C)
+          - Inne: {{ indoor | round(2) }}°C
+
+          - Aktiverar under: {{ comfort_on_at }}°C
 
           - Offset: {{ app | round(2) }}°C
 
 
-          {% elif reason == 'MCP_BLOCKS_BRAKE' %}
+          {% elif reason == 'OVERTEMP_BRAKE' %}
 
-          🛡️ Komfort prioriteras (broms blockeras)  
+          🔥 Bromsar extra eftersom inne är för varmt  
 
-          - Dyr el + låg inne → comfort guard vinner
+          - Inne: {{ indoor | round(2) }}°C
+
+          - Aktiverar över: {{ over_on_at }}°C
+
+          - Offset: {{ app | round(2) }}°C
 
 
           {% elif reason == 'NEUTRAL' %}
 
-          ✅ Normal drift (ingen justering)
+          ✅ Normal drift — ingen justering
 
 
           {% elif reason == 'OFF' %}
@@ -313,22 +315,12 @@ sections:
 
           {% elif reason == 'PASS_THROUGH' %}
 
-          📊 Övervakningsläge (ingen styrning)
+          📊 PassThrough — ingen styrning
 
 
-          {% elif reason == 'COMFORT_ONLY' %}
+          {% elif reason == 'FAIL_SAFE' %}
 
-          🛡️ Endast komfort (ingen prisstyrning)
-
-
-          {% elif reason == 'MISSING_INPUTS_FREEZE' %}
-
-          ⚠️ Sensorer saknas (offset fryst)
-
-
-          {% elif reason == 'PRICE_DATA_WARMUP_FREEZE' %}
-
-          ⏳ Prisdata ej redo
+          ⚠️ Fail-safe — indatasystemet är inte friskt, offset går mot 0
 
 
           {% else %}
@@ -340,166 +332,166 @@ sections:
 
           ---
 
+
           #### 🌡️ Temperaturer
+
 
           | Sensor | Värde | Status |
 
           |--------|-------|--------|
 
-          | 🏠 Inne | **{{ states('sensor.svotc_src_indoor') }}°C** | Mål: {{
-          states('sensor.svotc_dynamic_target_temperature') }}°C |
+          | 🏠 Inne | **{{ indoor_s }}°C** | Mål: {{ target_s }}°C |
 
-          | 🌡️ Ute (verklig) | **{{ states('sensor.svotc_src_outdoor') }}°C** |
-          OK |
+          | 🌡️ Ute (verklig) | **{{ outdoor_s }}°C** | {% if outdoor_s not in
+          ['unknown','unavailable','none','None',''] %}OK{% else %}⚠️ Saknas{%
+          endif %} |
 
-          | 🎯 Virtuell (→VP) | **{{
-          states('sensor.svotc_virtual_outdoor_temperature') }}°C** | Offset: {{
+          | 🎯 Virtuell (→VP) | **{{ virt }}°C** | Offset: {{
           states('input_number.svotc_applied_offset_c') }}°C |
+
+
           **Offsetstatus:**  
 
+          Begärd: **{{ req | round(2) }}°C**  
 
-          Begärd: **{{ req | round(2) }}°C**
-
-          Tillämpad: **{{ app | round(2) }}°C**{% if delta | abs > 0.05 %}  →
+          Tillämpad: **{{ app | round(2) }}°C**{% if delta | abs > 0.05 %} →
           Rampar: {{ delta | round(2) }}°C{% endif %}
 
 
           ---
 
+
           #### 💰 Prisstyrning
 
-          **Aktuellt pris:** {{ states('sensor.svotc_src_current_price') }}
-          SEK/kWh  
 
-          **Referensvärden:** P30 {{ states('sensor.svotc_p30') }} | P80 {{
-          states('sensor.svotc_p80') }}
+          **Aktuellt pris:** {% if price_ok %}{{ price_s }} SEK/kWh{% else %}—{%
+          endif %}
 
 
-          **Prisstatus:** {% if price_state == 'cheap' %}🟢 Billig{% elif
-          price_state == 'brake' %}🔴 Dyr{% elif price_state == 'off' %}⚫ Av{%
-          else %}🟡 Neutral{% endif %}  
+          **Forward price state:**  
 
-          (stabil: `{{ price_state }}` | rå: `{{ raw }}`)
+          {% if forward == 'cheap' %}🟢 Billig
 
+          {% elif forward == 'prebrake' %}🟠 Förbroms
 
-          **Prebrake:**  
+          {% elif forward == 'hold' %}🟡 Hold
 
-          {% if win <= 0 %}
+          {% elif forward == 'brake' %}🔴 Dyr
 
-          - ⚪ Inaktiv
+          {% elif forward == 'neutral' %}⚪ Neutral
 
-          {% elif ttn == 0 %}
+          {% else %}❓ {{ forward }}
 
-          - 🔴 I dyrperiod nu
-
-          {% elif pre > 0 %}
-
-          - 🟡 Aktiv: {{ (pre * 100) | round(0) }}% • Dyrperiod **{{ next_hhmm
-          }}** (om {{ ttn | round(0) }} min)
-
-          {% elif starts_in is not none and starts_in > 0 %}
-
-          {% set wait_ts = now_ts + (starts_in * 60) %}
-
-          - 🟢 Väntar: startar **{{ wait_ts | timestamp_custom('%H:%M', true)
-          }}** (om {{ starts_in | round(0) }} min) • Fönster {{ win }} min
-
-          {% else %}
-           ⏱️ Nästa dyrperiod: {% if ttn < 900 %}**{{ next_hhmm }}** (om {{ ttn | round(0) }} min){% else %}**ingen i sikte**{% endif %}
           {% endif %}
 
+
+          **Billigpris-boost:** {% if
+          is_state('input_boolean.svotc_cheap_boost_enabled','on') %}✅ På{% else
+          %}⚪ Av{% endif %}  
+
+          **Billigpris-offset:** {{
+          states('input_number.svotc_cheap_boost_offset_c') }}°C  
+
+          **Max bromsoffset:** {{
+          states('input_number.svotc_brake_hold_offset_c') }}°C  
+
+          **Prisgolv:** {{ states('input_number.svotc_price_floor_sek') }}
+          SEK/kWh
+
+
           ---
+
 
           #### 🛡️ Komfortskydd
 
-          {% set guard_on =
-          is_state('binary_sensor.svotc_comfort_guard_active','on') %}
 
-          {% set enabled =
-          is_state('input_boolean.svotc_comfort_guard_enabled','on') %}
-
-          {% set target = states('sensor.svotc_dynamic_target_temperature') |
-          float(0) %}
-
-          {% set indoor = states('sensor.svotc_src_indoor') | float(0) %}
-
-          {% set act =
-          states('input_number.svotc_comfort_guard_activate_below_c') | float(0)
+          **Status:** {% if comfort_latch %}🟢 AKTIV{% else %}⚪ Standby{% endif
           %}
 
-          {% set deact =
-          states('input_number.svotc_comfort_guard_deactivate_above_c') |
-          float(0) %}
+
+          **Mål:** **{{ target | round(2) }}°C**  
+
+          **Inne:** **{{ indoor | round(2) }}°C**
 
 
-          {% set ignite_at  = (target - act) | round(2) %}
+          ❄️ **Aktiverar** om inne ≤ **{{ comfort_on_at }}°C**  
 
-          {% set release_at = (target - deact) | round(2) %}
-
-
-          **Status:** {% if not enabled %}🔴 AVSTÄNGD{% elif guard_on %}🟢
-          AKTIV{% else %}⚪ Standby{% endif %}
+          🔥 **Släpper** om inne ≥ **{{ comfort_off_at }}°C**
 
 
-          {% if enabled %}
-
-          **Mål:** **{{ target | round(2) }}°C** • **Inne:** **{{ indoor |
-          round(2) }}°C**
-
-
-          ❄️ **Aktivt** om inne < **{{ ignite_at }}°C**  *(mål − {{ act }}°C)*
-
-          🔥 **Släpper** om inne ≥ **{{ release_at }}°C** *(mål − {{ deact
-          }}°C)*
-
-
-          {% if guard_on %}
-            {% set left = (release_at - indoor) | round(2) %}
+          {% if comfort_latch %}
+            {% set left = (comfort_off_at - indoor) | round(2) %}
             {% if left > 0 %}
-          ➡️ Kvar tills den aktiveras: **{{ left }}°C**
+          ➡️ Kvar tills guard släpper: **{{ left }}°C**
             {% else %}
-          ➡️ Över släckgränsen med **{{ (-left) | round(2) }}°C** (bör släcka
-          när uppdatering/automation slår igenom)
+          ➡️ Över släppgränsen med **{{ (-left) | round(2) }}°C**
             {% endif %}
           {% else %}
-            {% set left = (indoor - ignite_at) | round(2) %}
+            {% set left = (indoor - comfort_on_at) | round(2) %}
             {% if left > 0 %}
-          ➡️ Kvar tills den aktiveras: **{{ left }}°C**
+          ➡️ Kvar tills guard aktiverar: **{{ left }}°C**
             {% else %}
-          ➡️ Under gränsen med **{{ (-left) | round(2) }}°C** (bör avvaktiveras
-          när uppdatering/automation slår igenom)
+          ➡️ Under aktiveringsgränsen med **{{ (-left) | round(2) }}°C**
             {% endif %}
           {% endif %}
 
+
+          ---
+
+
+          #### 🔥 Övertemperaturbroms
+
+
+          **Status:** {% if overtemp_latch %}🟠 AKTIV{% else %}⚪ Standby{% endif
+          %}
+
+
+          🌡️ **Aktiverar** om inne ≥ **{{ over_on_at }}°C**  
+
+          🧊 **Släpper** om inne ≤ **{{ over_off_at }}°C**
+
+
+          {% if overtemp_latch %}
+            {% set left = (indoor - over_off_at) | round(2) %}
+            {% if left > 0 %}
+          ➡️ Kvar tills överbroms släpper: **{{ left }}°C**
+            {% else %}
+          ➡️ Under släppgränsen med **{{ (-left) | round(2) }}°C**
+            {% endif %}
+          {% else %}
+            {% set left = (over_on_at - indoor) | round(2) %}
+            {% if left > 0 %}
+          ➡️ Kvar tills överbroms aktiverar: **{{ left }}°C**
+            {% else %}
+          ➡️ Över aktiveringsgränsen med **{{ (-left) | round(2) }}°C**
+            {% endif %}
           {% endif %}
 
 
           ---
 
 
-          **Aktuell fas:** 
+          #### 🧩 Motorstatus
 
-          {% if phase == 'idle' %}⚪ Vilar
 
-          {% elif phase == 'ramping_up' %}🟡 Rampar upp{% if phase_age is not
-          none %} ({{ phase_age | round(1) }}/{{ rampup }} min){% endif %}
+          **Requested offset:** `{{
+          states('input_number.svotc_requested_offset_c') }}`  
 
-          {% elif phase == 'holding' %}🔴 Håller{% if phase_age is not none %}
-          ({{ phase_age | round(1) }}/{{ hold }} min){% endif %}
+          **Applied offset:** `{{ states('input_number.svotc_applied_offset_c')
+          }}`  
 
-          {% elif phase == 'ramping_down' %}🟢 Rampar ner{% if phase_age is not
-          none %} ({{ phase_age | round(1) }}/{{ rampdown }} min){% endif %}
+          **Reason:** `{{ states('input_text.svotc_reason_code') }}`  
 
-          {% else %}❓ {{ phase }}
-
-          {% endif %}
+          **Forward price state:** `{{
+          states('sensor.svotc_forward_price_state') }}`
 
 
           ---
 
-          **Version:** `{{ states('input_text.svotc_version') }}`
 
-          *Uppdaterad: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}*
+          *Uppdaterad: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}*  
+
+          *Version: {{ version }}*
 badges:
   - type: entity
     entity: person.johan
