@@ -116,42 +116,53 @@ Systemet är byggt för att vara:
 
 ---
 
+## 🆕 Vad som är nytt i 3.0.0 (beta-testing/3.0.0)
+
+SVOTC 3.0.0 bygger på en enklare kärna med fyra paketfiler (`00_helpers`, `10_sensors`, `20_engine`, `30_notify`) istället för fler specialiserade delsystem.
+
+Det innebär i praktiken:
+
+* Färre rörliga delar och en tydligare prioriteringsordning i en enda motor-loop
+* Stabilare och mindre aggressiv styrning mot hårdvara via begränsad ändringshastighet per minut
+* Tydlig separation mellan **requested offset** (vad logiken vill göra) och **applied offset** (vad som faktiskt skickas efter rampning)
+* Komfortskydd prioriteras över prisstyrning i Smart-läge
+* Prislogiken är mer transparent med explicita tillstånd: `brake`, `hold`, `prebrake`, `cheap`, `neutral`
+* Övertemperaturbroms ("over-brake") finns som separat skyddsspår när innetemperaturen blir för hög
+
+---
+
 ## Funktioner
 
 ### Komfortstyrning
 
 * Håller inomhustemperaturen nära ett mål
 * Komfortskydd aktiveras när temperaturen sjunker för lågt
-* **MCP (Maximum Comfort Priority)** blockerar prisstyrning när komforten hotas
-* Hysteresis förhindrar studsning mellan on/off
+* Komfortskydd har högre prioritet än prisstyrning i Smart-läge
+* Hysteresis via latchar förhindrar studsning mellan aktiv/inaktiv komfort- och övertemperaturbroms
 
 ### Prisoptimering
 
 * Använder **P30/P80-percentiler från `raw_today`** för att avgöra billiga/dyra perioder (Ngenic-liknande dagsfokus)
-* **Pre-brake-logik** (forward-look) som bygger upp bromsning gradvis innan dyra timmar
-* **Brake-fasmaskin** (ramping up → holding → ramping down) för mjuka övergångar
-* Dwell-timers förhindrar prisfluktuationer från att orsaka instabilitet
-* **Bridge-hold (NEAR)** kan titta in i `raw_tomorrow` om det finns, men påverkar inte P30/P80-gränserna
+* **Forward price state** använder tillstånden `brake`, `hold`, `prebrake`, `cheap`, `neutral`
+* `prebrake` aktiveras när nästa kommande brake-block ligger inom 15 minuter
+* `hold` håller kvar bromsläge mellan närliggande brake-block för att undvika onödiga växlingar
+* P30/P80 beräknas fortsatt från `raw_today`; `raw_tomorrow` används endast för forward-look
 
 ### Modularitet
 
 Alla delar är separerade för enkel förståelse och underhåll:
 
-* **Sensors** — validerade temperaturer och priser
-* **Price dwell** — stabiliserar råa pristillstånd
-* **Brake phase** — fasmaskin för mjuka bromscykler
-* **Engine** — core control loop
-* **Learning** — självjustering (endast i learning-variant)
-* **Notify** — diagnostik och varningar
-* **Startup init** — säker initialisering (om din variant har den)
+* **00_helpers.yaml** — användarinställningar och intern state
+* **10_sensors.yaml** — normalisering av input, percentiler, forward price state och hälsokontroll
+* **20_engine.yaml** — en enda kontroll-loop med tydlig prioritet och rampning
+* **30_notify.yaml** — notifiering om fail-safe kvarstår i minst 5 minuter
 
 ### Stabilitet
 
-* **Freeze-logik** när prisdata saknas (komfortskydd fortsätter)
-* **Rate-limiter** för applied offset (förhindrar plötsliga hopp)
+* **Fail-safe** vid ohälsosamma inputs: requested offset tvingas mot 0
+* **Rate-limiter** via `svotc_max_delta_per_step_c` begränsar hur snabbt applied offset får ändras
 * **Hälsokontroller** för alla inputs
-* **Anti-storm throttling** (max en körning per 30 sekunder, om aktiverat i din variant)
-* Sanity checks på alla sensorvärden
+* Tydliga min/max-gränser för offsets och skyddsparametrar
 
 ---
 
@@ -280,11 +291,10 @@ Du måste ange dessa tre entiteter:
 
 | Mode | Beskrivning | Användning |
 |------|-------------|------------|
-| **Smart** | Full autonom styrning med både komfort och prisoptimering | **Rekommenderas för daglig drift** |
-| **Simple** | Förenklad logik, Ngenic-liknande med färre parametrar | Bra för nybörjare |
-| **ComfortOnly** | Endast komfortskydd, ingen prisoptimering | När elpriset är stabilt/lågt |
-| **PassThrough** | Ingen styrning, bara mätning och diagnostik | Testning och kalibrering |
-| **Off** | Systemet helt avstängt | Underhåll eller felsökning |
+| **Smart** | Full autonom styrning med komfortprioritet, prisstyrning och skydd mot övertemperatur | **Rekommenderas för daglig drift** |
+| **Comfort** | Fristående enkel temperaturreglering kring komfortmål, utan prislogik | När du vill fokusera enbart på innetemperatur |
+| **PassThrough** | Ingen offset appliceras (requested = 0) men sensorer/diagnostik uppdateras | Testning och kalibrering |
+| **Off** | Systemet tvingar offset mot 0 | Underhåll eller felsökning |
 
 ---
 
@@ -338,14 +348,11 @@ SVOTC kan kopplas till din värmepump på flera sätt:
 
 | Sensor | Funktion |
 |--------|----------|
-| `sensor.svotc_prebrake_strength` | 0–1, hur nära dyra timmar du är |
 | `input_number.svotc_requested_offset_c` | Rå offset från engine (före rate-limit) |
-| `binary_sensor.svotc_comfort_guard_active` | ON = komforten hotas |
 | `binary_sensor.svotc_inputs_healthy` | ON = alla sensorer fungerar |
-| `binary_sensor.svotc_price_available` | ON = Nordpool-data finns |
-| `sensor.svotc_minutes_to_next_brake_start` | Tid till nästa dyra period |
-| `input_text.svotc_brake_phase` | idle / ramping_up / holding / ramping_down |
-| `input_number.svotc_learned_brake_efficiency` | Självjusterad faktor (0.5–1.5) |
+| `sensor.svotc_forward_price_state` | Prisrelaterat framåtblickande tillstånd (`brake`/`hold`/`prebrake`/`cheap`/`neutral`) |
+| `sensor.svotc_price_p30_today` | Dagens P30-tröskel |
+| `sensor.svotc_price_p80_today` | Dagens P80-tröskel |
 
 ### Reason codes
 
@@ -353,12 +360,17 @@ SVOTC kan kopplas till din värmepump på flera sätt:
 |------|-----------|
 | `NEUTRAL` | Normal drift, inget pågår |
 | `PRICE_BRAKE` | Aktiv prisbromsning |
+| `PRICE_PREBRAKE` | Förbromsning innan nästa dyra block |
+| `PRICE_HOLD` | Håller kvar broms mellan närliggande dyra block |
+| `PRICE_CHEAP` | Billigperiod, negativ boost om cheap boost är aktiverad |
 | `COMFORT_GUARD` | Komfortskydd aktivt |
-| `MCP_BLOCKS_BRAKE` | Komfort blockerar pris-brake |
-| `PRICE_DATA_WARMUP_FREEZE` | Väntar på prisdata, offset fryst |
-| `MISSING_INPUTS_FREEZE` | Sensorer saknas, allt fryst |
+| `OVERTEMP_BRAKE` | Övertemperaturskydd aktivt |
+| `FAIL_SAFE` | Inputs ohälsosamma, requested sätts till 0 och applied rampas mot 0 |
 | `PASS_THROUGH` | PassThrough mode aktiv |
-| `COMFORT_ONLY` | ComfortOnly mode aktiv |
+| `COMFORT_HEAT` | Comfort-mode begär negativ offset (mer värme) |
+| `COMFORT_BRAKE` | Comfort-mode begär positiv offset (broms) |
+| `COMFORT_IDLE` | Comfort-mode utan behov av korrigering |
+| `COMFORT_SENSOR_MISSING` | Comfort-mode saknar giltig innetemperatur |
 | `OFF` | Systemet avstängt |
 
 ---
