@@ -93,13 +93,13 @@ input_number:
     mode: box
     unit_of_measurement: "°C"
 
-#   svotc_price_dwell_minutes:
-#     name: Price state dwell
-#     min: 0
-#     max: 120
-#     step: 1
-#     mode: box
-#     unit_of_measurement: min
+  #   svotc_price_dwell_minutes:
+  #     name: Price state dwell
+  #     min: 0
+  #     max: 120
+  #     step: 1
+  #     mode: box
+  #     unit_of_measurement: min
 
   svotc_requested_offset_c:
     name: SVOTC Requested Offset
@@ -143,20 +143,10 @@ input_text:
     name: Source entity - electricity price
     max: 255
 
+  svotc_source_notify:
+    name: Source entity - notify
+    max: 255
+
   svotc_reason_code:
     name: SVOTC Reason
     max: 64
-
-#   svotc_price_state_pending:
-#     name: SVOTC Price State Pending
-#     max: 16
-
-#   svotc_price_state_stable:
-#     name: SVOTC Price State Stable
-#     max: 16
-
-# input_datetime:
-#   svotc_price_pending_since:
-#     name: SVOTC Price Pending Since
-#     has_date: true
-#     has_time: true
