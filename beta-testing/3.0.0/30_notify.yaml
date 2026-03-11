@@ -1,6 +1,8 @@
 ###############################################################################
 ## SVOTC Core v1 - 30_notify.yaml
-## Optional critical notification: persistent fail-safe for visibility.
+## Optional critical notification: fail-safe visibility.
+## If input_text.svotc_source_notify is populated, use that notify service.
+## Otherwise fall back to persistent_notification.create.
 ###############################################################################
 
 automation:
@@ -13,15 +15,30 @@ automation:
         to: "FAIL_SAFE"
         for:
           minutes: 5
-    action:
-      - service: persistent_notification.create
-        data:
-          title: "SVOTC Core v1: FAIL_SAFE active"
-          message: >
-            SVOTC has been in FAIL_SAFE for at least 5 minutes.
-            Requested offset is forced to 0 and applied offset is ramping toward 0.
+    variables:
+      notify_service: "{{ states('input_text.svotc_source_notify') | trim }}"
+      notify_service_valid: >
+        {{ notify_service not in ['unknown', 'unavailable', 'none', 'None', ''] }}
+      notify_message: >
+        SVOTC has been in FAIL_SAFE for at least 5 minutes.
+        Requested offset is forced to 0 and applied offset is ramping toward 0.
 
-            Check these configured source entities:
-            - {{ states('input_text.svotc_source_indoor_temp') }}
-            - {{ states('input_text.svotc_source_outdoor_temp') }}
-            - {{ states('input_text.svotc_source_price') }}
+        Check these configured source entities:
+        - {{ states('input_text.svotc_source_indoor_temp') }}
+        - {{ states('input_text.svotc_source_outdoor_temp') }}
+        - {{ states('input_text.svotc_source_price') }}
+    action:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ notify_service_valid }}"
+            sequence:
+              - service: "{{ notify_service }}"
+                data:
+                  title: "SVOTC Core v1: FAIL_SAFE active"
+                  message: "{{ notify_message }}"
+        default:
+          - service: persistent_notification.create
+            data:
+              title: "SVOTC Core v1: FAIL_SAFE active"
+              message: "{{ notify_message }}"
