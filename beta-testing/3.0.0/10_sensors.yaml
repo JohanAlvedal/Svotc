@@ -24,8 +24,8 @@ template:
             {% set outdoor = outdoor_s | float(0) %}
             {% set offset = offset_s | float(0) %}
             {{ (outdoor + offset) | round(2) }}
-          {% endif %}  
-  
+          {% endif %}
+
       - name: SVOTC Indoor Temperature
         unique_id: svotc_indoor_temperature
         unit_of_measurement: "°C"
