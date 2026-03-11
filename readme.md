@@ -245,6 +245,36 @@ The goal of 3.0.0 is not to add more complexity.
 The goal is to make the core behavior more stable, readable, and reliable.
 
 ---
+### Designed for simplicity
+
+SVOTC 3.0.0 intentionally avoids large numbers of advanced tuning parameters.
+
+Earlier versions exposed many internal controls and experimental features.  
+While powerful, this also made the system harder to configure, harder to debug, and easier to misconfigure.
+
+The new Core v1 focuses on **simple and predictable behaviour**.
+
+Most users only need to configure:
+
+* indoor temperature source
+* outdoor temperature source
+* electricity price source
+* comfort temperature
+
+The core logic then handles:
+
+* price response
+* braking behaviour
+* comfort protection
+* overtemperature protection
+
+automatically.
+
+This means that **SVOTC requires very little manual tuning** in normal use.
+
+The design goal is that the system should work well **out of the box**, without requiring users to understand the internal control logic.
+
+---
 
 ## Recommended migration approach
 
