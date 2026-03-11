@@ -1,4 +1,4 @@
-[🇸🇪 Svenska](README_sv.md) | [🇬🇧 English](README.md)
+[🇸🇪 Svenska](readme_sv.md) | [🇬🇧 English](readme.md)
 
 ---
 # 💥 Breaking Changes – SVOTC 3.0.0 (Beta)
