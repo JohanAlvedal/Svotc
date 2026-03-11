@@ -1,0 +1,232 @@
+###############################################################################
+## SVOTC Core v1 - 10_sensors.yaml
+## Readable template entities for source normalization, health, price state,
+## and virtual outdoor temperature.
+##
+## Price classification:
+##   cheap  = price < P30
+##   brake  = price > P80 and price > floor
+##   neutral = everything else
+###############################################################################
+
+template:
+  - sensor:
+      - name: SVOTC Virtual Outdoor Temperature
+        unique_id: svotc_virtual_outdoor_temperature
+        unit_of_measurement: "°C"
+        state: >
+          {% set outdoor_s = states('sensor.svotc_outdoor_temperature') %}
+          {% set offset_s = states('input_number.svotc_applied_offset_c') %}
+
+          {% if outdoor_s in ['unknown','unavailable','none','None',''] %}
+            unknown
+          {% else %}
+            {% set outdoor = outdoor_s | float(0) %}
+            {% set offset = offset_s | float(0) %}
+            {{ (outdoor + offset) | round(2) }}
+          {% endif %}  
+  
+      - name: SVOTC Indoor Temperature
+        unique_id: svotc_indoor_temperature
+        unit_of_measurement: "°C"
+        state: >
+          {% set e = states('input_text.svotc_source_indoor_temp') | trim %}
+          {% set v = states(e) if e not in ['unknown','unavailable','none','None',''] else 'unknown' %}
+          {{ v | float(default=none) }}
+
+      - name: SVOTC Outdoor Temperature
+        unique_id: svotc_outdoor_temperature
+        unit_of_measurement: "°C"
+        state: >
+          {% set e = states('input_text.svotc_source_outdoor_temp') | trim %}
+          {% set v = states(e) if e not in ['unknown','unavailable','none','None',''] else 'unknown' %}
+          {{ v | float(default=none) }}
+
+      - name: SVOTC Current Price
+        unique_id: svotc_current_price
+        unit_of_measurement: "SEK/kWh"
+        state: >
+          {% set e = states('input_text.svotc_source_price') | trim %}
+          {% set v = states(e) if e not in ['unknown','unavailable','none','None',''] else 'unknown' %}
+          {{ v | float(default=none) }}
+
+      - name: SVOTC Price P30 Today
+        unique_id: svotc_price_p30_today
+        unit_of_measurement: "SEK/kWh"
+        state: >
+          {% set src = states('input_text.svotc_source_price') | trim %}
+          {% set p = state_attr(src, 'raw_today') %}
+          {% if p is sequence and (p | count) >= 8 %}
+            {% set vals = p | map(attribute='value') | map('float') | list | sort %}
+            {% set n = vals | count %}
+            {% set i = ((n - 1) * 0.30) | round(0, 'floor') | int(0) %}
+            {{ vals[i] | round(4) }}
+          {% else %}
+            unknown
+          {% endif %}
+
+      - name: SVOTC Price P80 Today
+        unique_id: svotc_price_p80_today
+        unit_of_measurement: "SEK/kWh"
+        state: >
+          {% set src = states('input_text.svotc_source_price') | trim %}
+          {% set p = state_attr(src, 'raw_today') %}
+          {% if p is sequence and (p | count) >= 8 %}
+            {% set vals = p | map(attribute='value') | map('float') | list | sort %}
+            {% set n = vals | count %}
+            {% set i = ((n - 1) * 0.80) | round(0, 'floor') | int(0) %}
+            {{ vals[i] | round(4) }}
+          {% else %}
+            unknown
+          {% endif %}
+
+      - name: SVOTC Forward Price State
+        unique_id: svotc_forward_price_state
+        state: >
+          {% set src = states('input_text.svotc_source_price') | trim %}
+          {% set price_s = states('sensor.svotc_current_price') %}
+          {% set p30_s = states('sensor.svotc_price_p30_today') %}
+          {% set p80_s = states('sensor.svotc_price_p80_today') %}
+          {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
+
+          {% set src_ok = src not in ['unknown','unavailable','none','None',''] %}
+          {% set price_ok = price_s not in ['unknown','unavailable','none','None',''] %}
+          {% set p30_ok = p30_s not in ['unknown','unavailable','none','None',''] %}
+          {% set p80_ok = p80_s not in ['unknown','unavailable','none','None',''] %}
+
+          {% if not src_ok or not price_ok or not p30_ok or not p80_ok %}
+            neutral
+          {% else %}
+            {% set price = price_s | float(0) %}
+            {% set p30 = p30_s | float(0) %}
+            {% set p80 = p80_s | float(0) %}
+            {% set now_ts = as_timestamp(now()) %}
+            {% set prebrake_window_min = 15 %}
+            {% set bridge_gap_max_min = 30 %}
+
+            {% set today = state_attr(src, 'raw_today') | default([], true) %}
+            {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
+            {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
+
+            {% set ns = namespace(
+              next_brake_start=none,
+              next_brake_end=none,
+              first_gap_min=none,
+              brake_count=0,
+              cheap_count=0
+            ) %}
+
+            {% for item in blocks %}
+              {% set ts = as_timestamp(item.start, default=none) %}
+              {% set val = item.value | float(0) %}
+              {% if ts is not none and ts > now_ts %}
+                {% set mins = ((ts - now_ts) / 60) | float(9999) %}
+                {% set is_brake = (val > p80 and val > floor) %}
+                {% set is_cheap = (val < p30) %}
+
+                {% if mins <= 60 %}
+                  {% if is_brake %}
+                    {% set ns.brake_count = ns.brake_count + 1 %}
+                  {% endif %}
+                  {% if is_cheap %}
+                    {% set ns.cheap_count = ns.cheap_count + 1 %}
+                  {% endif %}
+                {% endif %}
+
+                {% if is_brake and ns.next_brake_start is none %}
+                  {% set ns.next_brake_start = ts %}
+                  {% set ns.first_gap_min = mins | round(0) %}
+                {% endif %}
+
+                {% if ns.next_brake_start is not none and is_brake %}
+                  {% set ns.next_brake_end = ts + 900 %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+
+            {% set current_is_brake = (price > p80 and price > floor) %}
+            {% set current_is_cheap = (price < p30) %}
+
+            {% if current_is_brake %}
+              brake
+            {% elif ns.first_gap_min is not none and ns.first_gap_min <= prebrake_window_min %}
+              prebrake
+            {% elif ns.first_gap_min is not none and ns.first_gap_min <= bridge_gap_max_min %}
+              hold
+            {% elif current_is_cheap %}
+              cheap
+            {% else %}
+              neutral
+            {% endif %}
+          {% endif %}
+        attributes:
+          next_brake_start: >
+            {% set src = states('input_text.svotc_source_price') | trim %}
+            {% set p80_s = states('sensor.svotc_price_p80_today') %}
+            {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
+            {% set src_ok = src not in ['unknown','unavailable','none','None',''] %}
+            {% set p80_ok = p80_s not in ['unknown','unavailable','none','None',''] %}
+
+            {% if not src_ok or not p80_ok %}
+              none
+            {% else %}
+              {% set p80 = p80_s | float(0) %}
+              {% set now_ts = as_timestamp(now()) %}
+              {% set today = state_attr(src, 'raw_today') | default([], true) %}
+              {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
+              {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
+              {% set ns = namespace(ts=none) %}
+
+              {% for item in blocks %}
+                {% set ts = as_timestamp(item.start, default=none) %}
+                {% set val = item.value | float(0) %}
+                {% if ts is not none and ts > now_ts and ns.ts is none and val > p80 and val > floor %}
+                  {% set ns.ts = ts %}
+                {% endif %}
+              {% endfor %}
+
+              {{ ns.ts | timestamp_custom('%Y-%m-%d %H:%M:%S', true) if ns.ts is not none else 'none' }}
+            {% endif %}
+
+          next_brake_end: >
+            {% set src = states('input_text.svotc_source_price') | trim %}
+            {% set p80_s = states('sensor.svotc_price_p80_today') %}
+            {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
+            {% set src_ok = src not in ['unknown','unavailable','none','None',''] %}
+            {% set p80_ok = p80_s not in ['unknown','unavailable','none','None',''] %}
+
+            {% if not src_ok or not p80_ok %}
+              none
+            {% else %}
+              {% set p80 = p80_s | float(0) %}
+              {% set now_ts = as_timestamp(now()) %}
+              {% set today = state_attr(src, 'raw_today') | default([], true) %}
+              {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
+              {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
+              {% set ns = namespace(started=false, finished=false, end_ts=none) %}
+
+              {% for item in blocks %}
+                {% set ts = as_timestamp(item.start, default=none) %}
+                {% set val = item.value | float(0) %}
+                {% set is_brake = (val > p80 and val > floor) %}
+                {% if ts is not none and ts > now_ts and not ns.finished %}
+                  {% if is_brake %}
+                    {% set ns.started = true %}
+                    {% set ns.end_ts = ts + 3600 %}
+                  {% elif ns.started %}
+                    {% set ns.finished = true %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+
+              {{ ns.end_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', true) if ns.end_ts is not none else 'none' }}
+            {% endif %}
+
+  - binary_sensor:
+      - name: SVOTC Inputs Healthy
+        unique_id: svotc_inputs_healthy
+        state: >
+          {% set indoor_ok = states('sensor.svotc_indoor_temperature') not in ['unknown','unavailable','none','None',''] %}
+          {% set outdoor_ok = states('sensor.svotc_outdoor_temperature') not in ['unknown','unavailable','none','None',''] %}
+          {% set price_ok = states('sensor.svotc_current_price') not in ['unknown','unavailable','none','None',''] %}
+          {{ indoor_ok and outdoor_ok and price_ok }}
