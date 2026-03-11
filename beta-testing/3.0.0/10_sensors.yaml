@@ -80,6 +80,217 @@ template:
             unknown
           {% endif %}
 
+    #   - name: SVOTC Forward Price State
+    #     unique_id: svotc_forward_price_state
+    #     state: >
+    #       {% set src = states('input_text.svotc_source_price') | trim %}
+    #       {% set price_s = states('sensor.svotc_current_price') %}
+    #       {% set p30_s = states('sensor.svotc_price_p30_today') %}
+    #       {% set p80_s = states('sensor.svotc_price_p80_today') %}
+    #       {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
+
+    #       {% set src_ok = src not in ['unknown','unavailable','none','None',''] %}
+    #       {% set price_ok = price_s not in ['unknown','unavailable','none','None',''] %}
+    #       {% set p30_ok = p30_s not in ['unknown','unavailable','none','None',''] %}
+    #       {% set p80_ok = p80_s not in ['unknown','unavailable','none','None',''] %}
+
+    #       {% if not src_ok or not price_ok or not p30_ok or not p80_ok %}
+    #         neutral
+    #       {% else %}
+    #         {% set price = price_s | float(0) %}
+    #         {% set p30 = p30_s | float(0) %}
+    #         {% set p80 = p80_s | float(0) %}
+    #         {% set now_ts = as_timestamp(now()) %}
+
+    #         {# Windows #}
+    #         {% set prebrake_window_min = 15 %}
+    #         {% set bridge_gap_max_min = 30 %}
+    #         {% set reset_after_rest_min = 30 %}
+
+    #         {# Previous state of this sensor #}
+    #         {% set prev_state = states('sensor.svotc_forward_price_state') | lower %}
+    #         {% set prev_changed_ts = as_timestamp(states.sensor.svotc_forward_price_state.last_changed, default=now_ts) %}
+    #         {% set prev_state_age_min = ((now_ts - prev_changed_ts) / 60) | float(0) %}
+
+    #         {# Price blocks #}
+    #         {% set today = state_attr(src, 'raw_today') | default([], true) %}
+    #         {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
+    #         {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
+
+    #         {% set ns = namespace(
+    #           next_brake_start=none,
+    #           next_brake_end=none,
+    #           gap_to_next_brake_min=none
+    #         ) %}
+
+    #         {% for item in blocks %}
+    #           {% set ts = as_timestamp(item.start, default=none) %}
+    #           {% set val = item.value | float(0) %}
+    #           {% set is_brake = (val > p80 and val > floor) %}
+
+    #           {% if ts is not none and ts > now_ts %}
+    #             {% if is_brake and ns.next_brake_start is none %}
+    #               {% set ns.next_brake_start = ts %}
+    #               {% set ns.gap_to_next_brake_min = ((ts - now_ts) / 60) | float(0) %}
+    #             {% endif %}
+
+    #             {% if ns.next_brake_start is not none and is_brake %}
+    #               {% set ns.next_brake_end = ts + 900 %}
+    #             {% endif %}
+    #           {% endif %}
+    #         {% endfor %}
+
+    #         {% set current_is_brake = (price > p80 and price > floor) %}
+    #         {% set current_is_cheap = (price < p30) %}
+
+    #         {# A true rest state = neutral/cheap for >= 30 min #}
+    #         {% set rested_long_enough =
+    #           prev_state in ['neutral', 'cheap']
+    #           and prev_state_age_min >= reset_after_rest_min
+    #         %}
+
+    #         {# Active chain = once braking sequence has started #}
+    #         {% set chain_active =
+    #           prev_state in ['prebrake', 'brake', 'hold']
+    #         %}
+
+    #         {# Hold bridge: only AFTER chain has started, never as first approach #}
+    #         {% set should_hold =
+    #           (not current_is_brake)
+    #           and chain_active
+    #           and ns.gap_to_next_brake_min is not none
+    #           and ns.gap_to_next_brake_min <= bridge_gap_max_min
+    #         %}
+
+    #         {# First approach: only if we come from a real rest state #}
+    #         {% set should_prebrake =
+    #           (not current_is_brake)
+    #           and rested_long_enough
+    #           and ns.gap_to_next_brake_min is not none
+    #           and ns.gap_to_next_brake_min <= prebrake_window_min
+    #         %}
+
+    #         {% if current_is_brake %}
+    #           brake
+    #         {% elif should_hold %}
+    #           hold
+    #         {% elif should_prebrake %}
+    #           prebrake
+    #         {% elif current_is_cheap %}
+    #           cheap
+    #         {% else %}
+    #           neutral
+    #         {% endif %}
+    #     attributes:
+    #       next_brake_start: >
+    #         {% set src = states('input_text.svotc_source_price') | trim %}
+    #         {% set p80_s = states('sensor.svotc_price_p80_today') %}
+    #         {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
+    #         {% set src_ok = src not in ['unknown','unavailable','none','None',''] %}
+    #         {% set p80_ok = p80_s not in ['unknown','unavailable','none','None',''] %}
+
+    #         {% if not src_ok or not p80_ok %}
+    #           none
+    #         {% else %}
+    #           {% set p80 = p80_s | float(0) %}
+    #           {% set now_ts = as_timestamp(now()) %}
+    #           {% set today = state_attr(src, 'raw_today') | default([], true) %}
+    #           {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
+    #           {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
+    #           {% set ns = namespace(ts=none) %}
+
+    #           {% for item in blocks %}
+    #             {% set ts = as_timestamp(item.start, default=none) %}
+    #             {% set val = item.value | float(0) %}
+    #             {% if ts is not none and ts > now_ts and ns.ts is none and val > p80 and val > floor %}
+    #               {% set ns.ts = ts %}
+    #             {% endif %}
+    #           {% endfor %}
+
+    #           {{ ns.ts | timestamp_custom('%Y-%m-%d %H:%M:%S', true) if ns.ts is not none else 'none' }}
+    #         {% endif %}
+
+    #       next_brake_end: >
+    #         {% set src = states('input_text.svotc_source_price') | trim %}
+    #         {% set p80_s = states('sensor.svotc_price_p80_today') %}
+    #         {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
+    #         {% set src_ok = src not in ['unknown','unavailable','none','None',''] %}
+    #         {% set p80_ok = p80_s not in ['unknown','unavailable','none','None',''] %}
+
+    #         {% if not src_ok or not p80_ok %}
+    #           none
+    #         {% else %}
+    #           {% set p80 = p80_s | float(0) %}
+    #           {% set now_ts = as_timestamp(now()) %}
+    #           {% set today = state_attr(src, 'raw_today') | default([], true) %}
+    #           {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
+    #           {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
+    #           {% set ns = namespace(started=false, finished=false, end_ts=none) %}
+
+    #           {% for item in blocks %}
+    #             {% set ts = as_timestamp(item.start, default=none) %}
+    #             {% set val = item.value | float(0) %}
+    #             {% set is_brake = (val > p80 and val > floor) %}
+    #             {% if ts is not none and ts > now_ts and not ns.finished %}
+    #               {% if is_brake %}
+    #                 {% set ns.started = true %}
+    #                 {% set ns.end_ts = ts + 900 %}
+    #               {% elif ns.started %}
+    #                 {% set ns.finished = true %}
+    #               {% endif %}
+    #             {% endif %}
+    #           {% endfor %}
+
+    #           {{ ns.end_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', true) if ns.end_ts is not none else 'none' }}
+    #         {% endif %}
+
+    #       minutes_to_next_brake: >
+    #         {% set src = states('input_text.svotc_source_price') | trim %}
+    #         {% set p80_s = states('sensor.svotc_price_p80_today') %}
+    #         {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
+    #         {% set src_ok = src not in ['unknown','unavailable','none','None',''] %}
+    #         {% set p80_ok = p80_s not in ['unknown','unavailable','none','None',''] %}
+
+    #         {% if not src_ok or not p80_ok %}
+    #           none
+    #         {% else %}
+    #           {% set p80 = p80_s | float(0) %}
+    #           {% set now_ts = as_timestamp(now()) %}
+    #           {% set today = state_attr(src, 'raw_today') | default([], true) %}
+    #           {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
+    #           {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
+    #           {% set ns = namespace(mins=none) %}
+
+    #           {% for item in blocks %}
+    #             {% set ts = as_timestamp(item.start, default=none) %}
+    #             {% set val = item.value | float(0) %}
+    #             {% if ts is not none and ts > now_ts and ns.mins is none and val > p80 and val > floor %}
+    #               {% set ns.mins = ((ts - now_ts) / 60) | round(1) %}
+    #             {% endif %}
+    #           {% endfor %}
+
+    #           {{ ns.mins if ns.mins is not none else 'none' }}
+    #         {% endif %}
+
+    #       previous_state: >
+    #         {{ states('sensor.svotc_forward_price_state') | lower }}
+
+    #       previous_state_age_min: >
+    #         {% set now_ts = as_timestamp(now()) %}
+    #         {% set prev_changed_ts = as_timestamp(states.sensor.svotc_forward_price_state.last_changed, default=now_ts) %}
+    #         {{ ((now_ts - prev_changed_ts) / 60) | round(1) }}
+
+    #       chain_active: >
+    #         {% set prev_state = states('sensor.svotc_forward_price_state') | lower %}
+    #         {{ prev_state in ['prebrake', 'brake', 'hold'] }}
+
+    #       rested_long_enough: >
+    #         {% set now_ts = as_timestamp(now()) %}
+    #         {% set prev_state = states('sensor.svotc_forward_price_state') | lower %}
+    #         {% set prev_changed_ts = as_timestamp(states.sensor.svotc_forward_price_state.last_changed, default=now_ts) %}
+    #         {% set prev_state_age_min = ((now_ts - prev_changed_ts) / 60) | float(0) %}
+    #         {{ prev_state in ['neutral', 'cheap'] and prev_state_age_min >= 30 }}
+
       - name: SVOTC Forward Price State
         unique_id: svotc_forward_price_state
         state: >
@@ -89,10 +300,10 @@ template:
           {% set p80_s = states('sensor.svotc_price_p80_today') %}
           {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
 
-          {% set src_ok = src not in ['unknown','unavailable','none','None',''] %}
-          {% set price_ok = price_s not in ['unknown','unavailable','none','None',''] %}
-          {% set p30_ok = p30_s not in ['unknown','unavailable','none','None',''] %}
-          {% set p80_ok = p80_s not in ['unknown','unavailable','none','None',''] %}
+          {% set src_ok = src not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+          {% set price_ok = price_s not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+          {% set p30_ok = p30_s not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+          {% set p80_ok = p80_s not in ['unknown', 'unavailable', 'none', 'None', ''] %}
 
           {% if not src_ok or not price_ok or not p30_ok or not p80_ok %}
             neutral
@@ -101,45 +312,53 @@ template:
             {% set p30 = p30_s | float(0) %}
             {% set p80 = p80_s | float(0) %}
             {% set now_ts = as_timestamp(now()) %}
+
             {% set prebrake_window_min = 15 %}
             {% set bridge_gap_max_min = 30 %}
+            {% set reset_after_rest_min = 30 %}
+            {% set slot_sec = 900 %}
+
+            {% set prev_state = states('sensor.svotc_forward_price_state') | lower %}
+            {% set prev_changed_ts = as_timestamp(states.sensor.svotc_forward_price_state.last_changed, default=now_ts) %}
+            {% set prev_state_age_min = ((now_ts - prev_changed_ts) / 60) | float(0) %}
 
             {% set today = state_attr(src, 'raw_today') | default([], true) %}
             {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
             {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
 
             {% set ns = namespace(
+              prev_brake_end=none,
               next_brake_start=none,
               next_brake_end=none,
-              first_gap_min=none,
-              brake_count=0,
-              cheap_count=0
+              in_next_seq=false
             ) %}
 
             {% for item in blocks %}
               {% set ts = as_timestamp(item.start, default=none) %}
               {% set val = item.value | float(0) %}
-              {% if ts is not none and ts > now_ts %}
-                {% set mins = ((ts - now_ts) / 60) | float(9999) %}
-                {% set is_brake = (val > p80 and val > floor) %}
-                {% set is_cheap = (val < p30) %}
+              {% set is_brake = (val > p80 and val > floor) %}
 
-                {% if mins <= 60 %}
+              {% if ts is not none %}
+                {% if ts + slot_sec <= now_ts %}
                   {% if is_brake %}
-                    {% set ns.brake_count = ns.brake_count + 1 %}
-                  {% endif %}
-                  {% if is_cheap %}
-                    {% set ns.cheap_count = ns.cheap_count + 1 %}
+                    {% set ns.prev_brake_end = ts + slot_sec %}
                   {% endif %}
                 {% endif %}
 
-                {% if is_brake and ns.next_brake_start is none %}
-                  {% set ns.next_brake_start = ts %}
-                  {% set ns.first_gap_min = mins | round(0) %}
-                {% endif %}
-
-                {% if ns.next_brake_start is not none and is_brake %}
-                  {% set ns.next_brake_end = ts + 900 %}
+                {% if ts > now_ts %}
+                  {% if ns.next_brake_start is none %}
+                    {% if is_brake %}
+                      {% set ns.next_brake_start = ts %}
+                      {% set ns.next_brake_end = ts + slot_sec %}
+                      {% set ns.in_next_seq = true %}
+                    {% endif %}
+                  {% else %}
+                    {% if ns.in_next_seq and is_brake %}
+                      {% set ns.next_brake_end = ts + slot_sec %}
+                    {% elif ns.in_next_seq and not is_brake %}
+                      {% set ns.in_next_seq = false %}
+                    {% endif %}
+                  {% endif %}
                 {% endif %}
               {% endif %}
             {% endfor %}
@@ -147,12 +366,59 @@ template:
             {% set current_is_brake = (price > p80 and price > floor) %}
             {% set current_is_cheap = (price < p30) %}
 
+            {% set minutes_to_next_brake = none %}
+            {% if ns.next_brake_start is not none %}
+              {% set minutes_to_next_brake = ((ns.next_brake_start - now_ts) / 60) %}
+            {% endif %}
+
+            {% set minutes_since_prev_brake_end = none %}
+            {% if ns.prev_brake_end is not none %}
+              {% set minutes_since_prev_brake_end = ((now_ts - ns.prev_brake_end) / 60) %}
+            {% endif %}
+
+            {% set gap_between_brakes_min = none %}
+            {% if ns.prev_brake_end is not none and ns.next_brake_start is not none %}
+              {% set gap_between_brakes_min = ((ns.next_brake_start - ns.prev_brake_end) / 60) %}
+            {% endif %}
+
+            {% set rested_long_enough = false %}
+            {% if prev_state in ['neutral', 'cheap'] and prev_state_age_min >= reset_after_rest_min %}
+              {% set rested_long_enough = true %}
+            {% endif %}
+
+            {% set chain_active = false %}
+            {% if prev_state in ['prebrake', 'brake', 'hold'] %}
+              {% set chain_active = true %}
+            {% endif %}
+
+            {% set should_hold = false %}
+            {% if not current_is_brake
+                  and chain_active
+                  and ns.prev_brake_end is not none
+                  and ns.next_brake_start is not none
+                  and gap_between_brakes_min is not none
+                  and gap_between_brakes_min <= bridge_gap_max_min
+                  and now_ts >= ns.prev_brake_end
+                  and now_ts < ns.next_brake_start %}
+              {% set should_hold = true %}
+            {% endif %}
+
+            {% set should_prebrake = false %}
+            {% if not current_is_brake
+                  and not should_hold
+                  and ns.next_brake_start is not none
+                  and minutes_to_next_brake is not none
+                  and minutes_to_next_brake <= prebrake_window_min
+                  and (rested_long_enough or prev_state not in ['prebrake', 'brake', 'hold']) %}
+              {% set should_prebrake = true %}
+            {% endif %}
+
             {% if current_is_brake %}
               brake
-            {% elif ns.first_gap_min is not none and ns.first_gap_min <= prebrake_window_min %}
-              prebrake
-            {% elif ns.first_gap_min is not none and ns.first_gap_min <= bridge_gap_max_min %}
+            {% elif should_hold %}
               hold
+            {% elif should_prebrake %}
+              prebrake
             {% elif current_is_cheap %}
               cheap
             {% else %}
@@ -164,9 +430,8 @@ template:
             {% set src = states('input_text.svotc_source_price') | trim %}
             {% set p80_s = states('sensor.svotc_price_p80_today') %}
             {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
-            {% set src_ok = src not in ['unknown','unavailable','none','None',''] %}
-            {% set p80_ok = p80_s not in ['unknown','unavailable','none','None',''] %}
-
+            {% set src_ok = src not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+            {% set p80_ok = p80_s not in ['unknown', 'unavailable', 'none', 'None', ''] %}
             {% if not src_ok or not p80_ok %}
               none
             {% else %}
@@ -176,7 +441,6 @@ template:
               {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
               {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
               {% set ns = namespace(ts=none) %}
-
               {% for item in blocks %}
                 {% set ts = as_timestamp(item.start, default=none) %}
                 {% set val = item.value | float(0) %}
@@ -184,7 +448,6 @@ template:
                   {% set ns.ts = ts %}
                 {% endif %}
               {% endfor %}
-
               {{ ns.ts | timestamp_custom('%Y-%m-%d %H:%M:%S', true) if ns.ts is not none else 'none' }}
             {% endif %}
 
@@ -192,9 +455,9 @@ template:
             {% set src = states('input_text.svotc_source_price') | trim %}
             {% set p80_s = states('sensor.svotc_price_p80_today') %}
             {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
-            {% set src_ok = src not in ['unknown','unavailable','none','None',''] %}
-            {% set p80_ok = p80_s not in ['unknown','unavailable','none','None',''] %}
-
+            {% set src_ok = src not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+            {% set p80_ok = p80_s not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+            {% set slot_sec = 900 %}
             {% if not src_ok or not p80_ok %}
               none
             {% else %}
@@ -203,24 +466,88 @@ template:
               {% set today = state_attr(src, 'raw_today') | default([], true) %}
               {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
               {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
-              {% set ns = namespace(started=false, finished=false, end_ts=none) %}
-
+              {% set ns = namespace(started=false, end_ts=none, done=false) %}
               {% for item in blocks %}
                 {% set ts = as_timestamp(item.start, default=none) %}
                 {% set val = item.value | float(0) %}
                 {% set is_brake = (val > p80 and val > floor) %}
-                {% if ts is not none and ts > now_ts and not ns.finished %}
+                {% if ts is not none and ts > now_ts and not ns.done %}
                   {% if is_brake %}
                     {% set ns.started = true %}
-                    {% set ns.end_ts = ts + 3600 %}
+                    {% set ns.end_ts = ts + slot_sec %}
                   {% elif ns.started %}
-                    {% set ns.finished = true %}
+                    {% set ns.done = true %}
                   {% endif %}
                 {% endif %}
               {% endfor %}
-
               {{ ns.end_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', true) if ns.end_ts is not none else 'none' }}
             {% endif %}
+
+          previous_brake_end: >
+            {% set src = states('input_text.svotc_source_price') | trim %}
+            {% set p80_s = states('sensor.svotc_price_p80_today') %}
+            {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
+            {% set src_ok = src not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+            {% set p80_ok = p80_s not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+            {% set slot_sec = 900 %}
+            {% if not src_ok or not p80_ok %}
+              none
+            {% else %}
+              {% set p80 = p80_s | float(0) %}
+              {% set now_ts = as_timestamp(now()) %}
+              {% set today = state_attr(src, 'raw_today') | default([], true) %}
+              {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
+              {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
+              {% set ns = namespace(end_ts=none) %}
+              {% for item in blocks %}
+                {% set ts = as_timestamp(item.start, default=none) %}
+                {% set val = item.value | float(0) %}
+                {% if ts is not none and ts + slot_sec <= now_ts and val > p80 and val > floor %}
+                  {% set ns.end_ts = ts + slot_sec %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.end_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', true) if ns.end_ts is not none else 'none' }}
+            {% endif %}
+
+          minutes_to_next_brake: >
+            {% set src = states('input_text.svotc_source_price') | trim %}
+            {% set p80_s = states('sensor.svotc_price_p80_today') %}
+            {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
+            {% set src_ok = src not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+            {% set p80_ok = p80_s not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+            {% if not src_ok or not p80_ok %}
+              none
+            {% else %}
+              {% set p80 = p80_s | float(0) %}
+              {% set now_ts = as_timestamp(now()) %}
+              {% set today = state_attr(src, 'raw_today') | default([], true) %}
+              {% set tomorrow = state_attr(src, 'raw_tomorrow') | default([], true) %}
+              {% set blocks = (today + tomorrow) if today is sequence and tomorrow is sequence else [] %}
+              {% set ns = namespace(mins=none) %}
+              {% for item in blocks %}
+                {% set ts = as_timestamp(item.start, default=none) %}
+                {% set val = item.value | float(0) %}
+                {% if ts is not none and ts > now_ts and ns.mins is none and val > p80 and val > floor %}
+                  {% set ns.mins = ((ts - now_ts) / 60) | round(1) %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.mins if ns.mins is not none else 'none' }}
+            {% endif %}
+
+          previous_state: >
+            {{ states('sensor.svotc_forward_price_state') | lower }}
+
+          previous_state_age_min: >
+            {% set now_ts = as_timestamp(now()) %}
+            {% set prev_changed_ts = as_timestamp(states.sensor.svotc_forward_price_state.last_changed, default=now_ts) %}
+            {{ ((now_ts - prev_changed_ts) / 60) | round(1) }}
+
+          bridge_gap_max_min: >
+            30
+          prebrake_window_min: >
+            15
+          reset_after_rest_min: >
+            30
 
   - binary_sensor:
       - name: SVOTC Inputs Healthy
