@@ -9,6 +9,7 @@ input_select:
     options:
       - "Off"
       - "Smart"
+      - "Comfort"
       - "PassThrough"
     icon: mdi:tune
 
