@@ -1,187 +1,285 @@
-# SVOTC — Smart Virtual Outdoor Temperature Controller
+# 💥 Breaking Changes – SVOTC 3.0.0 (Beta)
 
-> ⚠️ **BREAKING CHANGES NOTICE**
+> ⚠️ **BETA SOFTWARE — USE AT YOUR OWN RISK**
 >
-> SVOTC **3.0.0 introduces breaking changes compared to SVOTC 2.x.x**.
-> The architecture and file structure have been simplified and several subsystems were removed.
->
-> If you are upgrading from **2.x.x**, read the **Breaking Changes** section below before installing.
+> SVOTC 3.0.0 is in active beta testing. Features may change without notice, bugs may occur, and configuration details may change in future releases. Do not use in production unless you fully understand the risks. **You are responsible for any consequences affecting your heating system.**
 
 ---
 
-# SVOTC
+## SVOTC 3.0.0 introduces breaking changes from 2.x.x
 
-SVOTC is a Home Assistant control system that optimizes heat pump operation by dynamically adjusting a **virtual outdoor temperature** based on electricity prices and indoor comfort.
+The biggest change in SVOTC 3.0.0 is that the system has been **simplified into a new Core v1 architecture**.
 
-Instead of controlling the heat pump directly, SVOTC influences the heat pump's regulation curve by modifying the outdoor temperature value the pump reads.
+This is **not a drop-in upgrade from 2.x.x**.
 
-This allows **price‑aware heating without modifying the heat pump itself**.
-
----
-
-# Features
-
-• Price‑aware heating using Nordpool electricity prices
-• Comfort protection that always prioritizes indoor temperature
-• Stable control with ramp limiting
-• Automatic pre‑braking before expensive electricity periods
-• Cheap‑price heating boost
-• Fail‑safe protection if sensor data is missing
-• Transparent logic with clear reason codes
+Several earlier subsystems have been removed or merged into a smaller and more transparent core. The old 2.x structure and logic should not be reused without review.
 
 ---
 
-# How SVOTC Works
+## What changed?
 
-SVOTC modifies the outdoor temperature used by the heat pump.
+### Previous structure (2.x.x)
 
-virtual_outdoor_temperature = outdoor_temperature + offset
-
-Example
-
-Real outdoor temperature: 5°C
-SVOTC offset: +6°C
-Heat pump believes it is: 11°C
-
-The heat pump therefore reduces heating output during expensive electricity periods.
-
----
-
-# Installation
-
-Create the directory:
-
+```text
 /config/packages/svotc/
+├── 00_helpers.yaml
+├── 10_sensors.yaml
+├── 20_price_fsm.yaml
+├── 22_engine.yaml
+├── 30_learning.yaml
+└── 40_notify.yaml
+```
 
-Place the following files inside:
+### New structure (3.0.0 / Core v1)
 
+```text
+/config/packages/svotc/
+├── 00_helpers.yaml   ← User controls and internal helper state
+├── 10_sensors.yaml   ← Temperatures, price thresholds, price state, health
+├── 20_engine.yaml    ← Main control loop, requested/applied offset, reason code
+└── 30_notify.yaml    ← Optional FAIL_SAFE notification
+```
+
+> ✅ All four files are required. They depend on each other.
+
+---
+
+## What do you need to do?
+
+### 1. Remove old 2.x package files
+
+Remove or archive older files such as:
+
+```text
+20_price_fsm.yaml
+22_engine.yaml
+30_learning.yaml
+40_notify.yaml
+```
+
+If you are migrating from an older single-file version, also remove or archive:
+
+```text
+/config/packages/svotc.yaml
+```
+### Clean up old entities (recommended)
+
+If you previously ran SVOTC 2.x.x, some template sensors may still exist in the Home Assistant entity registry.
+
+If these entities remain, Home Assistant may create new sensors with names such as:
+
+sensor.svotc_virtual_outdoor_temperature_2  
+sensor.svotc_forward_price_state_2  
+
+To avoid this, remove the old entities before starting SVOTC 3.0.0.
+
+Steps:
+
+1. Go to **Settings → Devices & Services → Entities**
+2. Search for `svotc`
+3. Remove entities that belong to the old 2.x installation
+4. Restart Home Assistant
+5. Start SVOTC 3.0.0
+
+This ensures the new sensors keep their correct names.
+### 2. Create the folder
+
+```text
+/config/packages/svotc/
+```
+
+### 3. Copy in the new Core v1 files
+
+Copy these files into the folder:
+
+```text
 00_helpers.yaml
 10_sensors.yaml
 20_engine.yaml
 30_notify.yaml
+```
 
-Ensure your configuration.yaml contains:
+### 4. Check `configuration.yaml`
 
+If you do not already use Home Assistant packages, add:
+
+```yaml
 homeassistant:
-packages: !include_dir_named packages
+  packages: !include_dir_named packages
+```
 
-Restart Home Assistant.
+### 5. Restart Home Assistant
 
----
+### 6. Reconfigure your source entities
 
-# Configuration
+After restart, set these helpers to match your system:
 
-Define the source entities used by SVOTC.
+* `input_text.svotc_source_indoor_temp`
+* `input_text.svotc_source_outdoor_temp`
+* `input_text.svotc_source_price`
 
-input_text.svotc_source_indoor_temp
-input_text.svotc_source_outdoor_temp
-input_text.svotc_source_price
+Example:
 
-Example configuration:
-
+```text
 sensor.indoor_temperature
 sensor.outdoor_temperature
 sensor.nordpool_kwh_se3
+```
+
+### 7. Verify that the new core is working
+
+After restart, check:
+
+* `binary_sensor.svotc_inputs_healthy` → should be **ON**
+* `sensor.svotc_forward_price_state` → should show `neutral`, `cheap`, `prebrake`, `hold`, or `brake`
+* `input_text.svotc_reason_code` → should show `NEUTRAL` or another active reason
+* `sensor.svotc_virtual_outdoor_temperature` → should resolve correctly
 
 ---
 
-# System Architecture
+## Major architectural changes in 3.0.0
 
-SVOTC uses a simple modular architecture.
+### 1. Single-engine design
 
-Helpers
-↓
-Sensors
-↓
-Engine
-↓
-Notifications
+SVOTC 3.0.0 replaces the older multi-layer control structure with a **single main engine**.
 
-Files:
+Instead of relying on separate subsystems for:
 
-00_helpers.yaml — user configuration and internal state helpers
-10_sensors.yaml — sensor normalization and price analysis
-20_engine.yaml — main decision engine
-30_notify.yaml — critical system notifications
+* price FSM
+* brake phases
+* learning logic
 
-The **engine runs once per minute** and calculates:
+the new core runs one central decision loop every minute.
 
-requested_offset
-applied_offset
-reason_code
+This makes the system:
+
+* easier to understand
+* easier to debug
+* easier to maintain
+* more predictable in day-to-day operation
 
 ---
 
-# Safety Mechanisms
+### 2. Simpler file layout
 
-SVOTC includes multiple safeguards to ensure stable system behavior.
+SVOTC now uses only four core files.
 
-Comfort guard
-Protects indoor temperature if it drops below the target.
-
-Overtemperature brake
-Reduces heating if the house becomes too warm.
-
-Rate limiting
-Prevents sudden offset jumps that could stress the heat pump.
-
-Fail‑safe mode
-If sensor inputs are invalid the system ramps offset back to zero.
+This reduces complexity and makes upgrades easier.
 
 ---
 
-# Operating Modes
+### 3. Clear separation between requested and applied offset
 
-Smart
-Full autonomous control using both price and comfort logic.
+SVOTC 3.0.0 clearly separates:
 
-Comfort
-Temperature regulation only, price logic disabled.
+* **requested offset** — what the logic wants to do
+* **applied offset** — what is actually sent after rate limiting
 
-PassThrough
-No offset is applied. Useful for testing.
-
-Off
-SVOTC disabled.
+This reduces abrupt behavior and makes the system gentler on heat pump hardware.
 
 ---
 
-# Monitoring
+### 4. Simpler and more transparent price logic
 
-Useful diagnostic entities:
+Price logic is now easier to inspect and reason about.
 
-sensor.svotc_virtual_outdoor_temperature
-input_number.svotc_requested_offset_c
-input_number.svotc_applied_offset_c
-input_text.svotc_reason_code
-sensor.svotc_forward_price_state
+The forward price state is expressed directly as:
 
----
+* `cheap`
+* `neutral`
+* `prebrake`
+* `hold`
+* `brake`
 
-# Breaking Changes (3.0.0)
-
-SVOTC 3.0 introduces a simplified architecture.
-
-Key changes from SVOTC 2.x.x:
-
-• Single engine design
-• Simplified package structure
-• Removal of legacy price FSM system
-• Removal of learning subsystem from the core
-• New requested vs applied offset model
-• Offset rate limiting to protect heat pump hardware
-
-These changes make the system:
-
-• easier to maintain
-• easier to debug
-• more predictable
-• less aggressive toward heat pump hardware
+This replaces more complicated older flow structures.
 
 ---
 
-# License
+### 5. Comfort and overtemperature protection are built directly into the core
 
-MIT License
+The engine now handles:
 
-Copyright (c) 2026 Johan Ä
+* comfort guard when indoor temperature is too low
+* overtemperature brake when indoor temperature is too high
+* fail-safe behavior when inputs are missing
+
+These protections are evaluated in a strict priority order.
+
+---
+
+### 6. Simpler notification model
+
+The new core includes an optional notification if the system remains in `FAIL_SAFE` for at least 5 minutes.
+
+This is intentionally simpler than earlier notify/diagnostic layers.
+
+---
+
+## Other important changes in 3.0.0
+
+* `20_price_fsm.yaml` is no longer used
+* `22_engine.yaml` has been replaced by `20_engine.yaml`
+* `30_learning.yaml` is no longer part of the core
+* `40_notify.yaml` has been replaced by a smaller `30_notify.yaml`
+* operating modes are now focused on:
+
+  * `Off`
+  * `Smart`
+  * `Comfort`
+  * `PassThrough`
+
+---
+
+## Why this change?
+
+The new Core v1 structure is designed to make SVOTC:
+
+* **cleaner** — fewer moving parts
+* **safer** — less aggressive offset behavior
+* **more hardware-friendly** — smoother output changes
+* **easier to troubleshoot** — clearer logic and fewer internal layers
+* **easier to maintain** — simpler architecture for future releases
+
+The goal of 3.0.0 is not to add more complexity.
+
+The goal is to make the core behavior more stable, readable, and reliable.
+
+---
+
+## Recommended migration approach
+
+When upgrading from 2.x.x:
+
+1. Remove old files
+2. Install the new 3.0.0 Core v1 files
+3. Set mode to `PassThrough` first
+4. Verify all source mappings
+5. Confirm `binary_sensor.svotc_inputs_healthy` is ON
+6. Confirm `sensor.svotc_virtual_outdoor_temperature` behaves correctly
+7. Switch to `Smart` only after verification
+
+---
+
+## Beta reminder
+
+SVOTC controls your heat pump indirectly through a virtual outdoor temperature.
+
+Even though the new core is simpler and more stable, incorrect configuration can still affect:
+
+* indoor comfort
+* heat pump cycling behavior
+* overall system efficiency
+
+Always:
+
+* test in **PassThrough** first
+* monitor `input_text.svotc_reason_code`
+* keep a manual fallback available during first deployment
+
+Report bugs through GitHub Issues.
+
+---
+
+**Version:** SVOTC 3.0.0 Beta
+**Core:** Core v1
+**License:** MIT
