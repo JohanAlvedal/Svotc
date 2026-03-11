@@ -18,7 +18,8 @@ automation:
     variables:
       notify_service: "{{ states('input_text.svotc_source_notify') | trim }}"
       notify_service_valid: >
-        {{ notify_service not in ['unknown', 'unavailable', 'none', 'None', ''] }}
+        {{ notify_service.startswith('notify.')
+           and notify_service not in ['unknown', 'unavailable', 'none', 'None', ''] }}
       notify_message: >
         SVOTC has been in FAIL_SAFE for at least 5 minutes.
         Requested offset is forced to 0 and applied offset is ramping toward 0.

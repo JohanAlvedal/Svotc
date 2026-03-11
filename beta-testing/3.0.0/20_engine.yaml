@@ -37,7 +37,6 @@ automation:
           - input_select.svotc_mode
           - binary_sensor.svotc_inputs_healthy
           - sensor.svotc_indoor_temperature
-          - sensor.svotc_outdoor_temperature
           - sensor.svotc_current_price
           - sensor.svotc_forward_price_state
           - input_boolean.svotc_cheap_boost_enabled

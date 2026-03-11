@@ -56,8 +56,20 @@ template:
         state: >
           {% set src = states('input_text.svotc_source_price') | trim %}
           {% set p = state_attr(src, 'raw_today') %}
-          {% if p is sequence and (p | count) >= 8 %}
-            {% set vals = p | map(attribute='value') | map('float') | list | sort %}
+          {% if p is sequence %}
+            {% set ns = namespace(vals=[]) %}
+            {% for item in p %}
+              {% set raw = item.value if item is mapping and 'value' in item else none %}
+              {% set v = raw | float(default=none) %}
+              {% if v is not none %}
+                {% set ns.vals = ns.vals + [v] %}
+              {% endif %}
+            {% endfor %}
+            {% set vals = ns.vals | sort %}
+          {% else %}
+            {% set vals = [] %}
+          {% endif %}
+          {% if (vals | count) >= 8 %}
             {% set n = vals | count %}
             {% set i = ((n - 1) * 0.30) | round(0, 'floor') | int(0) %}
             {{ vals[i] | round(4) }}
@@ -71,8 +83,20 @@ template:
         state: >
           {% set src = states('input_text.svotc_source_price') | trim %}
           {% set p = state_attr(src, 'raw_today') %}
-          {% if p is sequence and (p | count) >= 8 %}
-            {% set vals = p | map(attribute='value') | map('float') | list | sort %}
+          {% if p is sequence %}
+            {% set ns = namespace(vals=[]) %}
+            {% for item in p %}
+              {% set raw = item.value if item is mapping and 'value' in item else none %}
+              {% set v = raw | float(default=none) %}
+              {% if v is not none %}
+                {% set ns.vals = ns.vals + [v] %}
+              {% endif %}
+            {% endfor %}
+            {% set vals = ns.vals | sort %}
+          {% else %}
+            {% set vals = [] %}
+          {% endif %}
+          {% if (vals | count) >= 8 %}
             {% set n = vals | count %}
             {% set i = ((n - 1) * 0.80) | round(0, 'floor') | int(0) %}
             {{ vals[i] | round(4) }}
@@ -111,6 +135,7 @@ template:
             {% set prebrake_window_min = 15 %}
             {% set bridge_gap_max_min = 30 %}
             {% set reset_after_rest_min = 30 %}
+            {% set hold_max_min = 90 %}
             {% set slot_sec = 900 %}
 
             {% set prev_state = states('sensor.svotc_forward_price_state') | default('neutral') | lower %}
@@ -172,7 +197,11 @@ template:
             {% if not current_is_brake and chain_active %}
               {% if gap_between_brakes_min is not none and gap_between_brakes_min <= bridge_gap_max_min %}
                 {% set should_hold = true %}
-              {% elif prev_state in ['brake', 'hold'] and not current_is_cheap and not rested_long_enough %}
+              {# Safety limit: prevent hold from persisting too long in neutral periods. #}
+              {% elif prev_state in ['brake', 'hold']
+                    and not current_is_cheap
+                    and not rested_long_enough
+                    and (prev_state != 'hold' or prev_state_age_min <= hold_max_min) %}
                 {% set should_hold = true %}
               {% endif %}
             {% endif %}
