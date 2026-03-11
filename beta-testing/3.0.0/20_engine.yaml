@@ -1,7 +1,7 @@
 ###############################################################################
 ## SVOTC Core v1 - 20_engine.yaml
 ## Single-engine design:
-## 1) Stabilize raw price state with one simple dwell timer.
+## 1) Initialize deterministic defaults at HA start.
 ## 2) Calculate requested/applied offset with strict priority order.
 ###############################################################################
 
@@ -15,82 +15,16 @@ automation:
     action:
       - service: input_text.set_value
         target:
-          entity_id: input_text.svotc_price_state_pending
-        data:
-          value: "neutral"
-      - service: input_text.set_value
-        target:
-          entity_id: input_text.svotc_price_state_stable
-        data:
-          value: "neutral"
-      - service: input_text.set_value
-        target:
           entity_id: input_text.svotc_reason_code
         data:
           value: "NEUTRAL"
-      - service: input_datetime.set_datetime
-        target:
-          entity_id: input_datetime.svotc_price_pending_since
-        data:
-          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
       # Always start with clean hysteresis latches.
       - service: input_boolean.turn_off
         target:
           entity_id:
             - input_boolean.svotc_comfort_guard_latch
             - input_boolean.svotc_overtemp_latch
-
-  - id: svotc_core_v1_price_dwell
-    alias: SVOTC Core v1 - Price state dwell
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: sensor.svotc_price_state_raw_sensor
-      - platform: time_pattern
-        minutes: "/1"
-    variables:
-      raw: "{{ states('sensor.svotc_price_state_raw_sensor') }}"
-      pending: "{{ states('input_text.svotc_price_state_pending') }}"
-      stable: "{{ states('input_text.svotc_price_state_stable') }}"
-      since_raw: "{{ states('input_datetime.svotc_price_pending_since') }}"
-      since_ts: "{{ as_timestamp(since_raw, 0) }}"
-      elapsed_min: "{{ ((as_timestamp(now()) - since_ts) / 60) | float(0) }}"
-      dwell_min: "{{ states('input_number.svotc_price_dwell_minutes') | float(10) }}"
-    action:
-      - choose:
-          # Ignore invalid raw values and keep current state.
-          - conditions:
-              - condition: template
-                value_template: "{{ raw not in ['cheap','neutral','brake'] }}"
-            sequence: []
-
-          # New candidate state: start a fresh pending timer.
-          - conditions:
-              - condition: template
-                value_template: "{{ raw != pending }}"
-            sequence:
-              - service: input_text.set_value
-                target:
-                  entity_id: input_text.svotc_price_state_pending
-                data:
-                  value: "{{ raw }}"
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: input_datetime.svotc_price_pending_since
-                data:
-                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-
-          # Candidate has been stable long enough: promote to stable state.
-          - conditions:
-              - condition: template
-                value_template: >
-                  {{ raw == pending and pending != stable and elapsed_min >= dwell_min }}
-            sequence:
-              - service: input_text.set_value
-                target:
-                  entity_id: input_text.svotc_price_state_stable
-                data:
-                  value: "{{ pending }}"
 
   - id: svotc_core_v1_engine
     alias: SVOTC Core v1 - Main engine
@@ -105,7 +39,7 @@ automation:
           - sensor.svotc_indoor_temperature
           - sensor.svotc_outdoor_temperature
           - sensor.svotc_current_price
-          - input_text.svotc_price_state_stable
+          - sensor.svotc_forward_price_state
           - input_boolean.svotc_cheap_boost_enabled
           - input_number.svotc_comfort_temperature
           - input_number.svotc_comfort_guard_activate_below_c
@@ -119,7 +53,7 @@ automation:
     variables:
       mode: "{{ states('input_select.svotc_mode') }}"
       healthy: "{{ is_state('binary_sensor.svotc_inputs_healthy', 'on') }}"
-      stable_price_state: "{{ states('input_text.svotc_price_state_stable') }}"
+      forward_price_state: "{{ states('sensor.svotc_forward_price_state') }}"
 
       indoor: "{{ states('sensor.svotc_indoor_temperature') | float(default=none) }}"
       target: "{{ states('input_number.svotc_comfort_temperature') | float(21) }}"
@@ -158,9 +92,9 @@ automation:
           {{ -1 * comfort_boost }}
         {% elif overtemp_active %}
           {{ max_brake }}
-        {% elif stable_price_state == 'brake' %}
+        {% elif forward_price_state in ['brake', 'prebrake', 'hold'] %}
           {{ max_brake }}
-        {% elif stable_price_state == 'cheap' and cheap_enabled %}
+        {% elif forward_price_state == 'cheap' and cheap_enabled %}
           {{ -1 * cheap_boost }}
         {% else %}
           0
@@ -177,15 +111,21 @@ automation:
           COMFORT_GUARD
         {% elif overtemp_active %}
           OVERTEMP_BRAKE
-        {% elif stable_price_state == 'brake' %}
+        {% elif forward_price_state == 'brake' %}
           PRICE_BRAKE
-        {% elif stable_price_state == 'cheap' and cheap_enabled %}
+        {% elif forward_price_state == 'prebrake' %}
+          PRICE_PREBRAKE
+        {% elif forward_price_state == 'hold' %}
+          PRICE_HOLD
+        {% elif forward_price_state == 'cheap' and cheap_enabled %}
           PRICE_CHEAP
         {% else %}
           NEUTRAL
         {% endif %}
 
-      requested: "{{ [max_brake, [requested_unclamped | float(0), -1 * comfort_boost] | max] | min | round(2) }}"
+      requested: >
+        {{ [max_brake, [requested_unclamped | float(0), -1 * comfort_boost] | max] | min | round(2) }}
+
       current_requested: "{{ states('input_number.svotc_requested_offset_c') | float(0) }}"
       current_applied: "{{ states('input_number.svotc_applied_offset_c') | float(0) }}"
       current_reason: "{{ states('input_text.svotc_reason_code') }}"
@@ -193,6 +133,7 @@ automation:
       delta: "{{ (requested | float(0)) - current_applied }}"
       step: "{{ [max_step, [delta, -1 * max_step] | max] | min }}"
       new_applied: "{{ (current_applied + step) | round(2) }}"
+
     action:
       - choose:
           - conditions:
