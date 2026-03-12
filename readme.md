@@ -146,6 +146,7 @@ After restart, check:
 ### 1. Single-engine design
 
 SVOTC 3.0.0 replaces the older multi-layer control structure with a **single main engine**.
+The core also includes a lightweight PI-based temperature regulator used for Comfort mode and temperature protection.
 
 Instead of relying on separate subsystems for:
 
