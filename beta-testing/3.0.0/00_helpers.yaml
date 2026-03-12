@@ -94,14 +94,6 @@ input_number:
     mode: box
     unit_of_measurement: "°C"
 
-  #   svotc_price_dwell_minutes:
-  #     name: Price state dwell
-  #     min: 0
-  #     max: 120
-  #     step: 1
-  #     mode: box
-  #     unit_of_measurement: min
-
   svotc_requested_offset_c:
     name: SVOTC Requested Offset
     min: -20
