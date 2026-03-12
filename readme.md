@@ -203,9 +203,33 @@ This replaces more complicated older flow structures.
 
 The engine now handles:
 
-* comfort guard when indoor temperature is too low
-* overtemperature brake when indoor temperature is too high
-* fail-safe behavior when inputs are missing
+* Comfort protection when indoor temperature is too low
+* Overtemperature braking when indoor temperature is too high
+* Fail-safe behavior when inputs are missing
+
+These protections are evaluated in a strict priority order.
+
+---
+
+### Temperature control using PI regulation
+
+SVOTC 3.0.0 introduces a lightweight **PI regulator (Proportional + Integral)** for temperature control.
+
+This regulator is used in:
+
+* **Comfort mode**
+* **Comfort guard** during Smart mode
+* **Overtemperature braking**
+
+The regulator calculates an offset based on the difference between the current indoor temperature and the configured comfort target.
+
+The proportional term reacts immediately to the temperature error, while the integral term gradually compensates for persistent deviations over time.
+
+A small deadband around the target temperature prevents constant adjustments caused by tiny sensor fluctuations.
+
+The PI controller works together with SVOTC’s ramp limiting between **requested offset** and **applied offset**, ensuring that changes happen gradually and remain gentle on the heat pump's behavior.
+
+A derivative term (D) is intentionally not used. Buildings already behave as slow thermal systems and PI control provides stable regulation without unnecessary complexity.
 
 These protections are evaluated in a strict priority order.
 
