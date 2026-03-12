@@ -156,7 +156,8 @@ Efter omstart, kontrollera:
 ### 1. Single-engine design
 
 SVOTC 3.0.0 ersätter den äldre kontrollstrukturen i flera lager med en **enda huvudmotor**.
-The core also includes a lightweight PI-based temperature regulator used for Comfort mode and temperature protection.
+
+Kärnan innehåller även en lättviktsbaserad PI-regulator för temperaturkontroll som används i Comfort-läge samt för komfort- och övertemperaturskydd.
 
 Istället för att förlita sig på separata delsystem för:
 
