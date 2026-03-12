@@ -221,6 +221,30 @@ Dessa skydd utvärderas i en strikt prioritetsordning.
 
 ---
 
+### Temperaturreglering med PI-kontroll
+
+SVOTC 3.0.0 använder en enkel **PI-regulator (Proportional + Integral)** för temperaturkontroll.
+
+Denna regulator används i:
+
+* **Comfort-läge**
+* **Comfort guard** i Smart-läge
+* **Overtemperature braking**
+
+Regulatorn beräknar ett offset baserat på temperaturfelet mellan aktuell innetemperatur och komfortmålet.
+
+Den proportionella delen reagerar direkt på temperaturfelet, medan den integrerande delen gradvis kompenserar för kvarstående avvikelser över tid.
+
+En liten deadband används runt måltemperaturen för att undvika att små sensorvariationer orsakar konstant reglering.
+
+PI-regulatorn arbetar tillsammans med SVOTC:s ramp-begränsning mellan **requested offset** och **applied offset**, vilket gör att förändringar sker gradvis och mer skonsamt mot värmepumpens drift.
+
+Derivative-del (D) används inte eftersom byggnader redan är långsamma termiska system och PI-reglering ger tillräckligt stabil kontroll i praktiken.
+
+Dessa skydd utvärderas i en strikt prioritetsordning.
+
+---
+
 ### 6. Enklare notifieringsmodell
 
 Den nya kärnan inkluderar en valfri notifiering om systemet förblir i `FAIL_SAFE` i minst 5 minuter.
