@@ -15,11 +15,11 @@ automation:
         event: start
 
     action:
-      - service: input_text.set_value
-        target:
-          entity_id: input_text.svotc_reason_code
-        data:
-          value: "NEUTRAL"
+      #     - service: input_text.set_value
+      #       target:
+      #         entity_id: input_text.svotc_reason_code
+      #       data:
+      #         value: "NEUTRAL"
 
       # Always start with clean hysteresis latches.
       - service: input_boolean.turn_off
@@ -28,18 +28,18 @@ automation:
             - input_boolean.svotc_comfort_guard_latch
             - input_boolean.svotc_overtemp_latch
 
-      # Reset user-visible offsets at startup for deterministic state.
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.svotc_requested_offset_c
-        data:
-          value: 0
+      #   # Reset user-visible offsets at startup for deterministic state.
+      #   - service: input_number.set_value
+      #     target:
+      #       entity_id: input_number.svotc_requested_offset_c
+      #     data:
+      #       value: 0
 
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.svotc_applied_offset_c
-        data:
-          value: 0
+      #   - service: input_number.set_value
+      #     target:
+      #       entity_id: input_number.svotc_applied_offset_c
+      #     data:
+      #       value: 0
 
       # Reset internal PI memory at startup.
       # This avoids carrying old integral state after HA restart.
@@ -94,16 +94,6 @@ automation:
 
       #########################################################################
       # Hysteresis thresholds
-      #
-      # comfort_on_delta:
-      #   How far below target indoor temp must fall before comfort guard starts.
-      #
-      # comfort_off_delta:
-      #   Release threshold for comfort guard. Usually smaller than activate
-      #   threshold to create hysteresis and prevent chatter.
-      #
-      # over_on_delta / over_off_delta:
-      #   Same idea, but for overtemperature braking above target.
       #########################################################################
       comfort_on_delta: "{{ states('input_number.svotc_comfort_guard_activate_below_c') | float(0.8) }}"
       comfort_off_delta: "{{ states('input_number.svotc_comfort_guard_release_below_c') | float(0.4) }}"
@@ -126,19 +116,6 @@ automation:
 
       #########################################################################
       # Existing user-facing limits
-      #
-      # comfort_boost:
-      #   Maximum negative offset allowed for heating boost.
-      #   Negative SVOTC offset makes the heat pump think it is colder outside,
-      #   which usually increases heating output.
-      #
-      # max_brake:
-      #   Maximum positive offset allowed for braking.
-      #   Positive SVOTC offset makes the heat pump think it is warmer outside,
-      #   which usually reduces heating output.
-      #
-      # cheap_boost:
-      #   Fixed negative boost used during cheap price periods in Smart mode.
       #########################################################################
       comfort_boost: "{{ states('input_number.svotc_comfort_boost_max_c') | float(1.0) }}"
       max_brake: "{{ states('input_number.svotc_brake_hold_offset_c') | float(4.0) }}"
@@ -146,49 +123,14 @@ automation:
       cheap_enabled: "{{ is_state('input_boolean.svotc_cheap_boost_enabled', 'on') }}"
 
       #########################################################################
-      # Hardcoded PI tuning for temperature control
-      #
-      # pi_kp = 2.0
-      #   Proportional gain.
-      #   Gives an immediate response to current temperature error.
-      #   Example:
-      #     house too cold by 1.0°C  -> about -2.0°C P contribution
-      #     house too warm by 1.0°C  -> about +2.0°C P contribution
-      #
-      # pi_ki = 0.08
-      #   Integral gain.
-      #   Slowly accumulates remaining error over time to reduce steady-state
-      #   drift. Kept intentionally low because the house + heat pump system
-      #   is slow and can overshoot if I is too aggressive.
-      #
-      # pi_deadband = 0.15°C
-      #   Small neutral zone around target.
-      #   Prevents tiny sensor fluctuations from constantly changing the offset.
-      #
-      # No derivative term is used:
-      # - Indoor temperature sensors can be noisy
-      # - The building is already a slow thermal filter
-      # - Simplicity and robustness are preferred here
+      # Hardcoded PI tuning
       #########################################################################
       pi_kp: 2.0
       pi_ki: 0.08
       pi_deadband: 0.15
 
-      #########################################################################
-      # PI state memory
-      #
-      # This is the integral "memory" stored in an input_number helper.
-      # Without this, PI would behave like P-only because HA templates do not
-      # retain previous state automatically between runs.
-      #########################################################################
       pi_i_prev: "{{ states('input_number.svotc_pi_integral_state') | float(0) }}"
 
-      #########################################################################
-      # Temperature error
-      #
-      # error > 0  => house is too cold  => SVOTC should go negative (heat more)
-      # error < 0  => house is too warm  => SVOTC should go positive (brake more)
-      #########################################################################
       comfort_error_raw: >
         {% if indoor is not none %}
           {{ (target - indoor) | round(3) }}
@@ -206,17 +148,6 @@ automation:
           {{ e }}
         {% endif %}
 
-      #########################################################################
-      # PI activation
-      #
-      # PI is active when:
-      # - Comfort mode is selected, or
-      # - Smart mode has entered comfort recovery, or
-      # - Smart mode has entered overtemperature braking
-      #
-      # Outside those cases, price logic remains in charge and the integrator
-      # is slowly decayed toward zero.
-      #########################################################################
       pi_control_enabled: >
         {{
           indoor is not none and
@@ -227,16 +158,6 @@ automation:
           )
         }}
 
-      #########################################################################
-      # Integral update
-      #
-      # Behavior:
-      # - If PI is inactive, decay toward zero to avoid stale memory
-      # - If error is inside deadband, also decay slowly
-      # - Otherwise accumulate error
-      #
-      # This acts like a soft anti-memory reset without being abrupt.
-      #########################################################################
       pi_i_candidate: >
         {% set i_prev = pi_i_prev | float(0) %}
         {% set e = comfort_error_eff | float(0) %}
@@ -248,18 +169,6 @@ automation:
           {{ (i_prev + e) | round(3) }}
         {% endif %}
 
-      #########################################################################
-      # Integral clamp (anti-windup)
-      #
-      # Prevents the integrator from building up unrealistic stored error.
-      #
-      # Limits are derived from existing user limits:
-      # - positive integral side is bounded by comfort_boost
-      # - negative integral side is bounded by max_brake
-      #
-      # This keeps I-term roughly aligned with what the system is actually
-      # allowed to output.
-      #########################################################################
       pi_i_min: >
         {% set ki = pi_ki | float(0.08) %}
         {% if ki <= 0 %}
@@ -282,18 +191,6 @@ automation:
         {% set hi = pi_i_max | float(100) %}
         {{ [hi, [x, lo] | max] | min | round(3) }}
 
-      #########################################################################
-      # PI terms
-      #
-      # Sign convention:
-      # - negative output = heating boost
-      # - positive output = braking
-      #
-      # Therefore the regulator output is inverted from the raw temperature
-      # error, because:
-      # - cold house  -> positive error -> negative offset wanted
-      # - warm house  -> negative error -> positive offset wanted
-      #########################################################################
       pi_p_term: >
         {{ (-1 * (pi_kp | float(2.0)) * (comfort_error_eff | float(0))) | round(3) }}
 
@@ -307,19 +204,6 @@ automation:
           {{ ((pi_p_term | float(0)) + (pi_i_term | float(0))) | round(2) }}
         {% endif %}
 
-      #########################################################################
-      # PI variants used in Smart mode
-      #
-      # comfort_pi_heat_only:
-      #   Used when comfort guard is active.
-      #   Only negative values are allowed, because the purpose is to recover
-      #   warmth, not brake.
-      #
-      # comfort_pi_brake_only:
-      #   Used when overtemperature braking is active.
-      #   Only positive values are allowed, because the purpose is to reduce
-      #   heating, not boost it.
-      #########################################################################
       comfort_pi_heat_only: >
         {% set raw = comfort_pi_requested | float(0) %}
         {{ [0, [raw, -1 * comfort_boost] | max] | min | round(2) }}
@@ -337,7 +221,7 @@ automation:
       # 3. Fail-safe if inputs unhealthy
       # 4. Comfort guard -> heat-only PI
       # 5. Overtemp guard -> brake-only PI
-      # 6. Price brake / prebrake / hold
+      # 6. Price brake / prebrake
       # 7. Cheap boost
       # 8. Neutral
       #########################################################################
@@ -356,7 +240,7 @@ automation:
           {{ comfort_pi_heat_only }}
         {% elif overtemp_active %}
           {{ comfort_pi_brake_only }}
-        {% elif forward_price_state in ['brake', 'prebrake', 'hold'] %}
+        {% elif forward_price_state in ['brake', 'prebrake'] %}
           {{ max_brake }}
         {% elif forward_price_state == 'cheap' and cheap_enabled %}
           {{ -1 * cheap_boost }}
@@ -387,13 +271,11 @@ automation:
         {% elif overtemp_active and (comfort_pi_brake_only | float(0)) > 0 %}
           OVERTEMP_PI_BRAKE
         {% elif overtemp_active %}
-          OVERTEMP_BRAKE
+          OVERTEMP_STANDBY
         {% elif forward_price_state == 'brake' %}
           PRICE_BRAKE
         {% elif forward_price_state == 'prebrake' %}
           PRICE_PREBRAKE
-        {% elif forward_price_state == 'hold' %}
-          PRICE_HOLD
         {% elif forward_price_state == 'cheap' and cheap_enabled %}
           PRICE_CHEAP
         {% else %}
@@ -402,15 +284,6 @@ automation:
 
       #########################################################################
       # Final clamp
-      #
-      # Comfort mode:
-      #   Allowed to regulate symmetrically between -5 and +5.
-      #   This keeps Comfort mode independent from the Smart-mode helper limits.
-      #
-      # Smart mode:
-      #   Uses existing user-defined limits:
-      #   - lower bound = -comfort_boost
-      #   - upper bound = max_brake
       #########################################################################
       requested: >
         {% if mode == 'Comfort' %}
@@ -421,11 +294,6 @@ automation:
 
       #########################################################################
       # Ramp limiter
-      #
-      # max_step:
-      #   Maximum allowed change in applied offset per engine cycle.
-      #   This prevents sudden jumps and makes the system smoother and gentler
-      #   on the heat pump behavior.
       #########################################################################
       current_requested: "{{ states('input_number.svotc_requested_offset_c') | float(0) }}"
       current_applied: "{{ states('input_number.svotc_applied_offset_c') | float(0) }}"
