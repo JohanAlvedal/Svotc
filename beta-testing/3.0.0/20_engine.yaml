@@ -1,401 +1,154 @@
 ###############################################################################
-## SVOTC Core v1 - 20_engine.yaml
-## Single-engine design:
-## 1) Initialize deterministic defaults at HA start.
-## 2) Calculate requested/applied offset with strict priority order.
-##
+## SVOTC Core v1 - 00_helpers.yaml
+## User-facing controls and small internal state helpers.
 ###############################################################################
 
-automation:
-  - id: svotc_core_v1_init
-    alias: SVOTC Core v1 - Initialize defaults
-    mode: single
-    trigger:
-      - platform: homeassistant
-        event: start
+input_select:
+  svotc_mode:
+    name: SVOTC Mode
+    options:
+      - "Off"
+      - "Smart"
+      - "Comfort"
+      - "PassThrough"
+    icon: mdi:tune
 
-    action:
-      #     - service: input_text.set_value
-      #       target:
-      #         entity_id: input_text.svotc_reason_code
-      #       data:
-      #         value: "NEUTRAL"
+input_number:
+  svotc_comfort_temperature:
+    name: Comfort temperature target
+    min: 15
+    max: 25
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
 
-      # Always start with clean hysteresis latches.
-      - service: input_boolean.turn_off
-        target:
-          entity_id:
-            - input_boolean.svotc_comfort_guard_latch
-            - input_boolean.svotc_overtemp_latch
+  svotc_comfort_guard_activate_below_c:
+    name: Comfort guard activate (below target)
+    min: 0.2
+    max: 3.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
 
-      #   # Reset user-visible offsets at startup for deterministic state.
-      #   - service: input_number.set_value
-      #     target:
-      #       entity_id: input_number.svotc_requested_offset_c
-      #     data:
-      #       value: 0
+  svotc_comfort_guard_release_below_c:
+    name: Comfort guard release (below target)
+    min: 0.1
+    max: 2.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
 
-      #   - service: input_number.set_value
-      #     target:
-      #       entity_id: input_number.svotc_applied_offset_c
-      #     data:
-      #       value: 0
+  svotc_overtemp_brake_activate_above_c:
+    name: Overtemperature brake activate (above target)
+    min: 0.2
+    max: 3.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
 
-      # Reset internal PI memory at startup.
-      # This avoids carrying old integral state after HA restart.
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.svotc_pi_integral_state
-        data:
-          value: 0
+  svotc_overtemp_brake_release_above_c:
+    name: Overtemperature brake release (above target)
+    min: 0.1
+    max: 2.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
 
-  - id: svotc_core_v1_engine
-    alias: SVOTC Core v1 - Main engine
-    mode: single
-    trigger:
-      - platform: time_pattern
-        minutes: "/1"
+  svotc_comfort_boost_max_c:
+    name: Comfort guard boost max
+    min: 0
+    max: 5
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
 
-      - platform: state
-        entity_id:
-          - input_select.svotc_mode
-          - sensor.svotc_indoor_temperature
-          - input_number.svotc_comfort_temperature
-          - input_number.svotc_max_delta_per_step_c
-          - binary_sensor.svotc_inputs_healthy
-          - sensor.svotc_forward_price_state
-          - input_boolean.svotc_cheap_boost_enabled
-          - input_number.svotc_comfort_guard_activate_below_c
-          - input_number.svotc_comfort_guard_release_below_c
-          - input_number.svotc_overtemp_brake_activate_above_c
-          - input_number.svotc_overtemp_brake_release_above_c
-          - input_number.svotc_comfort_boost_max_c
-          - input_number.svotc_brake_hold_offset_c
-          - input_number.svotc_cheap_boost_offset_c
+  svotc_brake_hold_offset_c:
+    name: Brake hold offset
+    min: 0
+    max: 15
+    step: 0.5
+    mode: box
+    unit_of_measurement: "°C"
 
-    variables:
-      #########################################################################
-      # Core state
-      #########################################################################
-      mode: "{{ states('input_select.svotc_mode') }}"
-      healthy: "{{ is_state('binary_sensor.svotc_inputs_healthy', 'on') }}"
-      forward_price_state: "{{ states('sensor.svotc_forward_price_state') }}"
+  svotc_cheap_boost_offset_c:
+    name: Cheap boost offset
+    min: 0
+    max: 3
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
 
-      indoor: >
-        {% set s = states('sensor.svotc_indoor_temperature') %}
-        {% if s in ['unknown', 'unavailable', 'none', 'None', ''] %}
-          {{ none }}
-        {% else %}
-          {{ s | float }}
-        {% endif %}
+  svotc_price_floor_sek:
+    name: Minimum brake price
+    min: 0
+    max: 5
+    step: 0.05
+    mode: box
+    unit_of_measurement: "SEK/kWh"
 
-      target: "{{ states('input_number.svotc_comfort_temperature') | float(21) }}"
-      comfort_ready: "{{ indoor is not none }}"
+  svotc_max_delta_per_step_c:
+    name: Max offset per cycle
+    min: 0.1
+    max: 3.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
 
-      #########################################################################
-      # Hysteresis thresholds
-      #########################################################################
-      comfort_on_delta: "{{ states('input_number.svotc_comfort_guard_activate_below_c') | float(0.8) }}"
-      comfort_off_delta: "{{ states('input_number.svotc_comfort_guard_release_below_c') | float(0.4) }}"
-      over_on_delta: "{{ states('input_number.svotc_overtemp_brake_activate_above_c') | float(0.8) }}"
-      over_off_delta: "{{ states('input_number.svotc_overtemp_brake_release_above_c') | float(0.4) }}"
+  svotc_requested_offset_c:
+    name: SVOTC Requested Offset
+    min: -20
+    max: 20
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-up
 
-      comfort_latched: "{{ is_state('input_boolean.svotc_comfort_guard_latch', 'on') }}"
-      over_latched: "{{ is_state('input_boolean.svotc_overtemp_latch', 'on') }}"
+  svotc_applied_offset_c:
+    name: SVOTC Applied Offset
+    min: -20
+    max: 20
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-lines
 
-      comfort_should_on: "{{ indoor is not none and indoor <= (target - comfort_on_delta) }}"
-      comfort_should_off: "{{ indoor is not none and indoor >= (target - comfort_off_delta) }}"
-      over_should_on: "{{ indoor is not none and indoor >= (target + over_on_delta) }}"
-      over_should_off: "{{ indoor is not none and indoor <= (target + over_off_delta) }}"
+  svotc_pi_integral_state:
+    name: SVOTC PI Integral State
+    min: -100
+    max: 100
+    step: 0.01
+    mode: box
+    unit_of_measurement: "state"
+    icon: mdi:chart-bell-curve-cumulative
 
-      comfort_active: >
-        {{ comfort_should_on or (comfort_latched and not comfort_should_off) }}
+input_boolean:
+  svotc_cheap_boost_enabled:
+    name: Enable cheap boost
+    icon: mdi:piggy-bank
 
-      overtemp_active: >
-        {{ over_should_on or (over_latched and not over_should_off) }}
+  svotc_comfort_guard_latch:
+    name: SVOTC Comfort Guard Latch
 
-      #########################################################################
-      # Existing user-facing limits
-      #########################################################################
-      comfort_boost: "{{ states('input_number.svotc_comfort_boost_max_c') | float(1.0) }}"
-      max_brake: "{{ states('input_number.svotc_brake_hold_offset_c') | float(4.0) }}"
-      cheap_boost: "{{ states('input_number.svotc_cheap_boost_offset_c') | float(0.5) }}"
-      cheap_enabled: "{{ is_state('input_boolean.svotc_cheap_boost_enabled', 'on') }}"
+  svotc_overtemp_latch:
+    name: SVOTC Overtemp Latch
 
-      #########################################################################
-      # Hardcoded PI tuning
-      #########################################################################
-      pi_kp: 2.0
-      pi_ki: 0.08
-      pi_deadband: 0.15
+input_text:
+  svotc_source_indoor_temp:
+    name: Source entity - indoor temperature
+    max: 255
 
-      pi_i_prev: "{{ states('input_number.svotc_pi_integral_state') | float(0) }}"
+  svotc_source_outdoor_temp:
+    name: Source entity - outdoor temperature
+    max: 255
 
-      comfort_error_raw: >
-        {% if indoor is not none %}
-          {{ (target - indoor) | round(3) }}
-        {% else %}
-          0
-        {% endif %}
+  svotc_source_price:
+    name: Source entity - electricity price
+    max: 255
 
-      comfort_error_eff: >
-        {% set e = comfort_error_raw | float(0) %}
-        {% if indoor is none %}
-          0
-        {% elif e | abs <= (pi_deadband | float(0.15)) %}
-          0
-        {% else %}
-          {{ e }}
-        {% endif %}
+  svotc_source_notify:
+    name: Source entity - notify
+    max: 255
 
-      pi_control_enabled: >
-        {{
-          indoor is not none and
-          (
-            mode == 'Comfort' or
-            comfort_active or
-            overtemp_active
-          )
-        }}
-
-      pi_i_candidate: >
-        {% set i_prev = pi_i_prev | float(0) %}
-        {% set e = comfort_error_eff | float(0) %}
-        {% if not pi_control_enabled %}
-          {{ (i_prev * 0.85) | round(3) }}
-        {% elif e == 0 %}
-          {{ (i_prev * 0.95) | round(3) }}
-        {% else %}
-          {{ (i_prev + e) | round(3) }}
-        {% endif %}
-
-      pi_i_min: >
-        {% set ki = pi_ki | float(0.08) %}
-        {% if ki <= 0 %}
-          -100
-        {% else %}
-          {{ ((-1 * max_brake) / ki) | round(3) }}
-        {% endif %}
-
-      pi_i_max: >
-        {% set ki = pi_ki | float(0.08) %}
-        {% if ki <= 0 %}
-          100
-        {% else %}
-          {{ (comfort_boost / ki) | round(3) }}
-        {% endif %}
-
-      pi_i_new: >
-        {% set x = pi_i_candidate | float(0) %}
-        {% set lo = pi_i_min | float(-100) %}
-        {% set hi = pi_i_max | float(100) %}
-        {{ [hi, [x, lo] | max] | min | round(3) }}
-
-      pi_p_term: >
-        {{ (-1 * (pi_kp | float(2.0)) * (comfort_error_eff | float(0))) | round(3) }}
-
-      pi_i_term: >
-        {{ (-1 * (pi_ki | float(0.08)) * (pi_i_new | float(0))) | round(3) }}
-
-      comfort_pi_requested: >
-        {% if indoor is none %}
-          0
-        {% else %}
-          {{ ((pi_p_term | float(0)) + (pi_i_term | float(0))) | round(2) }}
-        {% endif %}
-
-      comfort_pi_heat_only: >
-        {% set raw = comfort_pi_requested | float(0) %}
-        {{ [0, [raw, -1 * comfort_boost] | max] | min | round(2) }}
-
-      comfort_pi_brake_only: >
-        {% set raw = comfort_pi_requested | float(0) %}
-        {{ [max_brake, [raw, 0] | max] | min | round(2) }}
-
-      #########################################################################
-      # Main requested offset before final clamp
-      #
-      # Priority:
-      # 1. Off / PassThrough
-      # 2. Comfort mode -> full PI control
-      # 3. Fail-safe if inputs unhealthy
-      # 4. Comfort guard -> heat-only PI
-      # 5. Overtemp guard -> brake-only PI
-      # 6. Price brake / prebrake
-      # 7. Cheap boost
-      # 8. Neutral
-      #########################################################################
-      requested_unclamped: >
-        {% if mode == 'Off' %}
-          0
-        {% elif mode == 'PassThrough' %}
-          0
-        {% elif mode == 'Comfort' and not comfort_ready %}
-          0
-        {% elif mode == 'Comfort' %}
-          {{ comfort_pi_requested }}
-        {% elif not healthy %}
-          0
-        {% elif comfort_active %}
-          {{ comfort_pi_heat_only }}
-        {% elif overtemp_active %}
-          {{ comfort_pi_brake_only }}
-        {% elif forward_price_state in ['brake', 'prebrake'] %}
-          {{ max_brake }}
-        {% elif forward_price_state == 'cheap' and cheap_enabled %}
-          {{ -1 * cheap_boost }}
-        {% else %}
-          0
-        {% endif %}
-
-      #########################################################################
-      # Human-readable reason code
-      #########################################################################
-      reason: >
-        {% if mode == 'Off' %}
-          OFF
-        {% elif mode == 'PassThrough' %}
-          PASS_THROUGH
-        {% elif mode == 'Comfort' and not comfort_ready %}
-          COMFORT_SENSOR_MISSING
-        {% elif mode == 'Comfort' and (comfort_pi_requested | float(0)) < 0 %}
-          COMFORT_HEAT
-        {% elif mode == 'Comfort' and (comfort_pi_requested | float(0)) > 0 %}
-          COMFORT_BRAKE
-        {% elif mode == 'Comfort' %}
-          COMFORT_IDLE
-        {% elif not healthy %}
-          FAIL_SAFE
-        {% elif comfort_active %}
-          COMFORT_GUARD
-        {% elif overtemp_active and (comfort_pi_brake_only | float(0)) > 0 %}
-          OVERTEMP_PI_BRAKE
-        {% elif overtemp_active %}
-          OVERTEMP_STANDBY
-        {% elif forward_price_state == 'brake' %}
-          PRICE_BRAKE
-        {% elif forward_price_state == 'prebrake' %}
-          PRICE_PREBRAKE
-        {% elif forward_price_state == 'cheap' and cheap_enabled %}
-          PRICE_CHEAP
-        {% else %}
-          NEUTRAL
-        {% endif %}
-
-      #########################################################################
-      # Final clamp
-      #########################################################################
-      requested: >
-        {% if mode == 'Comfort' %}
-          {{ [5, [requested_unclamped | float(0), -5] | max] | min | round(2) }}
-        {% else %}
-          {{ [max_brake, [requested_unclamped | float(0), -1 * comfort_boost] | max] | min | round(2) }}
-        {% endif %}
-
-      #########################################################################
-      # Ramp limiter
-      #########################################################################
-      current_requested: "{{ states('input_number.svotc_requested_offset_c') | float(0) }}"
-      current_applied: "{{ states('input_number.svotc_applied_offset_c') | float(0) }}"
-      current_reason: "{{ states('input_text.svotc_reason_code') }}"
-      max_step: "{{ states('input_number.svotc_max_delta_per_step_c') | float(0.5) }}"
-      delta: "{{ (requested | float(0)) - current_applied }}"
-      step: "{{ [max_step, [delta, -1 * max_step] | max] | min }}"
-      new_applied: "{{ (current_applied + step) | round(2) }}"
-
-    action:
-      #########################################################################
-      # Maintain comfort latch in Smart mode
-      #########################################################################
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: "{{ mode != 'Comfort' and comfort_active and not comfort_latched }}"
-            sequence:
-              - service: input_boolean.turn_on
-                target:
-                  entity_id: input_boolean.svotc_comfort_guard_latch
-
-          - conditions:
-              - condition: template
-                value_template: "{{ mode != 'Comfort' and (not comfort_active) and comfort_latched }}"
-            sequence:
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: input_boolean.svotc_comfort_guard_latch
-
-      #########################################################################
-      # Maintain overtemperature latch in Smart mode
-      #########################################################################
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: "{{ mode != 'Comfort' and overtemp_active and not over_latched }}"
-            sequence:
-              - service: input_boolean.turn_on
-                target:
-                  entity_id: input_boolean.svotc_overtemp_latch
-
-          - conditions:
-              - condition: template
-                value_template: "{{ mode != 'Comfort' and (not overtemp_active) and over_latched }}"
-            sequence:
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: input_boolean.svotc_overtemp_latch
-
-      #########################################################################
-      # Store updated PI integral state only when it has changed
-      #########################################################################
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: "{{ (pi_i_new | float(0)) != (pi_i_prev | float(0)) }}"
-            sequence:
-              - service: input_number.set_value
-                target:
-                  entity_id: input_number.svotc_pi_integral_state
-                data:
-                  value: "{{ pi_i_new }}"
-
-      #########################################################################
-      # Write requested offset only when it has changed
-      #########################################################################
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: "{{ (requested | float(0)) != current_requested }}"
-            sequence:
-              - service: input_number.set_value
-                target:
-                  entity_id: input_number.svotc_requested_offset_c
-                data:
-                  value: "{{ requested }}"
-
-      #########################################################################
-      # Write applied offset only when it has changed
-      #########################################################################
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: "{{ (new_applied | float(0)) != current_applied }}"
-            sequence:
-              - service: input_number.set_value
-                target:
-                  entity_id: input_number.svotc_applied_offset_c
-                data:
-                  value: "{{ new_applied }}"
-
-      #########################################################################
-      # Write reason code only when it has changed
-      #########################################################################
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: "{{ reason != current_reason }}"
-            sequence:
-              - service: input_text.set_value
-                target:
-                  entity_id: input_text.svotc_reason_code
-                data:
-                  value: "{{ reason }}"
+  svotc_reason_code:
+    name: SVOTC Reason
+    max: 64
