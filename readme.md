@@ -392,7 +392,6 @@ Fel konfiguration kan påverka:
 
 Rekommendation:
 
-* Testa i `PassThrough`
 * Övervaka `reason_code`
 * Ha fallback
 
