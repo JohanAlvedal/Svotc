@@ -3,327 +3,180 @@ type: sections
 cards: []
 sections:
   - type: grid
+    columns: 1
+    square: false
     cards:
       - type: entities
-        title: 🔧 SVOTC Basic (användarinställningar)
+        title: 🎛️ SVOTC Settings
         state_color: true
         show_header_toggle: false
         entities:
           - entity: input_select.svotc_mode
-            name: SVOTC-läge (Smart/Simple)
-            icon: mdi:power-settings
-          - type: divider
-          - entity: input_text.svotc_entity_indoor
-            name: Inomhustemperatur-sensor
-            icon: mdi:home-thermometer-outline
-          - entity: input_text.svotc_entity_outdoor
-            name: Utomhustemperatur-sensor
+            name: Operating mode
+            icon: mdi:toggle-switch
+          - type: section
+            label: Source sensors
+          - entity: input_text.svotc_source_indoor_temp
+            name: Indoor sensor
+            icon: mdi:home-thermometer
+          - entity: input_text.svotc_source_outdoor_temp
+            name: Outdoor sensor
             icon: mdi:thermometer
-          - entity: input_text.svotc_entity_price
-            name: Prisentitet (Nordpool)
-            icon: mdi:currency-usd
-          - entity: input_text.svotc_notify_service
-            name: Notify-service (valfri)
-            icon: mdi:bell-outline
-          - type: divider
-          - entity: input_boolean.svotc_comfort_guard_enabled
-            name: Comfort Guard (på/av)
-            icon: mdi:shield-home
+          - entity: input_text.svotc_source_price
+            name: Price sensor
+            icon: mdi:cash
+          - entity: input_text.svotc_source_notify
+            name: Notify sensor
+          - type: section
+            label: Comfort
           - entity: input_number.svotc_comfort_temperature
-            name: Måltemperatur (komfort)
+            name: Target temperature
             icon: mdi:target
           - entity: input_number.svotc_comfort_guard_activate_below_c
-            name: Guard aktivera (°C under mål)
-            icon: mdi:arrow-down-bold
-          - entity: input_number.svotc_comfort_guard_deactivate_above_c
-            name: Guard släpp (°C under mål)
-            icon: mdi:arrow-up-bold
-          - type: divider
-          - entity: input_number.svotc_brake_hold_offset_c
-            name: Max broms (°C)
-            icon: mdi:car-brake-alert
-          - entity: input_number.svotc_prebrake_lead_time_min
-            name: Prebrake lead time (min)
-            icon: mdi:timer-outline
-          - entity: input_number.svotc_bridge_hold_window_min
-            name: Bridge-hold fönster (min)
-            icon: mdi:link-variant
-          - type: divider
-          - entity: input_number.svotc_thermal_mass_factor
-            name: Husets tröghet (thermal mass)
-            icon: mdi:home-clock
+            name: Activate comfort guard
+            icon: mdi:shield-alert
+          - entity: input_number.svotc_comfort_guard_release_below_c
+            name: Release comfort guard
+            icon: mdi:shield-check
           - entity: input_number.svotc_comfort_boost_max_c
-            name: Comfort boost max (°C)
+            name: Comfort boost max
             icon: mdi:fire
+          - type: section
+            label: Over temperature
+          - entity: input_number.svotc_overtemp_brake_activate_above_c
+            name: Activate over-brake
+            icon: mdi:thermometer-high
+          - entity: input_number.svotc_overtemp_brake_release_above_c
+            name: Release over-brake
+            icon: mdi:thermometer-chevron-down
+          - type: section
+            label: Price optimization
+          - entity: input_boolean.svotc_cheap_boost_enabled
+            name: Cheap price boost
+            icon: mdi:piggy-bank
+          - entity: input_number.svotc_cheap_boost_offset_c
+            name: Cheap price boost offset
+            icon: mdi:thermometer-chevron-down
+          - entity: input_number.svotc_brake_hold_offset_c
+            name: Max brake offset
+            icon: mdi:thermometer-plus
           - entity: input_number.svotc_price_floor_sek
-            name: Prisgolv för broms (SEK/kWh)
-            icon: mdi:currency-eur
+            name: Minimum brake price
+            icon: mdi:cash-lock
+          - type: section
+            label: Ramping
+          - entity: input_number.svotc_max_delta_per_step_c
+            name: Max change per step
+            icon: mdi:chart-timeline-variant
+      - type: custom:mini-graph-card
+        name: Price vs P30 / P80 (12h)
+        hours_to_show: 12
+        points_per_hour: 4
+        line_width: 3
+        font_size: 75
+        animate: true
+        show:
+          labels: false
+          legend: true
+          icon: false
+        entities:
+          - entity: sensor.elpris_spot_avgifter
+            name: Electricity price
+            show_state: true
+          - entity: sensor.svotc_price_p30_today
+            name: P30
+            show_state: true
+          - entity: sensor.svotc_price_p80_today
+            name: P80
+            show_state: true
+    column_span: 1
+  - type: grid
+    columns: 1
+    square: false
+    cards:
       - type: entities
-        title: 📊 Aktuell Status
+        title: ✅ SVOTC Status
         state_color: true
         show_header_toggle: false
         entities:
-          - type: section
-            label: Temperaturer
-          - entity: sensor.svotc_src_indoor
-            name: Inomhus
-            icon: mdi:home-thermometer
-          - entity: sensor.svotc_dynamic_target_temperature
-            name: Måltemperatur
-            icon: mdi:target
-          - entity: sensor.svotc_src_outdoor
-            name: Utomhus (verklig)
-            icon: mdi:thermometer
-          - entity: sensor.svotc_virtual_outdoor_temperature
-            name: Utomhus (virtuell → VP)
-            icon: mdi:thermometer-chevron-up
-            secondary_info: last-changed
-          - type: section
-            label: Prisstyrning
-          - entity: sensor.svotc_src_current_price
-            name: Elpris nu
-            icon: mdi:currency-usd
-          - entity: sensor.svotc_p30
-            name: P30 (billig under)
-            icon: mdi:arrow-down-bold-circle
-          - entity: sensor.svotc_p80
-            name: P80 (dyr över)
-            icon: mdi:arrow-up-bold-circle
-          - type: divider
-          - entity: sensor.svotc_prebrake_strength
-            name: Förbromsstyrka (0-1)
-            icon: mdi:speedometer
+          - entity: binary_sensor.svotc_inputs_healthy
+            name: System OK
+            icon: mdi:check-decagram
+          - entity: input_select.svotc_mode
+            name: Active mode
+            icon: mdi:tune
+          - entity: input_boolean.svotc_comfort_guard_latch
+            name: Comfort guard active
+            icon: mdi:shield-home
+          - entity: input_boolean.svotc_overtemp_latch
+            name: Over-temperature active
+            icon: mdi:radiator-disabled
       - type: entities
-        title: 🛡️ / ⏱️ / ⚡ Tuning
+        title: 🛠️ SVOTC Debug
+        state_color: true
         show_header_toggle: false
         entities:
-          - entity: input_number.svotc_comfort_guard_activate_below_c
-            name: Guard activate Δ (°C)
-          - entity: input_number.svotc_comfort_guard_deactivate_above_c
-            name: Guard deactivate Δ (°C)
-          - type: divider
-          - entity: input_number.svotc_price_dwell_cheap_to_neutral_min
-            name: Dwell Cheap → Neutral (min)
-          - entity: input_number.svotc_price_dwell_neutral_to_brake_min
-            name: Dwell Neutral → Brake (min)
-          - entity: input_number.svotc_price_dwell_brake_to_neutral_min
-            name: Dwell Brake → Neutral (min)
-          - entity: input_number.svotc_price_dwell_neutral_to_cheap_min
-            name: Dwell Neutral → Cheap (min)
-          - type: divider
-          - entity: input_number.svotc_brake_rampup_duration_min
-            name: Brake ramp-up (min)
-          - entity: input_number.svotc_brake_hold_duration_min
-            name: Brake hold (min)
-          - entity: input_number.svotc_brake_rampdown_duration_min
-            name: Brake ramp-down (min)
-          - type: divider
+          - entity: binary_sensor.svotc_inputs_healthy
+            name: Inputs healthy
+          - entity: input_text.svotc_reason_code
+            name: Reason code
+          - entity: input_boolean.svotc_comfort_guard_latch
+            name: Comfort latch
+          - entity: input_boolean.svotc_overtemp_latch
+            name: Overtemp latch
+          - entity: input_number.svotc_requested_offset_c
+            name: Requested offset
+          - entity: input_number.svotc_applied_offset_c
+            name: Applied offset
           - entity: input_number.svotc_max_delta_per_step_c
-            name: Max Δ per min (°C)
-          - entity: input_number.svotc_brake_hold_offset_c
-          - entity: input_number.svotc_prebrake_lead_time_min
-            name: Förbromsning – starta före (min)
-            icon: mdi:timer-sand
-          - entity: input_number.svotc_comfort_boost_max_c
-            name: Komfortboost – max (°C)
-            icon: mdi:fire
-      - type: vertical-stack
-        cards:
-          - type: entities
-            title: 🛑 Brake phase & look-ahead
-            show_header_toggle: false
-            state_color: true
-            entities:
-              - entity: sensor.svotc_minutes_to_next_brake_start
-                name: Min till dyr period
-              - entity: sensor.svotc_prebrake_window_min
-                name: Prebrake window (min)
-              - entity: sensor.svotc_prebrake_strength
-                name: Prebrake strength
-  - type: grid
-    cards:
-      - type: markdown
-        content: >-
-          # 🔧 SVOTC Basic (användarinställningar)
-
-
-          Detta kort innehåller **det du som användare ska kunna ändra**. Varje
-          rad nedan beskriver **vad entiteten gör** och **vad som händer om du
-          ändrar den**.
-
-
-          ---
-
-
-          ## Komfortskydd (Comfort Guard)
-
-
-          ### `input_boolean.svotc_comfort_guard_enabled` — Comfort Guard
-          (på/av)
-
-          **Gör:** Slår av/på komfortskyddet
-          (`binary_sensor.svotc_comfort_guard_active`).  
-
-          **Effekt vid ändring:**
-
-          - **På**: om huset blir för kallt aktiveras guard och prisbroms
-          blockeras; systemet kan i stället ge **negativ offset** (comfort
-          boost).
-
-          - **Av**: prisstyrningen får styra även om det blir kallt (risk:
-          komfortfall).
-
-
-          ### `input_number.svotc_comfort_temperature` — Måltemperatur (komfort)
-
-          **Gör:** Målvärde som Comfort Guard jämför mot.  
-
-          **Effekt vid ändring:** Högre mål → guard triggar tidigare (mer
-          värme/komfort, mindre spar). Lägre mål → mer spar men risk kallare
-          inne.
-
-
-          ### `input_number.svotc_comfort_guard_activate_below_c` — Guard
-          aktivera (°C under mål)
-
-          **Gör:** Guard går in när `indoor < target - value`.  
-
-          **Effekt vid ändring:** Större värde → guard går in senare (mer spar,
-          större risk komfortfall). Mindre värde → guard går in tidigare (mer
-          komfort).
-
-
-          ### `input_number.svotc_comfort_guard_deactivate_above_c` — Guard
-          släpp (°C under mål)
-
-          **Gör:** Guard släpper när `indoor >= target - value` (hysteres).  
-
-          **Effekt vid ändring:** Större värde → guard släpper senare (stabilt
-          men kan “hänga kvar”). Mindre värde → släpper tidigare (risk för
-          flimmer om innetemp pendlar).
-
-
-          ---
-
-
-          ## Pris / Broms (beteende)
-
-
-          ### `input_number.svotc_brake_hold_offset_c` — Max broms (°C)
-
-          **Gör:** Max positiv offset under dyrperioder (”mindre värme”).  
-
-          **Effekt vid ändring:** Högre värde → mer spar men större risk
-          komfortfall. Lägre värde → snällare broms.
-
-
-          > Obs: Engine använder detta som bas och multiplicerar med
-          `input_number.svotc_learned_brake_efficiency`.
-
-
-          ### `input_number.svotc_prebrake_lead_time_min` — Prebrake lead time
-          (min)
-
-          **Gör:** Hur tidigt innan nästa dyra block systemet börjar “rampa upp”
-          bromsen via `sensor.svotc_prebrake_strength`.  
-
-          **Effekt vid ändring:** Högre → tidigare broms (bra vid trögt hus).
-          Lägre → senare broms (risk att inte hinna bygga broms innan kort
-          15-min-peak).
-
-
-          ### `input_number.svotc_bridge_hold_window_min` — Bridge-hold fönster
-          (min)
-
-          **Gör:** Hindrar ramp-down mellan två nära toppar (via
-          `sensor.svotc_minutes_to_next_near_brake_start`).  
-
-          **Effekt vid ändring:** Högre → bromsen hålls kvar längre mellan
-          toppar (stabilt, mer spar). Lägre → släpper snabbare (risk flimmer vid
-          15-min).
-
-
-          ⚠️ **Obs:** Denna entitet är med i din autotune-automation (kan
-          skrivas över om autotune är aktiv).
-
-
-          ---
-
-
-          ## Husets tröghet och comfort boost
-
-
-          ### `input_number.svotc_thermal_mass_factor` — Husets tröghet (thermal
-          mass)
-
-          **Gör:** Skalar prebrake-fönster (via
-          `sensor.svotc_prebrake_window_min`) och används av autotune för
-          ramp/dwell/bridge.  
-
-          **Effekt vid ändring:** Högre → systemet antar trögare hus (startar
-          tidigare/ger längre tider). Lägre → snabbare hus (kortare tider).
-
-
-          ### `input_number.svotc_comfort_boost_max_c` — Comfort boost max (°C)
-
-          **Gör:** Max negativ offset när Comfort Guard är aktiv (”mer
-          värme”).  
-
-          **Effekt vid ändring:** Högre → starkare komfortskydd (snabbare
-          återhämtning men mindre spar). Lägre → svagare skydd (risk att guard
-          inte orkar).
-
-
-          ### `input_number.svotc_price_floor_sek` — Prisgolv för broms
-          (SEK/kWh)
-
-          **Gör:** Broms aktiveras bara om `pris > P80` **och** `pris >
-          price_floor`.  
-
-          **Effekt vid ändring:** Högre golv → bromsar bara vid riktigt dyra
-          priser (mindre broms). Lägre golv/0 → broms kan trigga även när P80 är
-          låg (mer aggressivt vid “platta” dygn).
-
-
-          ---
-badges:
-  - type: entity
-    entity: person.johan
-    show_entity_picture: true
-  - type: custom:mushroom-template-badge
-    content: Laddbox
-    icon: mdi:ev-plug-type2
-    color: green
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/laddbox
-  - type: entity
-    show_name: false
-    show_state: true
-    show_icon: true
-    tap_action:
-      action: navigate
-      navigation_path: /dashboard-data/7
-    entity: sensor.elpris_spot_avgifter
-  - type: custom:mushroom-template-badge
-    icon: mdi:mushroom
-    color: red
-    content: Jul
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/jul
-  - type: custom:mushroom-template-badge
-    content: Tariff
-    icon: mdi:power-plug
-    color: blue
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/9
-  - type: custom:mushroom-template-badge
-    content: System
-    icon: mdi:server
-    color: green
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/system
-max_columns: 4
+            name: Max delta per step
+      - type: entities
+        title: 🌡️ Debug temperature & price
+        entities:
+          - entity: sensor.svotc_indoor_temperature
+            name: Indoor temperature
+          - entity: sensor.svotc_outdoor_temperature
+            name: Outdoor temperature
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: Virtual outdoor temperature
+          - entity: sensor.svotc_current_price
+            name: Current price
+      - type: custom:mini-graph-card
+        name: 🌡️ Temperature overview (24h)
+        hours_to_show: 24
+        points_per_hour: 4
+        line_width: 2
+        font_size: 75
+        animate: true
+        show:
+          labels: true
+          legend: true
+          icon: false
+        entities:
+          - entity: sensor.svotc_indoor_temperature
+            name: Indoor
+            show_state: true
+          - entity: sensor.svotc_outdoor_temperature
+            name: Outdoor
+            show_state: true
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: Virtual outdoor
+            show_state: true
+      - type: custom:mini-graph-card
+        name: 📈 Offset development (24h)
+        hours_to_show: 24
+        points_per_hour: 4
+        line_width: 3
+        font_size: 75
+        animate: true
+        show:
+          labels: false
+          legend: true
+          icon: false
+        entities:
+          - entity: input_number.svotc_requested_offset_c
+            name: Requested offset
+            show_state: true
+          - entity: input_number.svotc_applied_offset_c
+            name: Applied offset
+            show_state: true
