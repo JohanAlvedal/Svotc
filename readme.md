@@ -20,7 +20,94 @@ Flera tidigare delsystem har tagits bort eller slagits samman till en mindre och
 
 ---
 
-## Vad har ändrats?
+## 🔧 Patch Summary – Viktiga skillnader (2.x → 3.0.0)
+
+### Kontrollarkitektur
+
+* Ersätter tidigare flerlagersystem (Price FSM, bromsfaser, learning) med en **single-engine design**
+* Alla beslut tas nu i en central kontroll-loop
+
+### PI-baserad temperaturreglering
+
+* Inför **PI-regulator (Proportional + Integral)**
+* Används i:
+
+  * `Comfort`-läge
+  * Comfort guard
+  * Övertemperaturbroms
+* Integraldel lagras i `input_number.svotc_pi_integral_state`
+* Deadband används för att undvika oscillation
+* Derivatadel (D) används inte
+
+### Prishantering
+
+* `20_price_fsm.yaml` borttagen
+* Inför förenklat **forward price state**:
+
+  * `cheap`
+  * `neutral`
+  * `prebrake`
+  * `hold` (brygga mellan brake-block)
+  * `brake`
+* `prebrake` exponeras inte längre som egen **reason-kod**
+* Både `brake` och `prebrake` mappar till:
+
+  * `PRICE_BRAKE` (på reason-nivå)
+
+### Offset-styrning
+
+* Tydlig separation mellan:
+
+  * `requested_offset`
+  * `applied_offset`
+* Införd **rate limiting** för mjukare förändringar
+* Skonsammare drift för värmepump
+
+### Skyddslogik
+
+* Integrerad direkt i motorn:
+
+  * Comfort guard
+  * Övertemperaturskydd
+  * Fail-safe
+* Tydlig prioritetsordning
+
+### Fail-safe-beteende
+
+* Aktiveras vid ogiltiga eller saknade indata
+* Tvingar systemet till säkert neutralt läge
+* Valfri notifiering efter 5 minuter (`30_notify.yaml`)
+
+### Tillstånd & restart-beteende
+
+* Deterministisk uppstart:
+
+  * Reason sätts till `INIT`
+  * PI-integral nollställs
+  * Latchar återställs
+* Ingen beroende av tidigare runtime-state
+
+### Filstruktur
+
+* Borttaget:
+
+  * `20_price_fsm.yaml`
+  * `22_engine.yaml`
+  * `30_learning.yaml`
+* Ersatt med:
+
+  * `20_engine.yaml` (samlad motor)
+* Minskad systemkomplexitet
+
+### Konfigurationsfilosofi
+
+* Färre användarinställningar
+* Fokus på:
+
+  * Enkelhet
+  * Förutsägbarhet
+  * “Fungerar direkt ur lådan”
+
 
 ### Tidigare struktur (2.x.x)
 
