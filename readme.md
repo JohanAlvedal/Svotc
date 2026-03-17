@@ -380,7 +380,7 @@ Systemet hanterar resten automatiskt.
 
 ---
 
-## Påminnelse om Beta
+## Påminnelse !!
 
 SVOTC styr din värmepump indirekt.
 
