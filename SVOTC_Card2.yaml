@@ -1,97 +1,75 @@
 title: SVOTC data
 type: sections
-max_columns: 4
-badges:
-  - type: entity
-    entity: person.johan
-    show_entity_picture: true
-  - type: custom:mushroom-template-badge
-    content: Laddbox
-    icon: mdi:ev-plug-type2
-    color: green
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/laddbox
-  - type: entity
-    entity: sensor.elpris_spot_avgifter
-    show_name: false
-    show_state: true
-    show_icon: true
-    tap_action:
-      action: navigate
-      navigation_path: /dashboard-data/7
-  - type: custom:mushroom-template-badge
-    icon: mdi:mushroom
-    color: red
-    content: Jul
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/jul
-  - type: custom:mushroom-template-badge
-    content: Tariff
-    icon: mdi:power-plug
-    color: blue
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/9
-  - type: custom:mushroom-template-badge
-    content: System
-    icon: mdi:server
-    color: green
-    tap_action:
-      action: navigate
-      navigation_path: /lovelace/system
+cards: []
 sections:
   - type: grid
+    columns: 1
+    square: false
     cards:
       - type: entities
-        title: SVOTC Källsensorer
-        show_header_toggle: false
-        entities:
-          - entity: input_text.svotc_source_indoor_temp
-            name: Inomhussensor
-          - entity: input_text.svotc_source_outdoor_temp
-            name: Utomhussensor
-          - entity: input_text.svotc_source_price
-            name: Prissensor
-          - entity: input_text.svotc_source_notify
-            name: Notiser
-      - type: entities
-        title: SVOTC Översikt
+        title: 🎛️ SVOTC Settings
+        state_color: true
         show_header_toggle: false
         entities:
           - entity: input_select.svotc_mode
-            name: Mode
-          - entity: sensor.svotc_forward_price_state
-            name: Forward state
-            secondary_info: last-changed
-          - entity: input_text.svotc_reason_code
-            name: Reason
-          - entity: sensor.svotc_current_price
-            name: Current price
-            secondary_info: last-changed
-          - entity: input_number.svotc_requested_offset_c
-            name: Requested offset
-          - entity: input_number.svotc_applied_offset_c
-            name: Applied offset
-      - type: entities
-        title: SVOTC Hälsa & temperatur
-        show_header_toggle: false
-        entities:
-          - entity: binary_sensor.svotc_inputs_healthy
-            name: Inputs healthy
-          - entity: sensor.svotc_indoor_temperature
-            name: Indoor temperature
-          - entity: sensor.svotc_outdoor_temperature
-            name: Outdoor temperature
-          - entity: sensor.svotc_virtual_outdoor_temperature
-            name: Virtual outdoor temperature
-          - entity: sensor.svotc_price_p30_today
-            name: P30
-          - entity: sensor.svotc_price_p80_today
-            name: P80
+            name: Operating mode
+            icon: mdi:toggle-switch
+          - type: section
+            label: Source sensors
+          - entity: input_text.svotc_source_indoor_temp
+            name: Indoor sensor
+            icon: mdi:home-thermometer
+          - entity: input_text.svotc_source_outdoor_temp
+            name: Outdoor sensor
+            icon: mdi:thermometer
+          - entity: input_text.svotc_source_price
+            name: Price sensor
+            icon: mdi:cash
+          - entity: input_text.svotc_source_notify
+            name: Notify sensor
+          - type: section
+            label: Comfort
+          - entity: input_number.svotc_comfort_temperature
+            name: Target temperature
+            icon: mdi:target
+          - entity: input_number.svotc_comfort_guard_activate_below_c
+            name: Activate comfort guard
+            icon: mdi:shield-alert
+          - entity: input_number.svotc_comfort_guard_release_below_c
+            name: Release comfort guard
+            icon: mdi:shield-check
+          - entity: input_number.svotc_comfort_boost_max_c
+            name: Comfort boost max
+            icon: mdi:fire
+          - type: section
+            label: Over temperature
+          - entity: input_number.svotc_overtemp_brake_activate_above_c
+            name: Activate over-brake
+            icon: mdi:thermometer-high
+          - entity: input_number.svotc_overtemp_brake_release_above_c
+            name: Release over-brake
+            icon: mdi:thermometer-chevron-down
+          - type: section
+            label: Price optimization
+          - entity: input_boolean.svotc_cheap_boost_enabled
+            name: Cheap price boost
+            icon: mdi:piggy-bank
+          - entity: input_number.svotc_cheap_boost_offset_c
+            name: Cheap price boost offset
+            icon: mdi:thermometer-chevron-down
+          - entity: input_number.svotc_brake_hold_offset_c
+            name: Max brake offset
+            icon: mdi:thermometer-plus
+          - entity: input_number.svotc_price_floor_sek
+            name: Minimum brake price
+            icon: mdi:cash-lock
+          - type: section
+            label: Ramping
+          - entity: input_number.svotc_max_delta_per_step_c
+            name: Max change per step
+            icon: mdi:chart-timeline-variant
       - type: custom:mini-graph-card
-        name: Pris vs P30 / P80 (12h)
+        name: Price vs P30 / P80 (12h)
         hours_to_show: 12
         points_per_hour: 4
         line_width: 3
@@ -103,7 +81,7 @@ sections:
           icon: false
         entities:
           - entity: sensor.elpris_spot_avgifter
-            name: Elpris
+            name: Electricity price
             show_state: true
           - entity: sensor.svotc_price_p30_today
             name: P30
@@ -111,53 +89,94 @@ sections:
           - entity: sensor.svotc_price_p80_today
             name: P80
             show_state: true
+    column_span: 1
   - type: grid
+    columns: 1
+    square: false
     cards:
-      - type: history-graph
-        title: SVOTC Offset senaste 24h
-        hours_to_show: 24
-        refresh_interval: 30
+      - type: entities
+        title: ✅ SVOTC Status
+        state_color: true
+        show_header_toggle: false
         entities:
+          - entity: binary_sensor.svotc_inputs_healthy
+            name: System OK
+            icon: mdi:check-decagram
+          - entity: input_select.svotc_mode
+            name: Active mode
+            icon: mdi:tune
+          - entity: input_boolean.svotc_comfort_guard_latch
+            name: Comfort guard active
+            icon: mdi:shield-home
+          - entity: input_boolean.svotc_overtemp_latch
+            name: Over-temperature active
+            icon: mdi:radiator-disabled
+      - type: entities
+        title: 🛠️ SVOTC Debug
+        state_color: true
+        show_header_toggle: false
+        entities:
+          - entity: binary_sensor.svotc_inputs_healthy
+            name: Inputs healthy
+          - entity: input_text.svotc_reason_code
+            name: Reason code
+          - entity: input_boolean.svotc_comfort_guard_latch
+            name: Comfort latch
+          - entity: input_boolean.svotc_overtemp_latch
+            name: Overtemp latch
           - entity: input_number.svotc_requested_offset_c
-            name: Requested
+            name: Requested offset
           - entity: input_number.svotc_applied_offset_c
-            name: Applied
-      - type: custom:auto-entities
-        card:
-          type: entities
-          title: SVOTC Automatiseringar
-          show_header_toggle: false
-        filter:
-          include:
-            - entity_id: automation.svotc_*
-              options:
-                secondary_info: last-triggered
-          exclude: []
-        sort:
-          method: name
-      - type: history-graph
-        title: SVOTC Temperatur senaste 24h
+            name: Applied offset
+          - entity: input_number.svotc_max_delta_per_step_c
+            name: Max delta per step
+      - type: entities
+        title: 🌡️ Debug temperature & price
+        entities:
+          - entity: sensor.svotc_indoor_temperature
+            name: Indoor temperature
+          - entity: sensor.svotc_outdoor_temperature
+            name: Outdoor temperature
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: Virtual outdoor temperature
+          - entity: sensor.svotc_current_price
+            name: Current price
+      - type: custom:mini-graph-card
+        name: 🌡️ Temperature overview (24h)
         hours_to_show: 24
-        refresh_interval: 30
+        points_per_hour: 4
+        line_width: 2
+        font_size: 75
+        animate: true
+        show:
+          labels: true
+          legend: true
+          icon: false
         entities:
           - entity: sensor.svotc_indoor_temperature
             name: Indoor
+            show_state: true
           - entity: sensor.svotc_outdoor_temperature
             name: Outdoor
+            show_state: true
           - entity: sensor.svotc_virtual_outdoor_temperature
             name: Virtual outdoor
-      - type: entities
-        title: Prisdiagnostik
-        show_header_toggle: false
+            show_state: true
+      - type: custom:mini-graph-card
+        name: 📈 Offset development (24h)
+        hours_to_show: 24
+        points_per_hour: 4
+        line_width: 3
+        font_size: 75
+        animate: true
+        show:
+          labels: false
+          legend: true
+          icon: false
         entities:
-          - entity: sensor.svotc_forward_price_state
-            name: Forward state
-          - entity: sensor.svotc_current_price
-            name: Current price
-          - entity: sensor.svotc_price_p30_today
-            name: P30
-          - entity: sensor.svotc_price_p80_today
-            name: P80
-          - entity: sensor.elpris_svotc
-            name: SVOTC price
-cards: []
+          - entity: input_number.svotc_requested_offset_c
+            name: Requested offset
+            show_state: true
+          - entity: input_number.svotc_applied_offset_c
+            name: Applied offset
+            show_state: true

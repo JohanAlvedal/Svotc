@@ -6,70 +6,70 @@ sections:
   - type: grid
     cards:
       - type: entities
-        title: 🎛️ SVOTC Kontroller
+        title: 🎛️ SVOTC Controls
         state_color: true
         show_header_toggle: false
         entities:
           - entity: input_select.svotc_mode
-            name: Driftsläge
+            name: Operating Mode
             icon: mdi:toggle-switch
           - type: section
-            label: Komfortinställningar
+            label: Comfort Settings
+          - entity: sensor.svotc_forward_price_state
+            name: Price State
           - entity: input_number.svotc_comfort_temperature
-            name: Måltemperatur
+            name: Target Temperature
             icon: mdi:target
           - entity: input_number.svotc_comfort_guard_activate_below_c
-            name: Aktivera komfortskydd (under mål)
+            name: Activate Comfort Guard (below target)
             icon: mdi:shield-alert
           - entity: input_number.svotc_comfort_guard_release_below_c
-            name: Släpp komfortskydd (nära mål)
+            name: Release Comfort Guard (near target)
             icon: mdi:shield-check
           - entity: input_number.svotc_comfort_boost_max_c
-            name: Komfortboost max
+            name: Comfort Boost Max
             icon: mdi:fire
           - entity: input_boolean.svotc_comfort_guard_latch
-            name: Komfortskydd aktivt
+            name: Comfort Guard Active
             icon: mdi:shield-home
           - type: section
-            label: Övertemperatur
+            label: Over Temperature
           - entity: input_number.svotc_overtemp_brake_activate_above_c
-            name: Aktivera överbroms (över mål)
+            name: Activate Over-Brake (above target)
             icon: mdi:thermometer-high
           - entity: input_number.svotc_overtemp_brake_release_above_c
-            name: Släpp överbroms
+            name: Release Over-Brake
             icon: mdi:thermometer-chevron-down
           - entity: input_boolean.svotc_overtemp_latch
-            name: Övertemperatur aktiv
+            name: Over Temperature Active
             icon: mdi:radiator-disabled
           - type: section
-            label: Prisoptimering
+            label: Price Optimization
           - entity: input_boolean.svotc_cheap_boost_enabled
-            name: Billigpris-boost aktiverad
+            name: Cheap Price Boost Enabled
             icon: mdi:piggy-bank
           - entity: input_number.svotc_cheap_boost_offset_c
-            name: Billigpris-boost offset
+            name: Cheap Price Boost Offset
             icon: mdi:thermometer-chevron-down
           - entity: input_number.svotc_brake_hold_offset_c
-            name: Max bromsoffset
+            name: Max Brake Offset
             icon: mdi:thermometer-plus
           - entity: input_number.svotc_price_floor_sek
-            name: Minsta bromspris
+            name: Minimum Brake Price
             icon: mdi:cash
           - type: section
-            label: Systemhälsa
+            label: System Health
           - entity: binary_sensor.svotc_inputs_healthy
-            name: Indata OK
+            name: Inputs OK
             icon: mdi:check-decagram
           - type: section
             label: Offset
           - entity: input_number.svotc_requested_offset_c
-            name: Begärd offset
             icon: mdi:thermometer-chevron-up
           - entity: input_number.svotc_applied_offset_c
-            name: Tillämpad offset
             icon: mdi:thermometer-lines
+            name: Applied Offset
           - entity: input_number.svotc_max_delta_per_step_c
-            name: Max ändring per steg
             icon: mdi:chart-timeline-variant
       - type: custom:mini-graph-card
         name: 📈 Offset-utveckling (24h)
@@ -90,24 +90,25 @@ sections:
             name: Tillämpad offset
             show_state: true
       - type: custom:mini-graph-card
-        name: 🌡️ Temperaturöversikt (24h)
-        hours_to_show: 24
+        name: Pris vs P30 / P80 (12h)
+        hours_to_show: 12
         points_per_hour: 4
-        line_width: 2
+        line_width: 3
         font_size: 75
         animate: true
         show:
-          labels: true
+          labels: false
           legend: true
           icon: false
         entities:
-          - entity: sensor.svotc_outdoor_temperature
-            name: Utomhus (verklig)
-            color: "#3498db"
+          - entity: sensor.elpris_spot_avgifter
+            name: Elpris
             show_state: true
-          - entity: sensor.svotc_virtual_outdoor_temperature
-            name: Virtuell ute (→VP)
-            color: "#9b59b6"
+          - entity: sensor.svotc_price_p30_today
+            name: P30
+            show_state: true
+          - entity: sensor.svotc_price_p80_today
+            name: P80
             show_state: true
     columns: 1
     square: false
@@ -119,9 +120,10 @@ sections:
           {# =========================
              SVOTC 3.0.0 / Core v1
              Safe values - current file set
+             Adapted for PI / cheap / price chain
              ========================= #}
 
-          {# Grundstatus #}
+          {# Basic status #}
 
           {% set mode = states('input_select.svotc_mode') %}
 
@@ -134,7 +136,7 @@ sections:
           'on') %}
 
 
-          {# Temperatur / offset #}
+          {# Temperature / offset #}
 
           {% set req = states('input_number.svotc_requested_offset_c') |
           float(0) %}
@@ -142,31 +144,75 @@ sections:
           {% set app = states('input_number.svotc_applied_offset_c') | float(0)
           %}
 
-          {% set delta = req - app %}
+          {% set delta = (req - app) | round(2) %}
 
 
           {% set indoor_s = states('sensor.svotc_indoor_temperature') %}
 
           {% set outdoor_s = states('sensor.svotc_outdoor_temperature') %}
 
+          {% set virt_s = states('sensor.svotc_virtual_outdoor_temperature') %}
+
           {% set target_s = states('input_number.svotc_comfort_temperature') %}
+
+
+          {% set indoor_ok = indoor_s not in
+          ['unknown','unavailable','none','None',''] %}
+
+          {% set outdoor_ok = outdoor_s not in
+          ['unknown','unavailable','none','None',''] %}
+
+          {% set virt_ok = virt_s not in
+          ['unknown','unavailable','none','None',''] %}
+
+          {% set target_ok = target_s not in
+          ['unknown','unavailable','none','None',''] %}
 
 
           {% set indoor = indoor_s | float(0) %}
 
+          {% set outdoor = outdoor_s | float(0) %}
+
+          {% set virt = virt_s | float(0) %}
+
           {% set target = target_s | float(21) %}
 
 
-          {# Pris #}
+          {# Price #}
 
           {% set price_s = states('sensor.svotc_current_price') %}
-
-          {% set price = price_s | float(0) %}
 
           {% set price_ok = price_s not in
           ['unknown','unavailable','none','None',''] %}
 
-          {% set forward = states('sensor.svotc_forward_price_state') %}
+          {% set price = price_s | float(0) %}
+
+          {% set forward = states('sensor.svotc_forward_price_state') | trim %}
+
+          {% set price_chain =
+          is_state('input_boolean.svotc_price_chain_active', 'on') %}
+
+          {% set cheap_enabled =
+          is_state('input_boolean.svotc_cheap_boost_enabled','on') %}
+
+          {% set cheap_offset =
+          states('input_number.svotc_cheap_boost_offset_c') | float(0) %}
+
+          {% set brake_hold = states('input_number.svotc_brake_hold_offset_c') |
+          float(0) %}
+
+          {% set price_floor = states('input_number.svotc_price_floor_sek') |
+          float(0) %}
+
+          {% set p30_s = states('sensor.svotc_price_p30_today') %}
+
+          {% set p80_s = states('sensor.svotc_price_p80_today') %}
+
+          {% set p30_ok = p30_s not in
+          ['unknown','unavailable','none','None',''] %}
+
+          {% set p80_ok = p80_s not in
+          ['unknown','unavailable','none','None',''] %}
 
 
           {# Guard / latches #}
@@ -204,49 +250,51 @@ sections:
           {% set over_off_at = (target + over_off_delta) | round(2) %}
 
 
-          {% set virt = states('sensor.svotc_virtual_outdoor_temperature') %}
+          {# PI / control analysis #}
+
+          {% set pi_i = states('input_number.svotc_pi_integral_state') |
+          float(0) %}
+
+          {% set temp_error = (target - indoor) | round(2) if indoor_ok and
+          target_ok else none %}
 
 
-          #### 📊 Statusöversikt
+          {% set control_bucket = 'neutral' %}
+
+          {% if reason in
+          ['COMFORT_HEAT','COMFORT_GUARD','CHEAP_PI_HEAT','PRICE_CHEAP_IDLE'] %}
+            {% set control_bucket = 'heat' %}
+          {% elif reason in
+          ['COMFORT_BRAKE','OVERTEMP_PI_BRAKE','PRICE_BRAKE','CHEAP_PI_BRAKE']
+          %}
+            {% set control_bucket = 'brake' %}
+          {% endif %}
 
 
-          **Driftsläge:** `{{ mode }}`  
+          #### 📊 Status Overview
 
-          **Strategi:** `{{ reason }}`  
 
-          **Systemhälsa:** {% if inputs_ok %}✅ OK{% else %}⚠️ PROBLEM{% endif
+          **Operating mode:** `{{ mode }}`  
+
+          **Strategy:** `{{ reason }}`  
+
+          **System health:** {% if inputs_ok %}✅ OK{% else %}⚠️ PROBLEM{% endif
           %}  
 
-          **Prisdata:** {% if price_ok %}✅ OK{% else %}⚠️ SAKNAS{% endif %}
+          **Price data:** {% if price_ok %}✅ OK{% else %}⚠️ MISSING{% endif %}  
 
+          **Price phase:** `{% if forward != '' %}{{ forward }}{% else
+          %}unknown{% endif %}`  
 
-          ---
-
-
-          #### 🧠 Sammanfattning (varför?)
-
-
-          **Reason:** `{{ reason }}`
-
-
-          {% if reason == 'PRICE_BRAKE' %}
-
-          💡 Bromsar värme eftersom prisläget är dyrt nu  
-
-          - Pris: {% if price_ok %}{{ price }}{% else %}—{% endif %}
-
-          - Forward state: `{{ forward }}`
-
-          - Begärd offset: {{ req | round(2) }}°C
-
-          - Tillämpad offset: {{ app | round(2) }}°C
-
+          **Price chain:** {% if price_chain %}🔗 Active{% else %}⚪ Inactive{%
+          endif %}
 
           {% elif reason == 'PRICE_PREBRAKE' %}
 
           🟠 Förbromsar inför kommande dyrperiod  
 
-          - Pris nu: {% if price_ok %}{{ price }}{% else %}—{% endif %}
+
+          #### 🧠 Summary (why?)
 
           - Forward state: `{{ forward }}`
 
@@ -255,77 +303,174 @@ sections:
           - Tillämpad offset: {{ app | round(2) }}°C
 
 
-          {% elif reason == 'PRICE_HOLD' %}
+          🔴 Active price brake. The system holds a positive brake offset
+          because the current price is high or an expensive block is
+          approaching.  
 
-          🟡 Håller kvar broms genom kort mellanlucka  
-
-          - Pris nu: {% if price_ok %}{{ price }}{% else %}—{% endif %}
-
-          - Forward state: `{{ forward }}`
-
-          - Begärd offset: {{ req | round(2) }}°C
-
-          - Tillämpad offset: {{ app | round(2) }}°C
-
-
-          {% elif reason == 'PRICE_CHEAP' %}
-
-          🟢 Billig el — systemet förvärmer  
-
-          - Pris: {% if price_ok %}{{ price }}{% else %}—{% endif %}
+          - Price: {% if price_ok %}{{ price }}{% else %}—{% endif %} SEK/kWh
 
           - Forward state: `{{ forward }}`
 
-          - Begärd offset: {{ req | round(2) }}°C
+          - Requested offset: **{{ req | round(2) }}°C**
 
-          - Tillämpad offset: {{ app | round(2) }}°C
+          - Applied offset: **{{ app | round(2) }}°C**
+
+
+          {% elif reason in
+          ['CHEAP_PI_HEAT','CHEAP_PI_BRAKE','PRICE_CHEAP_IDLE'] %}
+
+          🟢 Cheap/preheat active. Electricity is cheap and the system uses
+          cheap logic and/or PI adjustment.  
+
+          - Price: {% if price_ok %}{{ price }}{% else %}—{% endif %} SEK/kWh
+
+          - Cheap boost: {% if cheap_enabled %}On{% else %}Off{% endif %}
+
+          - Cheap offset target: **-{{ cheap_offset | round(2) }}°C**
+
+          - Requested offset: **{{ req | round(2) }}°C**
+
+          - Applied offset: **{{ app | round(2) }}°C**
+
+
+          {% elif reason == 'COMFORT_HEAT' %}
+
+          🟢 Comfort PI heating. The PI controller is trying to raise the
+          temperature toward the setpoint.  
+
+          - Indoor: {% if indoor_ok %}{{ indoor | round(2) }}{% else %}—{% endif
+          %}°C
+
+          - Target: {% if target_ok %}{{ target | round(2) }}{% else %}—{% endif
+          %}°C
+
+          - Temperature error: {% if temp_error is not none %}{{ temp_error
+          }}°C{% else %}—{% endif %}
+
+          - PI integral: **{{ pi_i | round(2) }}**
+
+          - Requested offset: **{{ req | round(2) }}°C**
+
+          - Applied offset: **{{ app | round(2) }}°C**
+
+
+          {% elif reason == 'COMFORT_BRAKE' %}
+
+          🟠 Comfort PI braking. The PI controller considers the house above
+          setpoint and is dampening heat.  
+
+          - Indoor: {% if indoor_ok %}{{ indoor | round(2) }}{% else %}—{% endif
+          %}°C
+
+          - Target: {% if target_ok %}{{ target | round(2) }}{% else %}—{% endif
+          %}°C
+
+          - Temperature error: {% if temp_error is not none %}{{ temp_error
+          }}°C{% else %}—{% endif %}
+
+          - PI integral: **{{ pi_i | round(2) }}**
+
+          - Requested offset: **{{ req | round(2) }}°C**
+
+          - Applied offset: **{{ app | round(2) }}°C**
+
+
+          {% elif reason == 'COMFORT_IDLE' %}
+
+          ⚪ Comfort mode is near setpoint. The PI controller requires no
+          significant heating or braking right now.  
+
+          - Indoor: {% if indoor_ok %}{{ indoor | round(2) }}{% else %}—{% endif
+          %}°C
+
+          - Target: {% if target_ok %}{{ target | round(2) }}{% else %}—{% endif
+          %}°C
+
+          - Temperature error: {% if temp_error is not none %}{{ temp_error
+          }}°C{% else %}—{% endif %}
+
+          - PI integral: **{{ pi_i | round(2) }}**
+
+          - Requested offset: **{{ req | round(2) }}°C**
+
+          - Applied offset: **{{ app | round(2) }}°C**
+
+
+          {% elif reason == 'COMFORT_SENSOR_MISSING' %}
+
+          ⚠️ Comfort mode cannot PI-control because the indoor temperature is
+          missing.
 
 
           {% elif reason == 'COMFORT_GUARD' %}
 
-          🛡️ Komfort prioriteras — inne är för kallt  
+          🛡️ Comfort guard active. Smart mode has switched to heat priority
+          because indoor is too cold.  
 
-          - Inne: {{ indoor | round(2) }}°C
+          - Indoor: {% if indoor_ok %}{{ indoor | round(2) }}{% else %}—{% endif
+          %}°C
 
-          - Aktiverar under: {{ comfort_on_at }}°C
+          - Activates below: **{{ comfort_on_at }}°C**
 
-          - Offset: {{ app | round(2) }}°C
+          - Releases above: **{{ comfort_off_at }}°C**
+
+          - PI integral: **{{ pi_i | round(2) }}**
+
+          - Applied offset: **{{ app | round(2) }}°C**
 
 
-          {% elif reason == 'OVERTEMP_BRAKE' %}
+          {% elif reason == 'OVERTEMP_PI_BRAKE' %}
 
-          🔥 Bromsar extra eftersom inne är för varmt  
+          🔥 Over-temperature protection with PI brake. The house is too warm
+          and the system is actively braking.  
 
-          - Inne: {{ indoor | round(2) }}°C
+          - Indoor: {% if indoor_ok %}{{ indoor | round(2) }}{% else %}—{% endif
+          %}°C
 
-          - Aktiverar över: {{ over_on_at }}°C
+          - Activates above: **{{ over_on_at }}°C**
 
-          - Offset: {{ app | round(2) }}°C
+          - Releases below: **{{ over_off_at }}°C**
+
+          - PI integral: **{{ pi_i | round(2) }}**
+
+          - Applied offset: **{{ app | round(2) }}°C**
+
+
+          {% elif reason == 'OVERTEMP_STANDBY' %}
+
+          🟠 Over-temperature mode is active but PI requires no actual brake
+          right now.  
+
+          - Indoor: {% if indoor_ok %}{{ indoor | round(2) }}{% else %}—{% endif
+          %}°C
+
+          - Releases below: **{{ over_off_at }}°C**
+
+          - PI integral: **{{ pi_i | round(2) }}**
+
+          - Applied offset: **{{ app | round(2) }}°C**
 
 
           {% elif reason == 'NEUTRAL' %}
 
-          ✅ Normal drift — ingen justering
+          ✅ Neutral operation. Neither price logic, guard nor PI requires any
+          significant adjustment.
 
 
           {% elif reason == 'OFF' %}
 
-          ⚫ Systemet är avstängt
-
-
-          {% elif reason == 'PASS_THROUGH' %}
-
-          📊 PassThrough — ingen styrning
+          ⚫ System is off. Offset moves toward 0.
 
 
           {% elif reason == 'FAIL_SAFE' %}
 
-          ⚠️ Fail-safe — indatasystemet är inte friskt, offset går mot 0
+          ⚠️ Fail-safe active. Inputs are not healthy and offset is forced
+          toward 0.
 
 
           {% else %}
 
-          ❓ Okänd strategi: {{ reason }}
+          ❓ Unknown strategy: `{{ reason }}`
 
           {% endif %}
 
@@ -333,50 +478,67 @@ sections:
           ---
 
 
-          #### 🌡️ Temperaturer
+          #### 🌡️ Temperatures
 
 
-          | Sensor | Värde | Status |
+          | Sensor | Value | Status |
 
           |--------|-------|--------|
 
-          | 🏠 Inne | **{{ indoor_s }}°C** | Mål: {{ target_s }}°C |
+          | 🏠 Indoor | **{% if indoor_ok %}{{ indoor | round(2) }}{% else %}—{%
+          endif %}°C** | Target: {% if target_ok %}{{ target | round(2) }}{%
+          else %}—{% endif %}°C |
 
-          | 🌡️ Ute (verklig) | **{{ outdoor_s }}°C** | {% if outdoor_s not in
-          ['unknown','unavailable','none','None',''] %}OK{% else %}⚠️ Saknas{%
-          endif %} |
+          | 🌡️ Outdoor (actual) | **{% if outdoor_ok %}{{ outdoor | round(2)
+          }}{% else %}—{% endif %}°C** | {% if outdoor_ok %}OK{% else %}⚠️
+          Missing{% endif %} |
 
-          | 🎯 Virtuell (→VP) | **{{ virt }}°C** | Offset: {{
-          states('input_number.svotc_applied_offset_c') }}°C |
+          | 🎯 Virtual (→ HP) | **{% if virt_ok %}{{ virt | round(2) }}{% else
+          %}—{% endif %}°C** | Offset: {{ app | round(2) }}°C |
 
 
-          **Offsetstatus:**  
+          **Offset status**  
 
-          Begärd: **{{ req | round(2) }}°C**  
+          Requested: **{{ req | round(2) }}°C**  
 
-          Tillämpad: **{{ app | round(2) }}°C**{% if delta | abs > 0.05 %} →
-          Rampar: {{ delta | round(2) }}°C{% endif %}
+          Applied: **{{ app | round(2) }}°C**  
+
+          Control type: {% if control_bucket == 'heat' %}🟢 Heat{% elif
+          control_bucket == 'brake' %}🟠 Brake{% else %}⚪ Neutral{% endif %}
+
+          {% if delta | abs > 0.05 %}  
+
+          Ramping remaining: **{{ delta }}°C**
+
+          {% endif %}
 
 
           ---
 
 
-          #### 💰 Prisstyrning
+          #### 💰 Price Control
 
 
-          **Aktuellt pris:** {% if price_ok %}{{ price_s }} SEK/kWh{% else %}—{%
-          endif %}
+          **Current price:** {% if price_ok %}**{{ price | round(4) }}
+          SEK/kWh**{% else %}—{% endif %}
 
 
-          **Forward price state:**  
+          **Price levels today**  
 
-          {% if forward == 'cheap' %}🟢 Billig
+          P30: {% if p30_ok %}{{ p30_s }}{% else %}—{% endif %}  
 
-          {% elif forward == 'prebrake' %}🟠 Förbroms
+          P80: {% if p80_ok %}{{ p80_s }}{% else %}—{% endif %}  
 
-          {% elif forward == 'hold' %}🟡 Hold
+          Price floor: {{ price_floor | round(2) }} SEK/kWh
 
-          {% elif forward == 'brake' %}🔴 Dyr
+
+          **Forward price state**  
+
+          {% if forward == 'cheap' %}🟢 Cheap
+
+          {% elif forward == 'prebrake' %}🟠 Prebrake
+
+          {% elif forward == 'brake' %}🔴 Brake
 
           {% elif forward == 'neutral' %}⚪ Neutral
 
@@ -385,93 +547,102 @@ sections:
           {% endif %}
 
 
-          **Billigpris-boost:** {% if
-          is_state('input_boolean.svotc_cheap_boost_enabled','on') %}✅ På{% else
-          %}⚪ Av{% endif %}  
+          **Cheap boost:** {% if cheap_enabled %}✅ On{% else %}⚪ Off{% endif
+          %}  
 
-          **Billigpris-offset:** {{
-          states('input_number.svotc_cheap_boost_offset_c') }}°C  
+          **Cheap offset:** -{{ cheap_offset | round(2) }}°C  
 
-          **Max bromsoffset:** {{
-          states('input_number.svotc_brake_hold_offset_c') }}°C  
+          **Brake hold offset:** +{{ brake_hold | round(2) }}°C  
 
-          **Prisgolv:** {{ states('input_number.svotc_price_floor_sek') }}
-          SEK/kWh
+          **Price chain active:** {% if price_chain %}Yes{% else %}No{% endif %}
 
 
           ---
 
 
-          #### 🛡️ Komfortskydd
+          #### 🛡️ Comfort Guard
 
 
-          **Status:** {% if comfort_latch %}🟢 AKTIV{% else %}⚪ Standby{% endif
+          **Status:** {% if comfort_latch %}🟢 ACTIVE{% else %}⚪ Standby{% endif
           %}
 
 
-          **Mål:** **{{ target | round(2) }}°C**  
+          **Target:** **{{ target | round(2) }}°C**  
 
-          **Inne:** **{{ indoor | round(2) }}°C**
-
-
-          ❄️ **Aktiverar** om inne ≤ **{{ comfort_on_at }}°C**  
-
-          🔥 **Släpper** om inne ≥ **{{ comfort_off_at }}°C**
+          **Indoor:** **{% if indoor_ok %}{{ indoor | round(2) }}{% else %}—{%
+          endif %}°C**
 
 
-          {% if comfort_latch %}
-            {% set left = (comfort_off_at - indoor) | round(2) %}
-            {% if left > 0 %}
-          ➡️ Kvar tills guard släpper: **{{ left }}°C**
+          ❄️ **Activates** if indoor ≤ **{{ comfort_on_at }}°C**  
+
+          🔥 **Releases** if indoor ≥ **{{ comfort_off_at }}°C**
+
+
+          {% if indoor_ok %}
+            {% if comfort_latch %}
+              {% set left = (comfort_off_at - indoor) | round(2) %}
+              {% if left > 0 %}
+          ➡️ Remaining until guard releases: **{{ left }}°C**
+              {% else %}
+          ➡️ Above release threshold by **{{ (-left) | round(2) }}°C**
+              {% endif %}
             {% else %}
-          ➡️ Över släppgränsen med **{{ (-left) | round(2) }}°C**
+              {% set left = (indoor - comfort_on_at) | round(2) %}
+              {% if left > 0 %}
+          ➡️ Remaining until guard activates: **{{ left }}°C**
+              {% else %}
+          ➡️ Below activation threshold by **{{ (-left) | round(2) }}°C**
+              {% endif %}
             {% endif %}
           {% else %}
-            {% set left = (indoor - comfort_on_at) | round(2) %}
-            {% if left > 0 %}
-          ➡️ Kvar tills guard aktiverar: **{{ left }}°C**
-            {% else %}
-          ➡️ Under aktiveringsgränsen med **{{ (-left) | round(2) }}°C**
-            {% endif %}
+
+          ➡️ Cannot calculate guard distance because indoor temperature is
+          missing
+
           {% endif %}
 
 
           ---
 
 
-          #### 🔥 Övertemperaturbroms
+          #### 🔥 Over-Temperature Brake
 
 
-          **Status:** {% if overtemp_latch %}🟠 AKTIV{% else %}⚪ Standby{% endif
-          %}
+          **Status:** {% if overtemp_latch %}🟠 ACTIVE{% else %}⚪ Standby{%
+          endif %}
 
 
-          🌡️ **Aktiverar** om inne ≥ **{{ over_on_at }}°C**  
+          🌡️ **Activates** if indoor ≥ **{{ over_on_at }}°C**  
 
-          🧊 **Släpper** om inne ≤ **{{ over_off_at }}°C**
+          🧊 **Releases** if indoor ≤ **{{ over_off_at }}°C**
 
 
-          {% if overtemp_latch %}
-            {% set left = (indoor - over_off_at) | round(2) %}
-            {% if left > 0 %}
-          ➡️ Kvar tills överbroms släpper: **{{ left }}°C**
+          {% if indoor_ok %}
+            {% if overtemp_latch %}
+              {% set left = (indoor - over_off_at) | round(2) %}
+              {% if left > 0 %}
+          ➡️ Remaining until over-brake releases: **{{ left }}°C**
+              {% else %}
+          ➡️ Below release threshold by **{{ (-left) | round(2) }}°C**
+              {% endif %}
             {% else %}
-          ➡️ Under släppgränsen med **{{ (-left) | round(2) }}°C**
+              {% set left = (over_on_at - indoor) | round(2) %}
+              {% if left > 0 %}
+          ➡️ Remaining until over-brake activates: **{{ left }}°C**
+              {% else %}
+          ➡️ Above activation threshold by **{{ (-left) | round(2) }}°C**
+              {% endif %}
             {% endif %}
           {% else %}
-            {% set left = (over_on_at - indoor) | round(2) %}
-            {% if left > 0 %}
-          ➡️ Kvar tills överbroms aktiverar: **{{ left }}°C**
-            {% else %}
-          ➡️ Över aktiveringsgränsen med **{{ (-left) | round(2) }}°C**
-            {% endif %}
-          {% endif %}
+
+          ➡️ Cannot calculate over-temperature distance because indoor
+          temperature is missing
 
 
           ---
 
 
-          #### 🧩 Motorstatus
+          #### 🧩 Engine Status
 
 
           **Requested offset:** `{{
@@ -483,15 +654,38 @@ sections:
           **Reason:** `{{ states('input_text.svotc_reason_code') }}`  
 
           **Forward price state:** `{{
-          states('sensor.svotc_forward_price_state') }}`
+          states('sensor.svotc_forward_price_state') }}`  
+
+          **PI integral state:** `{{
+          states('input_number.svotc_pi_integral_state') }}`
 
 
           ---
 
 
-          *Uppdaterad: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}*  
+          *Updated: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}*  
 
           *Version: {{ version }}*
+      - type: custom:mini-graph-card
+        name: 🌡️ Temperaturöversikt (24h)
+        hours_to_show: 24
+        points_per_hour: 4
+        line_width: 2
+        font_size: 75
+        animate: true
+        show:
+          labels: true
+          legend: true
+          icon: false
+        entities:
+          - entity: sensor.svotc_outdoor_temperature
+            name: Utomhus (verklig)
+            color: "#3498db"
+            show_state: true
+          - entity: sensor.svotc_virtual_outdoor_temperature
+            name: Virtuell ute (→VP)
+            color: "#9b59b6"
+            show_state: true
 badges:
   - type: entity
     entity: person.johan
