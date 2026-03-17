@@ -22,6 +22,76 @@ Several previous subsystems have been removed or merged into a smaller and more 
 
 ## What has changed?
 
+## 🔧 Patch Summary – Key Differences (2.x → 3.0.0)
+
+### Control architecture
+- Replaced multi-layer system (Price FSM, brake phases, learning) with a **single-engine design**
+- All decisions are now made in one central control loop
+
+### PI-based temperature control
+- Introduced **PI controller (Proportional + Integral)**
+- Used in:
+  - `Comfort` mode  
+  - Comfort guard  
+  - Overtemperature braking  
+- Integral state is persisted via `input_number.svotc_pi_integral_state`
+- Deadband added to prevent oscillation
+- Derivative (D) term intentionally not used
+
+### Price handling
+- Removed `20_price_fsm.yaml`
+- Introduced simplified **forward price state**:
+  - `cheap`
+  - `neutral`
+  - `prebrake`
+  - `hold` (bridge between brake blocks)
+  - `brake`
+- `prebrake` is no longer exposed as a separate **reason code**
+- Both `brake` and `prebrake` map to:
+  - `PRICE_BRAKE` (reason level)
+
+### Offset control
+- Clear separation between:
+  - `requested_offset`
+  - `applied_offset`
+- Added **rate limiting** to avoid aggressive changes
+- Smoother behavior towards heat pump
+
+### Protection logic
+- Integrated directly into engine:
+  - Comfort guard  
+  - Overtemperature protection  
+  - Fail-safe  
+- Strict priority order enforced
+
+### Fail-safe behavior
+- Triggered when inputs are invalid/unavailable
+- Forces safe neutral operation
+- Optional notification after 5 minutes (`30_notify.yaml`)
+
+### State handling & restart behavior
+- Deterministic startup:
+  - Reason reset to `INIT`
+  - PI integral reset
+  - Latches cleared
+- No dependency on historical runtime state
+
+### File structure
+- Removed:
+  - `20_price_fsm.yaml`
+  - `22_engine.yaml`
+  - `30_learning.yaml`
+- Replaced with:
+  - `20_engine.yaml` (unified engine)
+- Reduced total system complexity
+
+### Configuration philosophy
+- Reduced number of user-facing tuning parameters
+- Focus on:
+  - Simplicity  
+  - Predictability  
+  - “Works out of the box” behavior
+
 ### Previous structure (2.x.x)
 
 ```text
