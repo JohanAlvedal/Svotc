@@ -2,7 +2,7 @@
 
 ---
 
-# 💥 Breaking Changes – SVOTC 3.0.0 (Beta)
+# 💥 Breaking Changes – SVOTC 3.0.0
 
 > ⚠️ **BETA SOFTWARE — USE AT YOUR OWN RISK**
 >
