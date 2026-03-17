@@ -3,7 +3,7 @@
 ---
 # 💥 Breaking Changes – SVOTC 3.0.0
 
-> ⚠️ **BETA-MJUKVARA — ANVÄND PÅ EGEN RISK**
+> ⚠️ **ANVÄND PÅ EGEN RISK**
 > 
 > SVOTC 3.0.0 genomgår aktiv betatestning. Funktioner kan ändras utan förvarning, buggar kan förekomma och konfigurationsdetaljer kan ändras i framtida releaser. Använd inte i produktion om du inte fullt ut förstår riskerna. **Du är själv ansvarig för eventuella konsekvenser som påverkar ditt värmesystem.**
 
