@@ -6,7 +6,7 @@
 
 > ⚠️ **USE AT YOUR OWN RISK**
 >
-> SVOTC 3.0.0 is in active beta testing. Features may change without notice, bugs may occur, and configuration details may change in future releases. Do not use in production unless you fully understand the risks. **You are responsible for any consequences affecting your heating system.**
+> SVOTC 3.0.0 is under active beta testing. Features may change without prior notice, bugs may occur, and configuration details may change in future releases. Do not use in production unless you fully understand the risks. **You are responsible for any consequences affecting your heating system.**
 
 ---
 
@@ -16,11 +16,11 @@ The biggest change in SVOTC 3.0.0 is that the system has been **simplified into 
 
 This is **not a drop-in upgrade from 2.x.x**.
 
-Several earlier subsystems have been removed or merged into a smaller and more transparent core. The old 2.x structure and logic should not be reused without review.
+Several previous subsystems have been removed or merged into a smaller and more transparent core. The old 2.x structure and logic should not be reused without review.
 
 ---
 
-## What changed?
+## What has changed?
 
 ### Previous structure (2.x.x)
 
@@ -38,13 +38,13 @@ Several earlier subsystems have been removed or merged into a smaller and more t
 
 ```text
 /config/packages/svotc/
-├── 00_helpers.yaml   ← User controls and internal helper state
-├── 10_sensors.yaml   ← Temperatures, price thresholds, price state, health
-├── 20_engine.yaml    ← Main control loop, requested/applied offset, reason code
-└── 30_notify.yaml    ← Optional FAIL_SAFE notification
+├── 00_helpers.yaml  ← User controls and internal helper states
+├── 10_sensors.yaml  ← Temperatures, price thresholds, price states, health
+├── 20_engine.yaml   ← Main control loop, requested/applied offset, reason code
+└── 30_notify.yaml   ← Optional FAIL_SAFE notification
 ```
 
-> ✅ All four files are required. They depend on each other.
+> ✅ The first three files are required. `30_notify.yaml` is optional but recommended.
 
 ---
 
@@ -52,7 +52,7 @@ Several earlier subsystems have been removed or merged into a smaller and more t
 
 ### 1. Remove old 2.x package files
 
-Remove or archive older files such as:
+Remove or archive old files such as:
 
 ```text
 20_price_fsm.yaml
@@ -61,40 +61,46 @@ Remove or archive older files such as:
 40_notify.yaml
 ```
 
-If you are migrating from an older single-file version, also remove or archive:
+If you previously used a single-file setup, also remove:
 
 ```text
 /config/packages/svotc.yaml
 ```
+
+---
+
 ### Clean up old entities (recommended)
 
-If you previously ran SVOTC 2.x.x, some template sensors may still exist in the Home Assistant entity registry.
+If you previously ran SVOTC 2.x.x, some template sensors may still exist in Home Assistant’s entity registry.
 
-If these entities remain, Home Assistant may create new sensors with names such as:
+If left behind, Home Assistant may create duplicate entities like:
 
-sensor.svotc_virtual_outdoor_temperature_2  
-sensor.svotc_forward_price_state_2  
+`sensor.svotc_virtual_outdoor_temperature_2`
+`sensor.svotc_forward_price_state_2`
 
-To avoid this, remove the old entities before starting SVOTC 3.0.0.
+To avoid this, remove old entities before starting SVOTC 3.0.0.
 
-Steps:
+**Steps:**
 
 1. Go to **Settings → Devices & Services → Entities**
 2. Search for `svotc`
-3. Remove entities that belong to the old 2.x installation
+3. Remove entities belonging to the old 2.x setup
 4. Restart Home Assistant
 5. Start SVOTC 3.0.0
 
-This ensures the new sensors keep their correct names.
+This ensures correct naming for new sensors.
+
+---
+
 ### 2. Create the folder
 
 ```text
 /config/packages/svotc/
 ```
 
-### 3. Copy in the new Core v1 files
+---
 
-Copy these files into the folder:
+### 3. Copy the new Core v1 files
 
 ```text
 00_helpers.yaml
@@ -103,26 +109,30 @@ Copy these files into the folder:
 30_notify.yaml
 ```
 
-### 4. Check `configuration.yaml`
+---
 
-If you do not already use Home Assistant packages, add:
+### 4. Check `configuration.yaml`
 
 ```yaml
 homeassistant:
   packages: !include_dir_named packages
 ```
 
+---
+
 ### 5. Restart Home Assistant
 
-### 6. Reconfigure your source entities
+---
 
-After restart, set these helpers to match your system:
+### 6. Configure source entities
+
+Set these helpers after restart:
 
 * `input_text.svotc_source_indoor_temp`
 * `input_text.svotc_source_outdoor_temp`
 * `input_text.svotc_source_price`
 
-Example:
+**Example:**
 
 ```text
 sensor.indoor_temperature
@@ -130,14 +140,16 @@ sensor.outdoor_temperature
 sensor.nordpool_kwh_se3
 ```
 
-### 7. Verify that the new core is working
+---
 
-After restart, check:
+### 7. Verify system operation
 
-* `binary_sensor.svotc_inputs_healthy` → should be **ON**
-* `sensor.svotc_forward_price_state` → should show `neutral`, `cheap`, `prebrake`, `hold`, or `brake`
-* `input_text.svotc_reason_code` → should show `NEUTRAL` or another active reason
-* `sensor.svotc_virtual_outdoor_temperature` → should resolve correctly
+Check:
+
+* `binary_sensor.svotc_inputs_healthy` → **ON**
+* `sensor.svotc_forward_price_state` → `neutral`, `cheap`, `prebrake`, `hold (bridge between brake blocks)`, or `brake`
+* `input_text.svotc_reason_code` → e.g. `NEUTRAL`
+* `sensor.svotc_virtual_outdoor_temperature` → reasonable value
 
 ---
 
@@ -145,197 +157,174 @@ After restart, check:
 
 ### 1. Single-engine design
 
-SVOTC 3.0.0 replaces the older multi-layer control structure with a **single main engine**.
-The core also includes a lightweight PI-based temperature regulator used for Comfort mode and temperature protection.
+SVOTC 3.0.0 replaces the previous layered control system with a **single core engine**.
 
-Instead of relying on separate subsystems for:
+The core includes a lightweight PI controller for temperature regulation used in:
 
-* price FSM
-* brake phases
-* learning logic
+* Comfort mode
+* Comfort guard
+* Overtemperature protection
 
-the new core runs one central decision loop every minute.
+A central decision loop replaces:
+
+* Price FSM
+* Brake phases
+* Learning logic
 
 This makes the system:
 
-* easier to understand
-* easier to debug
-* easier to maintain
-* more predictable in day-to-day operation
+* Easier to understand
+* Easier to debug
+* Easier to maintain
+* More predictable
 
 ---
 
-### 2. Simpler file layout
+### 2. Simplified file structure
 
-SVOTC now uses only four core files.
-
-This reduces complexity and makes upgrades easier.
+Only four core files are used, reducing complexity and improving upgrade clarity.
 
 ---
 
-### 3. Clear separation between requested and applied offset
+### 3. Clear separation of requested vs applied offset
 
-SVOTC 3.0.0 clearly separates:
+* **Requested offset** — what the logic wants
+* **Applied offset** — what is actually sent after rate limiting
 
-* **requested offset** — what the logic wants to do
-* **applied offset** — what is actually sent after rate limiting
-
-This reduces abrupt behavior and makes the system gentler on heat pump hardware.
+This prevents abrupt changes and protects hardware.
 
 ---
 
-### 4. Simpler and more transparent price logic
+### 4. Transparent price logic
 
-Price logic is now easier to inspect and reason about.
-
-The forward price state is expressed directly as:
+Forward price state:
 
 * `cheap`
 * `neutral`
 * `prebrake`
-* `hold`
+* `hold` (bridge between brake blocks)
 * `brake`
 
-This replaces more complicated older flow structures.
+---
+
+### 5. Built-in protection mechanisms
+
+The engine handles:
+
+* Comfort guard
+* Overtemperature brake
+* Fail-safe
+
+All evaluated in strict priority order.
 
 ---
 
-### 5. Comfort and overtemperature protection are built directly into the core
+### Temperature control with PI regulation
 
-The engine now handles:
+SVOTC uses a simple **PI controller (Proportional + Integral)**.
 
-* Comfort protection when indoor temperature is too low
-* Overtemperature braking when indoor temperature is too high
-* Fail-safe behavior when inputs are missing
+Used in:
 
-These protections are evaluated in a strict priority order.
+* Comfort mode
+* Comfort guard
+* Overtemperature braking
 
----
+The controller:
 
-### Temperature control using PI regulation
+* Reacts instantly (P term)
+* Corrects over time (I term)
+* Uses a deadband for stability
 
-SVOTC 3.0.0 introduces a lightweight **PI regulator (Proportional + Integral)** for temperature control.
+Derivative (D) is not used since buildings are inherently slow systems.
 
-This regulator is used in:
-
-* **Comfort mode**
-* **Comfort guard** during Smart mode
-* **Overtemperature braking**
-
-The regulator calculates an offset based on the difference between the current indoor temperature and the configured comfort target.
-
-The proportional term reacts immediately to the temperature error, while the integral term gradually compensates for persistent deviations over time.
-
-A small deadband around the target temperature prevents constant adjustments caused by tiny sensor fluctuations.
-
-The PI controller works together with SVOTC’s ramp limiting between **requested offset** and **applied offset**, ensuring that changes happen gradually and remain gentle on the heat pump's behavior.
-
-A derivative term (D) is intentionally not used. Buildings already behave as slow thermal systems and PI control provides stable regulation without unnecessary complexity.
-
-These protections are evaluated in a strict priority order.
+PI works together with ramp limiting to ensure smooth behavior.
 
 ---
 
-### 6. Simpler notification model
+### 6. Simplified notification model
 
-The new core includes an optional notification if the system remains in `FAIL_SAFE` for at least 5 minutes.
-
-This is intentionally simpler than earlier notify/diagnostic layers.
+A notification can be triggered if the system remains in `FAIL_SAFE` for more than 5 minutes.
 
 ---
 
-## Other important changes in 3.0.0
+## Other important changes
 
-* `20_price_fsm.yaml` is no longer used
-* `22_engine.yaml` has been replaced by `20_engine.yaml`
-* `30_learning.yaml` is no longer part of the core
-* `40_notify.yaml` has been replaced by a smaller `30_notify.yaml`
-* operating modes are now focused on:
+* `20_price_fsm.yaml` removed
+* `22_engine.yaml` replaced
+* `30_learning.yaml` removed
+* `40_notify.yaml` replaced
 
-  * `Off`
-  * `Smart`
-  * `Comfort`
-  * `PassThrough`
+Operating modes:
+
+* `Off`
+* `Smart`
+* `Comfort`
+* `PassThrough`
 
 ---
 
 ## Why this change?
 
-The new Core v1 structure is designed to make SVOTC:
+Core v1 is designed to be:
 
-* **cleaner** — fewer moving parts
-* **safer** — less aggressive offset behavior
-* **more hardware-friendly** — smoother output changes
-* **easier to troubleshoot** — clearer logic and fewer internal layers
-* **easier to maintain** — simpler architecture for future releases
+* **Cleaner**
+* **Safer**
+* **More hardware-friendly**
+* **Easier to debug**
+* **Easier to maintain**
 
-The goal of 3.0.0 is not to add more complexity.
-
-The goal is to make the core behavior more stable, readable, and reliable.
+The goal is stability — not added complexity.
 
 ---
+
 ### Designed for simplicity
 
-SVOTC 3.0.0 intentionally avoids large numbers of advanced tuning parameters.
+SVOTC 3.0.0 intentionally avoids exposing too many advanced parameters.
 
-Earlier versions exposed many internal controls and experimental features.  
-While powerful, this also made the system harder to configure, harder to debug, and easier to misconfigure.
+In most cases, you only need to configure:
 
-The new Core v1 focuses on **simple and predictable behaviour**.
+* Indoor temperature
+* Outdoor temperature
+* Electricity price
+* Comfort target
 
-Most users only need to configure:
+The system handles:
 
-* indoor temperature source
-* outdoor temperature source
-* electricity price source
-* comfort temperature
+* Price response
+* Brake behavior
+* Comfort protection
+* Overtemperature protection
 
-The core logic then handles:
-
-* price response
-* braking behaviour
-* comfort protection
-* overtemperature protection
-
-automatically.
-
-This means that **SVOTC requires very little manual tuning** in normal use.
-
-The design goal is that the system should work well **out of the box**, without requiring users to understand the internal control logic.
+👉 **Works out of the box**
 
 ---
 
 ## Recommended migration approach
 
-When upgrading from 2.x.x:
-
 1. Remove old files
-2. Install the new 3.0.0 Core v1 files
-3. Set mode to `PassThrough` first
-4. Verify all source mappings
-5. Confirm `binary_sensor.svotc_inputs_healthy` is ON
-6. Confirm `sensor.svotc_virtual_outdoor_temperature` behaves correctly
-7. Switch to `Smart` only after verification
+2. Install Core v1
+3. Set mode to `PassThrough`
+4. Verify inputs
+5. Check sensors
+6. Switch to `Smart`
 
 ---
 
 ## Beta reminder
 
-SVOTC controls your heat pump indirectly through a virtual outdoor temperature.
+SVOTC controls your heat pump indirectly.
 
-Even though the new core is simpler and more stable, incorrect configuration can still affect:
+Misconfiguration may affect:
 
-* indoor comfort
-* heat pump cycling behavior
-* overall system efficiency
+* Comfort
+* Operation
+* Efficiency
 
-Always:
+Recommendations:
 
-* test in **PassThrough** first
-* monitor `input_text.svotc_reason_code`
-* keep a manual fallback available during first deployment
-
-Report bugs through GitHub Issues.
+* Test in `PassThrough`
+* Monitor `reason_code`
+* Keep a fallback ready
 
 ---
 
