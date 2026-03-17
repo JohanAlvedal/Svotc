@@ -1,7 +1,7 @@
 [🇸🇪 Svenska](readme_sv.md) | [🇬🇧 English](readme.md)
 
 ---
-# 💥 Breaking Changes – SVOTC 3.0.0 (Beta)
+# 💥 Breaking Changes – SVOTC 3.0.0
 
 > ⚠️ **BETA-MJUKVARA — ANVÄND PÅ EGEN RISK**
 > 
