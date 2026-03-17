@@ -372,9 +372,8 @@ Systemet hanterar resten automatiskt.
 
 1. Ta bort gamla filer
 2. Installera Core v1
-4. Verifiera inputs
-5. Kontrollera sensors
-6. Växla till `Smart`
+3. Verifiera inputs
+4. Kontrollera sensors
 
 ---
 
@@ -395,6 +394,6 @@ Rekommendation:
 
 ---
 
-**Version:** SVOTC 3.0.0 Beta
+**Version:** SVOTC 3.0
 **Core:** Core v1
 **Licens:** MIT
