@@ -6,7 +6,7 @@
 
 > ⚠️ **USE AT YOUR OWN RISK**
 >
-> SVOTC 3.0.0 is under active beta testing. Features may change without prior notice, bugs may occur, and configuration details may change in future releases. Do not use in production unless you fully understand the risks. **You are responsible for any consequences affecting your heating system.**
+> SVOTC 3.0 Features may change without prior notice, bugs may occur, and configuration details may change in future releases. Do not use in production unless you fully understand the risks. **You are responsible for any consequences affecting your heating system.**
 
 ---
 
