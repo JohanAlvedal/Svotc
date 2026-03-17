@@ -6,7 +6,7 @@
 
 > ⚠️ **ANVÄND PÅ EGEN RISK**
 >
-> SVOTC 3.0.0 genomgår aktiv betatestning. Funktioner kan ändras utan föregående meddelande, buggar kan förekomma och konfigurationsdetaljer kan ändras i framtida releaser. Använd inte i produktion om du inte fullt ut förstår riskerna. **Du är själv ansvarig för eventuella konsekvenser som påverkar ditt värmesystem.**
+> SVOTC 3.0.0. Funktioner kan ändras utan föregående meddelande, buggar kan förekomma och konfigurationsdetaljer kan ändras i framtida releaser. Använd inte i produktion om du inte fullt ut förstår riskerna. **Du är själv ansvarig för eventuella konsekvenser som påverkar ditt värmesystem.**
 
 ---
 
