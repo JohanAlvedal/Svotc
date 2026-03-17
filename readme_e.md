@@ -394,6 +394,6 @@ Recommendations:
 
 ---
 
-**Version:** SVOTC 3.0.0 Beta
+**Version:** SVOTC 3.0
 **Core:** Core v1
 **License:** MIT
