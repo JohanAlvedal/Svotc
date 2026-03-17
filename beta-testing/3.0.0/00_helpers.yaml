@@ -1,0 +1,160 @@
+###############################################################################
+## SVOTC Core v1 - 00_helpers.yaml
+## User-facing controls and small internal state helpers.
+###############################################################################
+
+input_select:
+  svotc_mode:
+    name: SVOTC Mode
+    options:
+      - "Off"
+      - "Smart"
+      - "Comfort"
+    icon: mdi:tune
+
+input_number:
+  svotc_comfort_temperature:
+    name: Comfort temperature target
+    min: 15
+    max: 25
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+
+  svotc_comfort_guard_activate_below_c:
+    name: Comfort guard activate (below target)
+    min: 0.2
+    max: 3.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+
+  svotc_comfort_guard_release_below_c:
+    name: Comfort guard release (below target)
+    min: 0.1
+    max: 2.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+
+  svotc_overtemp_brake_activate_above_c:
+    name: Overtemperature brake activate (above target)
+    min: 0.2
+    max: 3.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+
+  svotc_overtemp_brake_release_above_c:
+    name: Overtemperature brake release (above target)
+    min: 0.1
+    max: 2.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+
+  svotc_comfort_boost_max_c:
+    name: Comfort guard boost max
+    min: 0
+    max: 5
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+
+  svotc_brake_hold_offset_c:
+    name: Brake hold offset
+    min: 0
+    max: 15
+    step: 0.5
+    mode: box
+    unit_of_measurement: "°C"
+
+  svotc_cheap_boost_offset_c:
+    name: Cheap boost offset
+    min: 0
+    max: 3
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+
+  svotc_price_floor_sek:
+    name: Minimum brake price
+    min: 0
+    max: 5
+    step: 0.05
+    mode: box
+    unit_of_measurement: "SEK/kWh"
+
+  svotc_max_delta_per_step_c:
+    name: Max offset per cycle
+    min: 0.1
+    max: 3.0
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+
+  svotc_requested_offset_c:
+    name: SVOTC Requested Offset
+    min: -20
+    max: 20
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-up
+
+  svotc_applied_offset_c:
+    name: SVOTC Applied Offset
+    min: -20
+    max: 20
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-lines
+
+  svotc_pi_integral_state:
+    name: SVOTC PI Integral State
+    min: -200
+    max: 200
+    step: 0.01
+    mode: box
+    unit_of_measurement: "state"
+    icon: mdi:chart-bell-curve-cumulative
+
+input_boolean:
+  svotc_cheap_boost_enabled:
+    name: Enable cheap boost
+    icon: mdi:piggy-bank
+
+  svotc_comfort_guard_latch:
+    name: SVOTC Comfort Guard Latch
+
+  svotc_overtemp_latch:
+    name: SVOTC Overtemp Latch
+
+  # Restart-safe chain flag written by engine, read by 10_sensors as
+  # fallback when sensor.svotc_forward_price_state is unknown/unavailable.
+  # Replaces the reason_code cross-file dependency (P1).
+  svotc_price_chain_active:
+    name: SVOTC Price chain active
+    icon: mdi:link-chain
+
+input_text:
+  svotc_source_indoor_temp:
+    name: Source entity - indoor temperature
+    max: 255
+
+  svotc_source_outdoor_temp:
+    name: Source entity - outdoor temperature
+    max: 255
+
+  svotc_source_price:
+    name: Source entity - electricity price
+    max: 255
+
+  svotc_source_notify:
+    name: Source entity - notify
+    max: 255
+
+  svotc_reason_code:
+    name: SVOTC Reason
+    max: 64

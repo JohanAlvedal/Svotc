@@ -289,17 +289,19 @@ sections:
           **Price chain:** {% if price_chain %}🔗 Active{% else %}⚪ Inactive{%
           endif %}
 
+          {% elif reason == 'PRICE_PREBRAKE' %}
 
-          ---
+          🟠 Förbromsar inför kommande dyrperiod  
 
 
           #### 🧠 Summary (why?)
 
+          - Forward state: `{{ forward }}`
 
-          **Reason:** `{{ reason }}`
+          - Begärd offset: {{ req | round(2) }}°C
 
+          - Tillämpad offset: {{ app | round(2) }}°C
 
-          {% if reason == 'PRICE_BRAKE' %}
 
           🔴 Active price brake. The system holds a positive brake offset
           because the current price is high or an expensive block is
@@ -635,8 +637,6 @@ sections:
 
           ➡️ Cannot calculate over-temperature distance because indoor
           temperature is missing
-
-          {% endif %}
 
 
           ---
