@@ -334,7 +334,6 @@ Driftlägen:
 * `Off`
 * `Smart`
 * `Comfort`
-* `PassThrough`
 
 ---
 
@@ -373,7 +372,6 @@ Systemet hanterar resten automatiskt.
 
 1. Ta bort gamla filer
 2. Installera Core v1
-3. Sätt `PassThrough`
 4. Verifiera inputs
 5. Kontrollera sensors
 6. Växla till `Smart`
