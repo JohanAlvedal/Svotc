@@ -1,4 +1,4 @@
-[🇸🇪 Svenska](readme_sv.md) | [🇬🇧 English](readme_e.md)
+[🇸🇪 Svenska](readme.md) | [🇬🇧 English](readme_e.md)
 
 ---
 
