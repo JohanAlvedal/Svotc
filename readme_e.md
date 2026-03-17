@@ -329,7 +329,6 @@ Operating modes:
 * `Off`
 * `Smart`
 * `Comfort`
-* `PassThrough`
 
 ---
 
@@ -373,10 +372,8 @@ The system handles:
 
 1. Remove old files
 2. Install Core v1
-3. Set mode to `PassThrough`
-4. Verify inputs
-5. Check sensors
-6. Switch to `Smart`
+3. Verify inputs
+4. Check sensors
 
 ---
 
