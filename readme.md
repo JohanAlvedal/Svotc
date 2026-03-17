@@ -4,7 +4,7 @@
 
 # 💥 Breaking Changes – SVOTC 3.0.0
 
-> ⚠️ **BETA SOFTWARE — USE AT YOUR OWN RISK**
+> ⚠️ **USE AT YOUR OWN RISK**
 >
 > SVOTC 3.0.0 is in active beta testing. Features may change without notice, bugs may occur, and configuration details may change in future releases. Do not use in production unless you fully understand the risks. **You are responsible for any consequences affecting your heating system.**
 
