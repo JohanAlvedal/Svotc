@@ -1,5 +1,5 @@
 ###############################################################################
-## SVOTC Core v1 - 10_sensors.yaml
+## SVOTC Core v1 - 10_sensors.yaml  [OPT-1: P30/P80 trigger 00:05, fps no tick]
 ## Readable template entities for source normalization, health, price state,
 ## and virtual outdoor temperature.
 ##
@@ -10,15 +10,6 @@
 ##                    OR in active brake chain and indoor >= target + 0.5°C (FIX-26)
 ##   prebrake       = next brake block within 15 min
 ##   neutral        = everything else
-##
-## Fixes in this file:
-##   FIX-25  next_brake_start uses (ts + slot_sec > now_ts) so the current
-##           slot is not invisible at hour boundaries.
-##   FIX-26  Thermal bridge: when indoor >= comfort_target + 0.5°C the
-##           bridge holds even if gap > brake_bridge_max_min. No new helpers
-##           needed — reads existing sensor.svotc_indoor_temperature and
-##           input_number.svotc_comfort_temperature. Falls back gracefully
-##           if indoor sensor is unknown/unavailable.
 ###############################################################################
 
 template:
@@ -35,11 +26,11 @@ template:
           {% else %}
             {% set outdoor = outdoor_s | float(0) %}
             {% set offset = offset_s | float(0) %}
-            {{ (outdoor + offset) | round(2) }}
+            {{ [25, [-25, (outdoor + offset)] | max] | min | round(2) }}
           {% endif %}
 
         attributes:
-          version: "3.0.0-Beta"
+          version: "3.0.0"
           core: "Core v1"
           file_set: "00_helpers,10_sensors,20_engine,30_notify"
 
@@ -67,6 +58,17 @@ template:
           {% set v = states(e) if e not in ['unknown','unavailable','none','None',''] else 'unknown' %}
           {{ v | float(default=none) }}
 
+  - trigger:
+      # P30/P80 ändras bara vid midnatt när raw_today byts ut.
+      # Triggas på 00:05 (nya priser finns då) + källbyte.
+      # Tidigare polling-sensorer — sparar ~95 onödiga omräkningar/dag.
+      - platform: time
+        at: "00:05:00"
+      - platform: state
+        entity_id:
+          - input_text.svotc_source_price
+
+    sensor:
       - name: SVOTC Price P30 Today
         unique_id: svotc_price_p30_today
         unit_of_measurement: "SEK/kWh"
@@ -130,134 +132,136 @@ template:
           - input_number.svotc_price_floor_sek
           - input_text.svotc_source_price
           - sensor.svotc_indoor_temperature
-      - platform: time_pattern
-        minutes: "/1"
+          - input_boolean.svotc_price_chain_active
+          - input_number.svotc_comfort_temperature
 
-    # sensor:
-    #   - name: SVOTC Forward Price State
-    #     unique_id: svotc_forward_price_state
-    #     state: >
-    #       {% set src = states('input_text.svotc_source_price') | trim %}
-    #       {% set price_s = states('sensor.svotc_current_price') %}
-    #       {% set p30_s = states('sensor.svotc_price_p30_today') %}
-    #       {% set p80_s = states('sensor.svotc_price_p80_today') %}
-    #       {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
+    sensor:
+      - name: SVOTC Forward Price State
+        unique_id: svotc_forward_price_state
+        state: >
+          {% set src = states('input_text.svotc_source_price') | trim %}
+          {% set price_s = states('sensor.svotc_current_price') %}
+          {% set p30_s = states('sensor.svotc_price_p30_today') %}
+          {% set p80_s = states('sensor.svotc_price_p80_today') %}
+          {% set floor = states('input_number.svotc_price_floor_sek') | float(0) %}
 
-    #       {% set src_ok   = src     not in ['unknown', 'unavailable', 'none', 'None', ''] %}
-    #       {% set price_ok = price_s not in ['unknown', 'unavailable', 'none', 'None', ''] %}
-    #       {% set p30_ok   = p30_s   not in ['unknown', 'unavailable', 'none', 'None', ''] %}
-    #       {% set p80_ok   = p80_s   not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+          {% set src_ok   = src     not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+          {% set price_ok = price_s not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+          {% set p30_ok   = p30_s   not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+          {% set p80_ok   = p80_s   not in ['unknown', 'unavailable', 'none', 'None', ''] %}
 
-    #       {% set raw_today    = state_attr(src, 'raw_today')    if src_ok else none %}
-    #       {% set raw_tomorrow = state_attr(src, 'raw_tomorrow') if src_ok else none %}
+          {% set raw_today    = state_attr(src, 'raw_today')    if src_ok else none %}
+          {% set raw_tomorrow = state_attr(src, 'raw_tomorrow') if src_ok else none %}
 
-    #       {% set raw_today_ok    = raw_today is sequence %}
-    #       {% set raw_tomorrow_ok = raw_tomorrow is sequence or raw_tomorrow is none %}
+          {% set raw_today_ok    = raw_today is sequence %}
+          {% set raw_tomorrow_ok = raw_tomorrow is sequence or raw_tomorrow is none %}
 
-    #       {% if not src_ok or not price_ok or not p30_ok or not p80_ok
-    #             or not raw_today_ok or not raw_tomorrow_ok %}
-    #         neutral
-    #       {% else %}
-    #         {% set price  = price_s | float(0) %}
-    #         {% set p30    = p30_s   | float(0) %}
-    #         {% set p80    = p80_s   | float(0) %}
-    #         {% set now_ts = as_timestamp(now()) %}
+          {% if not src_ok or not price_ok or not p30_ok or not p80_ok
+                or not raw_today_ok or not raw_tomorrow_ok %}
+            neutral
+          {% else %}
+            {% set price  = price_s | float(0) %}
+            {% set p30    = p30_s   | float(0) %}
+            {% set p80    = p80_s   | float(0) %}
+            {% set now_ts = as_timestamp(now()) %}
 
-    #         {% set prebrake_window_min  = 15 %}
-    #         {% set brake_bridge_max_min = 30 %}
-    #         {% set slot_sec             = 900 %}
-    #         {% set thermal_bridge_margin = 0.5 %}
+            {% set prebrake_window_min  = 15 %}
+            {% set brake_bridge_max_min = 30 %}
+            {% set slot_sec             = 900 %}
+            {% set thermal_bridge_margin = 0.5 %}
 
-    #         {# ── Omstarts-säkert prev_state ── #}
-    #         {% set prev_s  = states('sensor.svotc_forward_price_state') | lower %}
-    #         {% set reason  = states('input_text.svotc_reason_code') | lower %}
-    #         {% set prev_state = prev_s if prev_s not in ['unknown', 'unavailable', '']
-    #                             else ('brake' if reason in ['price_brake', 'price_prebrake'] else 'neutral') %}
-    #         {% set chain_active = prev_state in ['brake', 'prebrake'] %}
+            {# ── Omstarts-säkert prev_state ── #}
+            {# Använder input_boolean.svotc_price_chain_active som fallback i stället #}
+            {# för input_text.svotc_reason_code — bryter det cirkulära beroendet (P1). #}
+            {% set prev_s  = states('sensor.svotc_forward_price_state') | lower %}
+            {% set chain_fallback = is_state('input_boolean.svotc_price_chain_active', 'on') %}
+            {% set prev_state = prev_s if prev_s not in ['unknown', 'unavailable', '']
+                                else ('brake' if chain_fallback else 'neutral') %}
+            {% set chain_active = prev_state in ['brake', 'prebrake'] %}
 
-    #         {# ── Skanna prisblock (idag + imorgon) ── #}
-    #         {% set today    = raw_today    | default([], true) %}
-    #         {% set tomorrow = raw_tomorrow if raw_tomorrow is sequence else [] %}
-    #         {% set blocks   = today + tomorrow %}
+            {# ── Skanna prisblock (idag + imorgon) ── #}
+            {% set today    = raw_today    | default([], true) %}
+            {% set tomorrow = raw_tomorrow if raw_tomorrow is sequence else [] %}
+            {% set blocks   = today + tomorrow %}
 
-    #         {% set ns = namespace(
-    #           prev_brake_end   = none,
-    #           next_brake_start = none
-    #         ) %}
+            {% set ns = namespace(
+              prev_brake_end   = none,
+              next_brake_start = none
+            ) %}
 
-    #         {% for item in blocks %}
-    #           {% set ts  = as_timestamp(item.start, default=none) %}
-    #           {% set val = item.value | float(0) %}
-    #           {% set is_brake = (val > p80 and val > floor) %}
+            {% for item in blocks %}
+              {% set ts  = as_timestamp(item.start, default=none) %}
+              {% set val = item.value | float(0) %}
+              {% set is_brake = (val > p80 and val > floor) %}
 
-    #           {% if ts is not none %}
-    #             {% if ts + slot_sec <= now_ts and is_brake %}
-    #               {% set ns.prev_brake_end = ts + slot_sec %}
-    #             {% endif %}
-    #             {# FIX-25: ts + slot_sec > now_ts så pågående slot syns som nästa #}
-    #             {% if ts + slot_sec > now_ts and ns.next_brake_start is none and is_brake %}
-    #               {% set ns.next_brake_start = ts %}
-    #             {% endif %}
-    #           {% endif %}
-    #         {% endfor %}
+              {% if ts is not none %}
+                {% if ts + slot_sec <= now_ts and is_brake %}
+                  {% set ns.prev_brake_end = ts + slot_sec %}
+                {% endif %}
+                {# FIX-25: ts + slot_sec > now_ts så pågående slot syns som nästa #}
+                {% if ts + slot_sec > now_ts and ns.next_brake_start is none and is_brake %}
+                  {% set ns.next_brake_start = ts %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
 
-    #         {# ── Härledda värden ── #}
-    #         {% set current_is_brake = (price > p80 and price > floor) %}
-    #         {% set current_is_cheap = (price < p30) %}
+            {# ── Härledda värden ── #}
+            {% set current_is_brake = (price > p80 and price > floor) %}
+            {% set current_is_cheap = (price < p30) %}
 
-    #         {% set minutes_to_next_brake = none %}
-    #         {% if ns.next_brake_start is not none %}
-    #           {% set minutes_to_next_brake = ((ns.next_brake_start - now_ts) / 60) | float(0) %}
-    #         {% endif %}
+            {% set minutes_to_next_brake = none %}
+            {% if ns.next_brake_start is not none %}
+              {% set minutes_to_next_brake = ((ns.next_brake_start - now_ts) / 60) | float(0) %}
+            {% endif %}
 
-    #         {% set gap_between_brakes_min = none %}
-    #         {% if ns.prev_brake_end is not none and ns.next_brake_start is not none %}
-    #           {% set gap_between_brakes_min = ((ns.next_brake_start - ns.prev_brake_end) / 60) | float(0) %}
-    #         {% endif %}
+            {% set gap_between_brakes_min = none %}
+            {% if ns.prev_brake_end is not none and ns.next_brake_start is not none %}
+              {% set gap_between_brakes_min = ((ns.next_brake_start - ns.prev_brake_end) / 60) | float(0) %}
+            {% endif %}
 
-    #         {# FIX-26: Thermal bridge — håll bromsen om inne är tillräckligt varmt.
-    #           Läser befintliga sensorer, ingen ny helper. Faller tillbaka till
-    #           neutral om indoor är unknown/unavailable. #}
-    #         {% set indoor_s  = states('sensor.svotc_indoor_temperature') %}
-    #         {% set indoor_ok = indoor_s not in ['unknown','unavailable','none','None',''] %}
-    #         {% set target    = states('input_number.svotc_comfort_temperature') | float(21) %}
-    #         {% set thermal_bridge_ok = indoor_ok
-    #                                   and (indoor_s | float(0)) >= (target + thermal_bridge_margin) %}
+            {# FIX-26: Thermal bridge — håll bromsen om inne är tillräckligt varmt.
+               Läser befintliga sensorer, ingen ny helper. Faller tillbaka till
+               neutral om indoor är unknown/unavailable. #}
+            {% set indoor_s  = states('sensor.svotc_indoor_temperature') %}
+            {% set indoor_ok = indoor_s not in ['unknown','unavailable','none','None',''] %}
+            {% set target    = states('input_number.svotc_comfort_temperature') | float(21) %}
+            {% set thermal_bridge_ok = indoor_ok
+                                       and (indoor_s | float(0)) >= (target + thermal_bridge_margin) %}
 
-    #         {# ── Tillståndsbeslut ── #}
+            {# ── Tillståndsbeslut ── #}
 
-    #         {# PREBRAKE: inom 15 min till nästa brake-block #}
-    #         {% set should_prebrake = false %}
-    #         {% if not current_is_brake
-    #               and minutes_to_next_brake is not none
-    #               and minutes_to_next_brake >= 0
-    #               and minutes_to_next_brake <= prebrake_window_min %}
-    #           {% set should_prebrake = true %}
-    #         {% endif %}
+            {# PREBRAKE: inom 15 min till nästa brake-block #}
+            {% set should_prebrake = false %}
+            {% if not current_is_brake
+                  and minutes_to_next_brake is not none
+                  and minutes_to_next_brake >= 0
+                  and minutes_to_next_brake <= prebrake_window_min %}
+              {% set should_prebrake = true %}
+            {% endif %}
 
-    #         {# BRAKE (bryggning): i aktiv kedja och antingen
-    #           a) nästa brake inom 30 min (gap-bryggning), eller
-    #           b) inne är varmt nog (thermal bridge, FIX-26) #}
-    #         {% set should_brake_bridge = false %}
-    #         {% if not current_is_brake
-    #               and not should_prebrake
-    #               and chain_active
-    #               and gap_between_brakes_min is not none
-    #               and (gap_between_brakes_min <= brake_bridge_max_min
-    #                   or thermal_bridge_ok) %}
-    #           {% set should_brake_bridge = true %}
-    #         {% endif %}
+            {# BRAKE (bryggning): i aktiv kedja och antingen
+               a) nästa brake inom 30 min (gap-bryggning), eller
+               b) inne är varmt nog (thermal bridge, FIX-26) #}
+            {% set should_brake_bridge = false %}
+            {% if not current_is_brake
+                  and not should_prebrake
+                  and chain_active
+                  and gap_between_brakes_min is not none
+                  and (gap_between_brakes_min <= brake_bridge_max_min
+                       or thermal_bridge_ok) %}
+              {% set should_brake_bridge = true %}
+            {% endif %}
 
-    #         {% if current_is_brake or should_brake_bridge %}
-    #           brake
-    #         {% elif should_prebrake %}
-    #           prebrake
-    #         {% elif current_is_cheap %}
-    #           cheap
-    #         {% else %}
-    #           neutral
-    #         {% endif %}
-    #       {% endif %}
+            {% if current_is_brake or should_brake_bridge %}
+              brake
+            {% elif should_prebrake %}
+              prebrake
+            {% elif current_is_cheap %}
+              cheap
+            {% else %}
+              neutral
+            {% endif %}
+          {% endif %}
 
   - binary_sensor:
       - name: SVOTC Inputs Healthy
