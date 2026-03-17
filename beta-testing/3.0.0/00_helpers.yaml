@@ -10,7 +10,6 @@ input_select:
       - "Off"
       - "Smart"
       - "Comfort"
-      - "PassThrough"
     icon: mdi:tune
 
 input_number:
@@ -114,8 +113,8 @@ input_number:
 
   svotc_pi_integral_state:
     name: SVOTC PI Integral State
-    min: -100
-    max: 100
+    min: -200
+    max: 200
     step: 0.01
     mode: box
     unit_of_measurement: "state"
@@ -131,6 +130,13 @@ input_boolean:
 
   svotc_overtemp_latch:
     name: SVOTC Overtemp Latch
+
+  # Restart-safe chain flag written by engine, read by 10_sensors as
+  # fallback when sensor.svotc_forward_price_state is unknown/unavailable.
+  # Replaces the reason_code cross-file dependency (P1).
+  svotc_price_chain_active:
+    name: SVOTC Price chain active
+    icon: mdi:link-chain
 
 input_text:
   svotc_source_indoor_temp:
