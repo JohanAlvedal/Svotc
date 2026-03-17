@@ -380,7 +380,7 @@ The system handles:
 
 ---
 
-## Beta reminder
+## Reminder!!
 
 SVOTC controls your heat pump indirectly.
 
