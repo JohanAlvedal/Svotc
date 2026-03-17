@@ -392,7 +392,6 @@ Misconfiguration may affect:
 
 Recommendations:
 
-* Test in `PassThrough`
 * Monitor `reason_code`
 * Keep a fallback ready
 
